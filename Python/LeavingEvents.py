@@ -24,9 +24,9 @@ from matplotlib import patches as mpatches
 #sys.path.insert(0, '/Users/sm5911/Documents/GitHub/PhD_Project/Python') # OPTIONAL: Path to GitHub functions
 from Calculate import leavingevents, onfood
 from Plot import hexcolours, plotbrightfield, plotpoly, plottrajectory, plotpoints
+from Find import changepath
 from Read import gettrajdata
 from Save import savefig
-from Find import changepath
 
 #%% PRE-AMBLE
 # GLOBAL VARIABLES
@@ -37,6 +37,7 @@ DATA_DIR = PROJECT_ROOT_DIR.replace('Saul', 'Priota/Data') # Location of feature
 fps = 25 # frames per second
 threshold_leaving_time = 2 # in seconds
 leaving_window = fps * threshold_leaving_time # 25fps, for n seconds
+OpticalDensity600 = 1.8
 
 # Conduct analysis on new videos only?
 NEW = True
@@ -48,7 +49,10 @@ if NEW:
     fullMetaData = fullMetaData[fullMetaData['worm number']==10]
 
 n_files = len(fullMetaData['filename'])
-print("%d video file entries found in metadata." % n_files)
+if NEW:
+    print("%d NEW video file entries found in metadata." % n_files)
+else:
+    print("%d video file entries found in metadata." % n_files)
 
 # Extract assay information
 pretreatments = list(np.unique(fullMetaData['Prefed_on']))
@@ -65,7 +69,7 @@ colour_dict = {key: value for (key, value) in zip(treatments, colours)} # list c
 # - Compiles a full results dataframe of leaving event info across all videos
 tic = time.time()
 colnames = ['filename', 'Food_Conc', 'Food_Combination', 'Prefed_on', 'nWormsAssay', 'worm_id',\
-            'Food_left_from', 'frame_number', 'x', 'y', 'leaving_duration_nframes']
+            'Food_left_from', 'frame_number', 'x', 'y', 'leaving_duration_nframes', 'Acclim_time_s']
 total_leaving_events_df = pd.DataFrame(columns=colnames)
 plt.ion()
 for i, maskedfilepath in enumerate(fullMetaData['filename']):
@@ -77,8 +81,8 @@ for i, maskedfilepath in enumerate(fullMetaData['filename']):
     foods = info['Food_Combination'].split('/')
     if foods[0] == foods[1]:
         foods = ["{}_{}".format(food, i + 1) for i, food in enumerate(foods)]
-    print("\nProcessing file: %d\n%s\nAssay:  %s\nConc:   %.3f\nPrefed: %s"\
-          % (i + 1, maskedfilepath, assaychoice, conc, prefed))
+    print("\nProcessing file: %d/%d\n%s\nAssay:  %s\nConc:   %.3f\nPrefed: %s" % (i + 1,\
+          len(fullMetaData['filename']), maskedfilepath, assaychoice, conc, prefed))
     
     # Specify file paths
     coordfilepath = changepath(maskedfilepath, returnpath='coords')
@@ -91,7 +95,7 @@ for i, maskedfilepath in enumerate(fullMetaData['filename']):
     
     # Read trajectory data
     traj_df = gettrajdata(featurefilepath)
-    
+
     # Compute on/off food (no filtering step)
     onfood_df = onfood(poly_dict, traj_df)
     
@@ -111,6 +115,7 @@ for i, maskedfilepath in enumerate(fullMetaData['filename']):
     leaving_events_df['Food_Combination'] = assaychoice
     leaving_events_df['Prefed_on'] = prefed
     leaving_events_df['nWormsAssay'] = info['worm number']
+    leaving_events_df['Acclim_time_s'] = info['Acclim_time_s']
     
     # Drop file-specific column
     leaving_events_df = leaving_events_df.drop(foods, axis=1)
@@ -129,8 +134,9 @@ filtered_leaving_df = total_leaving_events_df[total_leaving_events_df['leaving_d
 print("Number of leaving events filtered (duration > %d seconds): %d" % (threshold_leaving_time,\
                                                                          filtered_leaving_df.shape[0]))
 print("Number of true leaving events recorded: %d" % true_leaving_df.shape[0])
+# TODO: Also filter by distance from food edge (spatial threshold)
 
-# Save full + true leaving events to file
+# Save both the full (unfiltered) + true (filtered) leaving events to file
 print("Saving leaving results..")
 savepath = os.path.join(PROJECT_ROOT_DIR, "Results", "LeavingRate", "leavingevents_all.csv")
 directory = os.path.dirname(savepath)
@@ -145,12 +151,14 @@ print("\nComplete!\nTime taken: %d seconds" % (time.time() - tic))
 #%% Leaving event duration histograms
 # - worms that did not leave the food are not counted here
 tic = time.time()
+print("Reading leaving event data..")
 total_leaving_events_df = pd.read_csv(os.path.join(PROJECT_ROOT_DIR, "Results", "LeavingRate", "leavingevents_all.csv"), header=0, index_col=0)
 
 # Filter by 'leaving window' threshold (trajectory duration n frames after leaving)
+print("Filtering leaving event data..")
 true_leaving_df = total_leaving_events_df[total_leaving_events_df['leaving_duration_nframes'] >= leaving_window]
 filtered_leaving_df = total_leaving_events_df[total_leaving_events_df['leaving_duration_nframes'] < leaving_window]
-print("Number of leaving events filtered (duration > %d seconds): %d" % (threshold_leaving_time,\
+print("Number of leaving events filtered (duration < %d seconds): %d" % (threshold_leaving_time,\
                                                                          filtered_leaving_df.shape[0]))
 
 # Get histogram bin positions prior to plotting
@@ -159,27 +167,29 @@ bins = np.histogram(np.hstack((true_leaving_df['leaving_duration_nframes'],\
                     bins=36000)[1]
 
 # Plot histogram of leaving event durations + threshold for leaving event identification
+print("Plotting histogram of leaving durations..")
 plt.close("all")
-plt.figure(figsize=(10,8))
-plt.hist(true_leaving_df['leaving_duration_nframes'].values.astype(int), bins=bins, color='blue')
+plt.figure(figsize=(12,8))
+plt.hist(true_leaving_df['leaving_duration_nframes'].values.astype(int), bins=bins, color='skyblue')
 plt.hist(filtered_leaving_df['leaving_duration_nframes'].values.astype(int), bins=bins, color='gray', hatch='/')
 plt.rcParams['hatch.color'] = 'lightgray'
-plt.xlabel("Duration after leaving food (n frames)")
-plt.ylabel("Number of trajectories that leave food")
+plt.xlabel("Duration after leaving food (n frames)", fontsize=15, labelpad=10)
+plt.ylabel("Number of leaving events", fontsize=15, labelpad=10)
 
 # Zoom-in on the very short leaving durations + plot threshold for leaving event selection
 plt.xlim(0,(leaving_window*5+leaving_window/5))
 plt.xticks(np.arange(0, leaving_window*5+1, leaving_window))
+plt.tick_params(labelsize=12)
 plt.axvline(leaving_window, ls='--', lw=2, color='k')
-plt.text(leaving_window+1, 400, "Threshold Leaving Duration = {0} seconds".format(int(leaving_window/fps)),\
-         ha='left', va='center', rotation=-90, color='k')
+plt.text(leaving_window+1, 300, "Threshold Leaving Duration = {0} seconds".format(int(leaving_window/fps)),\
+         ha='left', va='center', rotation=-90, color='k', fontsize=13)
 plt.show()
 
 # Save histogram
-fig_name = "LeavingDurationHist" + ".eps"
+fig_name = "LeavingDurationHist" + ".png"
 figure_out = os.path.join(PROJECT_ROOT_DIR, "Results", "Plots", fig_name)
-savefig(figure_out, saveFormat='eps', tight_layout=True)
-print("\nHistogram complete!\n(Time taken: %d seconds)" % (time.time() - tic))
+savefig(figure_out, saveFormat='png', tight_layout=True)
+print("\nComplete!\n(Time taken: %d seconds)" % (time.time() - tic))
 
 #%% Leaving event trajectory overlay plots
 tic = time.time()
@@ -191,8 +201,8 @@ for i, maskedfilepath in enumerate(fullMetaData['filename']):
     conc = info['Food_Conc']
     assaychoice = info['Food_Combination']
     prefed = info['Prefed_on']
-    print("\nProcessing file: %d\n%s\nAssay:  %s\nConc:   %.3f\nPrefed: %s"\
-          % (i + 1, maskedfilepath, assaychoice, conc, prefed))
+    print("\nProcessing file: %d/%d\n%s\nAssay:  %s\nConc:   %.3f\nPrefed: %s" % (i + 1,\
+          len(fullMetaData['filename']), maskedfilepath, assaychoice, conc, prefed))
     
     # Specify file paths
     coordfilepath = changepath(maskedfilepath, returnpath='coords')
@@ -206,10 +216,10 @@ for i, maskedfilepath in enumerate(fullMetaData['filename']):
         
         # Plot first brightfield image
         plt.close("all")
-        fig, ax = plotbrightfield(maskedfilepath, 0, figsize=(10,8))
+        fig, ax = plotbrightfield(maskedfilepath, frame=0, figsize=(10,10))
         
         # Overlay food regions
-        fig, ax = plotpoly(fig, ax, poly_dict)
+        fig, ax = plotpoly(fig, ax, poly_dict, colour=False)
         
         # Overlay worm trajectories
         fig, ax = plottrajectory(fig, ax, featurefilepath, downsample=10)
@@ -246,8 +256,9 @@ tic = time.time()
 for p, prefood in enumerate(pretreatments):
     # Initialise plot for prefed group
     plt.close("all")
-    fig, axs = plt.subplots(nrows=3, ncols=5, figsize=(16,10), sharey=True) # 15 subplots (3 assay types, 5 assay concentrations)
-    ymax = 0
+    fig, axs = plt.subplots(nrows=len(assaychoices), ncols=len(concentrations),\
+                            figsize=(14,9), sharey=True) # 15 subplots (3 assay types, 5 assay concentrations)
+    ymax = 150
     for a, assay in enumerate(assaychoices):
         for c, conc in enumerate(concentrations):
             try:
@@ -257,11 +268,15 @@ for p, prefood in enumerate(pretreatments):
                 # Create dataframe from groupby - number of leaving events on each food in each file appended as column
                 nleaving_df = pd.DataFrame({"nLeaving" : df_leaving.groupby(['filename',\
                                             'Food_left_from']).size()}).reset_index()
+    
+#                MAX_LEAVING = nleaving_df.iloc[np.where(nleaving_df['nLeaving'] == max(nleaving_df['nLeaving']))[0]]
+#                print(MAX_LEAVING[['Food_left_from','nLeaving']])
+                
                 # Plot labels/colours
                 colnames = df_leaving.iloc[0]['Food_Combination'].split('/')
-                colnames = sorted(colnames, key=str.lower)
                 if colnames[0] == colnames[1]:
                     colnames = ['{}_{}'.format(col, i+1) for i, col in enumerate(colnames)]
+
                 labels = [lab.split('_')[0] for lab in colnames]
                 colours = [colour_dict[treatment] for treatment in labels]
                 
@@ -278,22 +293,28 @@ for p, prefood in enumerate(pretreatments):
                 # Set x & y axes ticks/labels/limits
                 if max(nleaving_df['nLeaving']) > ymax:
                     ymax = max(nleaving_df['nLeaving'])
-                axs[a,c].set_ylim(-2, ymax+2)
+                axs[a,c].set_ylim(-2, ymax+10)
                 axs[a,c].set_ylabel('')    
                 axs[a,c].set_xlim(-0.5,len(colnames)-0.5)
                 axs[a,c].set_xticks(np.arange(0,len(colnames)))
-                axs[a,c].set_xticklabels(labels=labels)
+                xlabs = axs[a,c].get_xticklabels()
+                xlabs = [lab.get_text().split('_')[0] for lab in xlabs[:]]
+                axs[a,c].set_xticklabels(labels=xlabs, fontsize=12)
                 axs[a,c].set_xlabel('')
-                if c == 0 and a == 1: # Add mean y axis label
-                    axs[a,c].set_ylabel("Number of leaving events", labelpad=30, fontsize=20)
                 
+                if c == 0:
+                    axs[a,c].set_ylabel("{0}".format(assay), labelpad=15, fontsize=18)
+                    if a == 1:
+                        axs[a,c].text(-0.65, 0.5, "Number of leaving events", fontsize=25,\
+                                      rotation=90, verticalalignment='center', transform=axs[a,c].transAxes)
+
                 # Add number of replicates (videos) to plots
-                axs[a,c].text(0.81, 0.9, ("n={0}".format(len(np.unique(nleaving_df['filename'])))),\
-                              transform=axs[a,c].transAxes, fontsize=12)
+                axs[a,c].text(0.81, 0.92, ("n={0}".format(len(np.unique(nleaving_df['filename'])))),\
+                              transform=axs[a,c].transAxes, fontsize=15)
                 
                 # Add concentration labels to plots
                 if a == 0:
-                    axs[a,c].text(0.5, 1.15, ("conc={0}".format(conc)),\
+                    axs[a,c].text(0.5, 1.15, "$OD_{{{}}}={}$".format(600, conc*OpticalDensity600),\
                                   horizontalalignment='center', fontsize=18,\
                                   transform=axs[a,c].transAxes)  
             except Exception as e:
@@ -301,23 +322,25 @@ for p, prefood in enumerate(pretreatments):
                 axs[a,c].axis('off')
                 axs[a,c].text(0.81, 0.9, "n=0", fontsize=12, transform=axs[a,c].transAxes)
                 if a == 0:
-                    axs[a,c].text(0.5, 1.15, ("conc={0}".format(conc)),\
+                    axs[a,c].text(0.5, 1.15, "$OD_{{{}}}={}$".format(600, conc*OpticalDensity600),\
                                   horizontalalignment='center', fontsize=18,\
                                   transform=axs[a,c].transAxes)
     # Add 'prefed on' to plot
-    plt.text(0.95, -ymax/3, "Prefed on: {0}".format(prefood), horizontalalignment='center', fontsize=20)
+#    plt.text(1, -ymax/2.5, "Prefed on: {0}".format(prefood), horizontalalignment='center', fontsize=25)
 
     # Add legend
     patches = []
     for i, (key, value) in enumerate(colour_dict.items()):
+        if key == "None":
+            continue
         patch = mpatches.Patch(color=value, label=key)
         patches.append(patch)
-    fig.legend(handles=patches, labels=list(colour_dict.keys()), loc="upper right", borderaxespad=0.4,\
+    fig.legend(handles=patches, labels=list(colour_dict.keys()), loc="upper right", borderaxespad=0.1,\
                frameon=False, fontsize=15)
     
     # Plot layout + adjustments
-    fig.tight_layout(rect=[0.02, 0.07, 0.9, 0.95])
-    fig.subplots_adjust(hspace=0.1, wspace=0.1)    
+    fig.tight_layout(rect=[0.07, 0.02, 0.9, 0.95])
+    fig.subplots_adjust(hspace=0.2, wspace=0.1)    
     plt.show(); plt.pause(1)
     
     # Save figure 4
@@ -326,7 +349,137 @@ for p, prefood in enumerate(pretreatments):
     savefig(figure_out, saveFormat='eps', tight_layout=False)
 print("Complete!\n(Time taken: %d seconds)" % (time.time() - tic))
 
-#%% FIGURE 5 - Box plots of leaving events durations (GROUPED BY ASSAY / CONCENTRATION)
+#%% FIGURE 5 - Time-series plots of total number of leaving events throughout the assay (GROUPED BY ASSAY/CONC)
+
+smooth_window = int(2 * 60 * fps) # 2-minute binning window for smoothing
+
+# Read recorded leaving events
+true_leaving_df = pd.read_csv(os.path.join(PROJECT_ROOT_DIR, "Results", "LeavingRate",\
+                              "leavingevents_true.csv"), header=0, index_col=0)
+
+# Group leaving event data by prefed-assaychoice-concentration treatment combinations
+groupedLeavingData = true_leaving_df.groupby(['Prefed_on','Food_Combination','Food_Conc'])
+
+# For each prefood-assaychoice-concentration treatment combination
+tic = time.time()
+for p, prefood in enumerate(pretreatments):
+    # Initialise plot for prefed group
+    plt.close("all")
+    fig, axs = plt.subplots(nrows=len(assaychoices), ncols=len(concentrations),\
+                            figsize=(16,8), sharey=True) # 15 subplots (3 assay types, 5 assay concentrations)
+    plot_df = pd.DataFrame(columns=['filename','n_Events'])
+    ymax = 25
+    for a, assay in enumerate(assaychoices):
+        for c, conc in enumerate(concentrations):
+            try:
+                # Get prefood-assaychoice-concentration group
+                df_leaving = groupedLeavingData.get_group((prefood,assay,conc)).reset_index(drop=True)
+
+                # Plot labels/colours
+                colnames = df_leaving.iloc[0]['Food_Combination'].split('/')
+                colnames = sorted(colnames, key=str.lower)
+                labels = copy.deepcopy(colnames)
+                if colnames[0] == colnames[1]:
+                    colnames = ['{}_{}'.format(col, i+1) for i, col in enumerate(colnames)]
+                colours = [colour_dict[treatment] for treatment in labels]
+                
+                xmax = df_leaving['frame_number'].max()
+                df = pd.DataFrame(0, index=np.arange(0,xmax).astype(int), columns=colnames)
+                for i, frame in enumerate(df_leaving['frame_number']):
+                    if not int(frame) == int(xmax): # Omit last frame leaving event
+                        info = df_leaving.iloc[i]
+                        food = info['Food_left_from']
+                        df[food].iloc[int(frame)] = df[food].iloc[int(frame)] + 1
+                
+                acclim = int(df_leaving['Acclim_time_s'][0] * fps)
+                df.index = df.index + acclim 
+                
+                # Plot the number of leaving events on each food through time
+                for i, food in enumerate(df.columns):                
+                    # Smooth results for each food + overlay
+                    moving_count = df[food].rolling(smooth_window,center=True).sum()
+                    axs[a,c].plot(moving_count, color=colour_dict[labels[i]], ls='-') # x=np.arange(xlim)
+                    
+                    x = np.arange(0, acclim)
+                    y = acclim
+                    axs[a,c].fill_between(x, y, -0.05, color='grey', alpha='0.5', interpolate=True)
+                    axs[a,c].axvline(0, ls='-', lw=1, color='k')
+                    axs[a,c].axvline(acclim, ls='-', lw=1, color='k')
+                    # plt.text(acclim/max(df.index)+0.01, 0.97, "Acclimation: {0} mins".format(int(acclim/25/60)),\
+                    #          ha='left', va='center', transform=axs[a,c].transAxes, rotation=0, color='k')
+                
+                # X-axis limits/labels/ticks
+                axs[a,c].set_xlim(0, np.round(xmax,-5))
+                xticks = np.linspace(0,np.round(xmax,-5),num=5,endpoint=False).astype(int)
+                axs[a,c].set_xticks(xticks)
+                if a == len(assaychoices) - 1:
+                    xticklabels = ["0", "30", "60", "90", "120"]
+                    xticks = [int(int(lab)*fps*60) for lab in xticklabels]
+                    axs[a,c].set_xticks(xticks)
+                    axs[a,c].set_xticklabels(xticklabels)
+                    axs[a,c].tick_params(axis='x', which='major', labelsize=12)
+                    if c == 1:
+                        axs[a,c].set_xlabel("Time (minutes)", labelpad=20, fontsize=24, horizontalalignment='left')
+                else:
+                    axs[a,c].set_xticklabels([])
+                    
+                # Y-axis limits/labels/ticks
+                if moving_count.max(axis=0).max() > ymax:
+                    ymax = moving_count.max(axis=0).max()
+                axs[a,c].set_ylim(0, ymax + 0.5)
+                yticks = list(np.arange(0,np.round(ymax,decimals=-1)+5,5).astype(int))
+                axs[a,c].set_yticks(yticks)
+                if c == 0:
+                    axs[a,c].set_ylabel("{0}".format(assay), labelpad=15, fontsize=15)
+                    if a == 1:
+                        axs[a,c].text(-0.5, 0.5, "Number of Leaving Events",\
+                                      fontsize=24, rotation=90, horizontalalignment='center',\
+                                      verticalalignment='center', transform=axs[a,c].transAxes)
+                    
+                # Add text 'food concentration' to first row of plots
+                if a == 0:
+                    axs[a,c].text(0.5, 1.1, "$OD_{{{}}}={}$".format(600, conc*OpticalDensity600),\
+                                  horizontalalignment='center', fontsize=22,\
+                                  transform=axs[a,c].transAxes)
+
+                # Add number of replicates (videos) to plot
+                axs[a,c].text(0.88, 0.88, ("n={0}".format(len(np.unique(df_leaving['filename'])))),\
+                              horizontalalignment='center', transform=axs[a,c].transAxes, fontsize=18)
+            except Exception as e:
+                print("No videos found for concentration: %s\n(Assay: %s, Prefed on: %s)\n" % (e, assay, prefood))
+                
+                axs[a,c].axis('off')
+                axs[a,c].text(0.88, 0.88, "n=0", fontsize=15, transform=axs[a,c].transAxes)
+                if a == 0:
+                    axs[a,c].text(0.5, 1.1, "$OD_{{{}}}={}$".format(600, conc*OpticalDensity600),\
+                                  horizontalalignment='center', fontsize=22,\
+                                  transform=axs[a,c].transAxes)
+                    
+    # Add text 'prefed on' info to plot        
+#    plt.text(xmax, -ymax/1.8, "Prefed on: {0}".format(prefood), horizontalalignment='right', fontsize=30)
+
+    # Plot legend
+    patches = []
+    for key, value in colour_dict.items():
+        if key == "None":
+            continue
+        patch = mpatches.Patch(color=value, label=key)
+        patches.append(patch)
+    fig.legend(handles=patches, labels=treatments, loc="upper right", borderaxespad=0.4,\
+               frameon=False, fontsize=15)
+    
+    # Plot layout + adjustments
+    fig.tight_layout(rect=[0.07, 0.02, 0.9, 0.95])
+    fig.subplots_adjust(hspace=0.1, wspace=0.1)
+    plt.show(); plt.pause(2)
+    
+    # Save figure 6
+    fig_name = "LeavingEventsTS_prefed" + prefood + ".eps"
+    figure_out = os.path.join(PROJECT_ROOT_DIR, "Results", "Plots", fig_name)
+    savefig(figure_out, saveFormat='eps', tight_layout=False)
+print("Complete!\n(Time taken: %d seconds)" % (time.time() - tic))
+
+#%% FIGURE 6 - Box plots of leaving events durations (GROUPED BY ASSAY / CONCENTRATION)
 
 tic = time.time()
 
@@ -341,7 +494,8 @@ groupedLeavingData = true_leaving_df.groupby(['Prefed_on','Food_Combination','Fo
 for p, prefood in enumerate(pretreatments):
     # Initialise plot for prefed group
     plt.close("all")
-    fig, axs = plt.subplots(nrows=3, ncols=5, figsize=(16,10), sharey=True) # 15 subplots (3 assay types, 5 assay concentrations)
+    fig, axs = plt.subplots(nrows=len(assaychoices), ncols=len(concentrations),\
+                            figsize=(16,10), sharey=True) # 15 subplots (3 assay types, 5 assay concentrations)
     ymax = 0
     for a, assay in enumerate(assaychoices):
         for c, conc in enumerate(concentrations):
@@ -352,10 +506,10 @@ for p, prefood in enumerate(pretreatments):
                 
                 # Plot labels/colours
                 colnames = df_leaving.iloc[0]['Food_Combination'].split('/')
-                colnames = sorted(colnames, key=str.lower)
-                labels = copy.deepcopy(colnames)
                 if colnames[0] == colnames[1]:
                     colnames = ['{}_{}'.format(col, i+1) for i, col in enumerate(colnames)]
+
+                labels = [lab.split('_')[0] for lab in colnames]
                 colours = [colour_dict[treatment] for treatment in labels]
                 
                 # Seaborn colour palette
@@ -377,11 +531,16 @@ for p, prefood in enumerate(pretreatments):
                 axs[a,c].set_yticks(yticks)
                 axs[a,c].set_yticklabels(labels=[str(int(lab)) for lab in yticks])
                 axs[a,c].set_xlim(-0.5,len(colnames)-0.5)
-                axs[a,c].set_xticks(np.arange(0,len(colnames)))
-                axs[a,c].set_xticklabels(labels=labels)
+                xlabs = axs[a,c].get_xticklabels()
+                xlabs = [lab.get_text().split('_')[0] for lab in xlabs[:]]
+                axs[a,c].set_xticklabels(labels=xlabs, fontsize=12)
                 axs[a,c].set_xlabel('')
-                if c == 0 and a == 1: # Add mean y axis label
-                    axs[a,c].set_ylabel("Leaving duration (seconds)", labelpad=30, fontsize=20)
+
+                if c == 0:
+                    axs[a,c].set_ylabel("{0}".format(assay), labelpad=15, fontsize=18)
+                    if a == 1:
+                        axs[a,c].text(-0.65, 0.5, "Leaving duration (log seconds)", fontsize=25,\
+                                      rotation=90, verticalalignment='center', transform=axs[a,c].transAxes)
                 
                 # Add number of replicates (videos) to plots
                 axs[a,c].text(0.81, 0.9, ("n={0}".format(len(np.unique(df_leaving['filename'])))),\
@@ -389,156 +548,37 @@ for p, prefood in enumerate(pretreatments):
                 
                 # Add concentration labels to plots
                 if a == 0:
-                    axs[a,c].text(0.5, 1.15, ("conc={0}".format(conc)),\
-                                  horizontalalignment='center', fontsize=18,\
+                    axs[a,c].text(0.5, 1.1, "$OD_{{{}}}={}$".format(600, conc*OpticalDensity600),\
+                                  horizontalalignment='center', fontsize=22,\
                                   transform=axs[a,c].transAxes)  
             except Exception as e:
                 print("No videos found for treatment combination: %s\n" % e)
                 axs[a,c].axis('off')
-                axs[a,c].text(0.81, 0.9, "n=0", fontsize=12, transform=axs[a,c].transAxes)
+                axs[a,c].text(0.81, 0.9, "n=0", fontsize=15, transform=axs[a,c].transAxes)
                 if a == 0:
-                    axs[a,c].text(0.5, 1.15, ("conc={0}".format(conc)),\
+                    axs[a,c].text(0.5, 1.15, "$OD_{{{}}}={}$".format(600, conc*OpticalDensity600),\
                                   horizontalalignment='center', fontsize=18,\
                                   transform=axs[a,c].transAxes)
     # Add 'prefed on' to plot
-    plt.text(0.5, 0.05, "Prefed on: {0}".format(prefood), verticalalignment='bottom', fontsize=20)
+#    plt.text(0.4, -0.4, "Prefed on: {0}".format(prefood), verticalalignment='bottom', fontsize=25, transform=axs[a,c].transAxes)
 
     # Add legend
     patches = []
     for i, (key, value) in enumerate(colour_dict.items()):
+        if key == "None":
+            continue
         patch = mpatches.Patch(color=value, label=key)
         patches.append(patch)
     fig.legend(handles=patches, labels=list(colour_dict.keys()), loc="upper right", borderaxespad=0.4,\
                frameon=False, fontsize=15)
     
     # Plot layout + adjustments
-    fig.tight_layout(rect=[0.02, 0.07, 0.9, 0.95])
+    fig.tight_layout(rect=[0.07, 0.02, 0.9, 0.95])
     fig.subplots_adjust(hspace=0.2, wspace=0.1)    
     plt.show(); plt.pause(1)
     
     # Save figure 5
     fig_name = "LeavingDurationBox_prefed" + prefood + ".eps"
-    figure_out = os.path.join(PROJECT_ROOT_DIR, "Results", "Plots", fig_name)
-    savefig(figure_out, saveFormat='eps', tight_layout=False)
-print("Complete!\n(Time taken: %d seconds)" % (time.time() - tic))
-#%% FIGURE 6 - Time-series plots of binned total number of leaving events throughout the assay (GROUPED BY ASSAY/CONC)
-
-# time-series plot x-axis upper limit (cut-off at 2hrs to trim videos to same length)
-videolength_hrs = 2
-xmax = videolength_hrs*60*60*fps
-smooth_window = xmax//20 # 2-minute moving average window for time-series plot smoothing
-
-# Read recorded leaving events
-true_leaving_df = pd.read_csv(os.path.join(PROJECT_ROOT_DIR, "Results", "LeavingRate",\
-                              "leavingevents_true.csv"), header=0, index_col=0)
-
-# Group leaving event data by prefed-assaychoice-concentration treatment combinations
-groupedLeavingData = true_leaving_df.groupby(['Prefed_on','Food_Combination','Food_Conc'])
-
-# For each prefood-assaychoice-concentration treatment combination
-tic = time.time()
-for p, prefood in enumerate(pretreatments):
-    # Initialise plot for prefed group
-    plt.close("all")
-    fig, axs = plt.subplots(nrows=3, ncols=5, figsize=(16,10), sharey=True) # 15 subplots (3 assay types, 5 assay concentrations)
-    plot_df = pd.DataFrame(columns=['filename','n_Events'])
-    ymax = 25
-    overtime = 0
-    for a, assay in enumerate(assaychoices):
-        for c, conc in enumerate(concentrations):
-            try:
-                # Get prefood-assaychoice-concentration group
-                df_leaving = groupedLeavingData.get_group((prefood,assay,conc)).reset_index(drop=True)
-
-                # Plot labels/colours
-                colnames = df_leaving.iloc[0]['Food_Combination'].split('/')
-                colnames = sorted(colnames, key=str.lower)
-                labels = copy.deepcopy(colnames)
-                if colnames[0] == colnames[1]:
-                    colnames = ['{}_{}'.format(col, i+1) for i, col in enumerate(colnames)]
-                colours = [colour_dict[treatment] for treatment in labels]
-                
-                df = pd.DataFrame(0, index=np.arange(0,xmax,1).squeeze(), columns=colnames)
-                for i, frame in enumerate(df_leaving['frame_number']):
-                    info = df_leaving.iloc[i]
-                    food = info['Food_left_from']
-                    try:
-                        df[food].iloc[int(frame)] = df[food].iloc[int(frame)] + 1
-                    except:
-                        print("Frame out-of-bounds (>2hr limit)")
-                        overtime = overtime + 1
-                
-                # Plot the number of leaving events on each food through time
-                for i, food in enumerate(df.columns):
-                    moving_window = df[food].rolling(smooth_window, center=True)
-                    moving_count = moving_window.sum().reset_index(drop=True)
-                    
-                    # Overlay results for each food onto time series plot
-                    axs[a,c].plot(moving_count, color=colour_dict[labels[i]], ls='-') # x=np.arange(xlim)
-                                                            
-                # X-axis limits/labels/ticks
-                axs[a,c].set_xlim(-xmax/15, np.round(xmax,-4))
-                xticks = np.linspace(0,np.round(xmax,-4),num=5,endpoint=False).astype(int)
-                axs[a,c].set_xticks(xticks)
-                if a == len(assaychoices) - 1:
-                    xticklabels = np.ceil(np.linspace(0,np.round(xmax,-5),num=5,endpoint=False)/fps/1800)/2
-                    xticklabels = [str(int(lab*60)) for lab in xticklabels]
-                    axs[a,c].set_xticklabels(xticklabels)
-                    axs[a,c].tick_params(axis='x', which='major', labelsize=12)
-                    if c == 2:
-                        axs[a,c].set_xlabel("Time (minutes)", labelpad=20, fontsize=20)
-                else:
-                    axs[a,c].set_xticklabels([])
-                    
-                # Y-axis limits/labels/ticks
-                if moving_count.max(axis=0).max() > ymax:
-                    ymax = moving_count.max(axis=0).max()
-                axs[a,c].set_ylim(-0.5, ymax + 0.5)
-                yticks = list(np.arange(0,np.round(ymax,decimals=-1)+1,10).astype(int))
-                axs[a,c].set_yticks(yticks)
-                if c == 0:
-                    axs[a,c].set_yticklabels(yticks)
-                    axs[a,c].tick_params(axis='y', which='major', labelsize=12)
-                    if a == 1:
-                        axs[a,c].set_ylabel("Number of Leaving Events", labelpad=20, fontsize=20)
-                    
-                # Add text 'food concentration' to first row of plots
-                if a == 0:
-                    axs[a,c].text(0.5, 1.15, ("conc={0}".format(conc)),\
-                                  horizontalalignment='center', fontsize=18,\
-                                  transform=axs[a,c].transAxes)
-
-                # Add number of replicates (videos) to plot
-                axs[a,c].text(0.87, 0.9, ("n={0}".format(len(np.unique(df_leaving['filename'])))),\
-                              horizontalalignment='center', transform=axs[a,c].transAxes, fontsize=15)
-            except Exception as e:
-                print("No videos found for concentration: %s\n(Assay: %s, Prefed on: %s)\n" % (e, assay, prefood))
-                
-                axs[a,c].axis('off')
-                axs[a,c].text(0.79, 0.9, "n=0", fontsize=15, transform=axs[a,c].transAxes)
-                if a == 0:
-                    axs[a,c].text(0.5, 1.15, ("conc={0}".format(conc)),\
-                                  horizontalalignment='center', fontsize=18,\
-                                  transform=axs[a,c].transAxes)
-                    
-    # Add text 'prefed on' info to plot        
-    plt.text(xmax, -ymax/2, "Prefed on: {0}".format(prefood), horizontalalignment='right', fontsize=25)
-
-    # Plot legend
-    patches = []
-    for key, value in colour_dict.items():
-        patch = mpatches.Patch(color=value, label=key)
-        patches.append(patch)
-    fig.legend(handles=patches, labels=treatments, loc="upper right", borderaxespad=0.4,\
-               frameon=False, fontsize=15)
-    
-    # Plot layout + adjustments
-    fig.tight_layout(rect=[0, 0.07, 0.9, 0.95])
-    fig.subplots_adjust(hspace=0.1, wspace=0.1)
-    plt.show(); plt.pause(2)
-    
-    # Save figure 6
-    fig_name = "LeavingEventsTS_prefed" + prefood + ".eps"
     figure_out = os.path.join(PROJECT_ROOT_DIR, "Results", "Plots", fig_name)
     savefig(figure_out, saveFormat='eps', tight_layout=False)
 print("Complete!\n(Time taken: %d seconds)" % (time.time() - tic))

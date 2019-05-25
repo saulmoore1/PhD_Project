@@ -13,7 +13,7 @@ import os, h5py
 import pandas as pd
 import numpy as np
 
-# FUNCTIONS
+#%% FUNCTIONS
 def gettrajdata(featuresfilepath):
     """ A function to read Tierpsy-generated featuresN file trajectories data
         and extract the following info as a dataframe:
@@ -26,7 +26,8 @@ def gettrajdata(featuresfilepath):
                            'worm_id': f['trajectories_data']['worm_index_joined']})
     # {'midbody_speed': f['timeseries_data']['speed_midbody']}
     return(df)
-    
+
+#%%    
 def getskeldata(skeletonfilepath):
     """ A function to read Tierpsy-generated skeleton file data and extract the
         following information as a dataframe:
@@ -37,7 +38,7 @@ def getskeldata(skeletonfilepath):
         df = pd.DataFrame({'roi_size': f['trajectories_data']['midbody_speed']})
     return(df)
 
-
+#%%
 def getauxinfo(maskedvideopath, sheet=0):
     """ A function to retrieve auxiliary file data for a given masked HDF5 video. """
     # Extract set + camera info from filename string
@@ -56,3 +57,5 @@ def getauxinfo(maskedvideopath, sheet=0):
     elif sheet == 1:
         aux_info = aux_workbook.parse(worksheet, header=None, index_col=None, squeeze=True)
     return(aux_info)
+
+#%%

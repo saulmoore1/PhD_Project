@@ -19,7 +19,7 @@ from scipy import stats
 # CUSTOM IMPORTS
 from Save import savefig
 
-# FUNCTIONS
+#%% FUNCTIONS
 def onfood(poly_dict, df, returnNone=True):
     """ A function for evaluating whether a set of coordinates fall inside/outside 
         of polygon regions/shapes. It takes as its input: (1) a dictionary of 
@@ -27,43 +27,59 @@ def onfood(poly_dict, df, returnNone=True):
         x,y coords by frame_number from Tierpsy-generated featuresN data. The 
         dataframe is returned with a presence/absence truth matrix appended
         (ie. on food/not on food). """
-    # print("Processing polygon: %s" % list(poly_dict.keys())[i])
     for key, values in poly_dict.items():
         polygon = mpath.Path(values, closed=True)
         df[key] = polygon.contains_points(df[['x','y']])
-    if returnNone: # Infer 'None' column
+        
+    # Infer 'None' column
+    if returnNone:
         df['None'] = np.logical_not(np.logical_or(*[df[key] for key in poly_dict.keys()]))
     return(df)
 
-def foodchoice(df, mean=True, tellme=False):
+#%%
+def foodchoice(df, mean=True, std=False, tellme=False):
     """ A function to calculate and return a dataframe of the mean proportion 
         of worms present in each food region (columns) in each frame (rows). 
         It takes as input: a dataframe (truth matrix) of ON/OFF food for each 
         tracked entity in each frame. If mean=False, returns counts on/off food. """
+    colnames = list(df.columns[4:])
     # Super-vectorized pandas operations using 'groupby'
     if not mean:
-        out_df = df.groupby(['frame_number'])[list(df.columns[4:])].sum()
+        out_df = df.groupby(['frame_number'])[colnames].sum()
     else:
-        out_df = df.groupby(['frame_number'])[list(df.columns[4:])].mean()
+        if std:
+            fundict = {x:['mean','std'] for x in colnames}
+            out_df = df.groupby('frame_number').agg(fundict)
+        else:
+            out_df = df.groupby(['frame_number'])[colnames].mean()
+    
     if tellme:
         if not mean:
-            for i, food in enumerate(out_df.columns):
+            for i, food in enumerate(colnames):
                 print("Mean number of worms feeding on %s: %.2f"\
                       % (food, sum(out_df[food])/len(out_df[food])))            
         else:
-            for i, food in enumerate(out_df.columns):
-                print("Mean percentage feeding on %s: %.2f%%"\
-                      % (food, sum(out_df[food])/len(out_df[food])*100))
-        print('\n')
+            if std: 
+                for i, food in enumerate(colnames):
+                    print("Mean percentage feeding on %s: %.2f%%"\
+                          % (food, sum(out_df[food]['mean'])/len(out_df[food]['mean'])*100))
+
+            else:
+                for i, food in enumerate(colnames):
+                    print("Mean percentage feeding on %s: %.2f%%"\
+                          % (food, sum(out_df[food])/len(out_df[food])*100))
     return(out_df)
-    
+
+#%%    
 def summarystats(df, NoneColumn=True):
     """ A function to compute summary statistics for food choice presence/absence 
-        data. Returns: mean, median, std, stderr, conf_min & conf_max for each 
-        food region. NB: computes stats for all column vectors in df. """
+        data. Returns: the following statistics for each food region: """
     summary_stats = ['mean', 'median', 'std', 'sem', 'conf_min', 'conf_max', 'max', 'min', 'IQR']
+    
     if not NoneColumn:
         df['None'] = 1 - df[list(df.columns)].sum(axis=1)
+    
+    # Compute summary statistics
     out_array = np.zeros((len(summary_stats), df.shape[1]), dtype=float)
     for i, food in enumerate(df.columns):
         out_array[0,i] = df[food].mean()
@@ -75,9 +91,11 @@ def summarystats(df, NoneColumn=True):
         out_array[6,i] = df[food].max() 
         out_array[7,i] = df[food].min()
         out_array[8,i] = stats.iqr(df[food])
+    
     summary_df = pd.DataFrame(out_array, columns=[df.columns], index=summary_stats)
     return(summary_df)    
-    
+
+#%%    
 def leavingeventsroll(df, nfood=2, window=50, removeNone=True):
     """ A function for inferring worm leaving events on food patches. It accepts 
         as input, a dataframe comprising a truth matrix of (on food/
@@ -86,8 +104,10 @@ def leavingeventsroll(df, nfood=2, window=50, removeNone=True):
     colnames = df.columns.values.tolist()
     if removeNone:
         colnames.remove('None')
+    
     # Pre-allocate growing dataframe to store leaving event data
     out_df = pd.DataFrame(columns=colnames) # dtype=int for speed?
+    
     df_group_worm = df.groupby(['worm_id'])
     unique_worm_ids = np.unique(df['worm_id'])
     for worm in unique_worm_ids:
@@ -95,26 +115,28 @@ def leavingeventsroll(df, nfood=2, window=50, removeNone=True):
         for fc, food in enumerate(colnames[-nfood:]):
             food_roll = pd.Series(df_worm[food],index=df_worm.index).rolling(window=window, center=True).mean()
             # Crop to remove NaNs (false positives in diff computation when converted to type int)
-            food_roll = food_roll[window//2:-window//2+1]#.reset_index(drop=True) -- DO NOT RESET INDEX. PRESERVE INDICES...
+            food_roll = food_roll[window//2:-window//2+1]
+            
+            # Determine 'true' leaving events
             true_leaving = (food_roll < 0.5).astype(int).diff() == 1
             if any(true_leaving):
-                leaving_info = df_worm.iloc[np.where(true_leaving == True)] # -- ...AS WE LATER INDEX THE PARENT DATAFRAME
+                leaving_info = df_worm.iloc[np.where(true_leaving == True)]
                 for i in range(leaving_info.shape[0]):
-                    # print(df_worm.iloc[np.where(true_leaving == True)[0][i]:np.where(true_leaving == True)[0][i]+1])
                     leaving_event = df_worm.iloc[np.where(true_leaving == True)[0][i]]
                     out_df = out_df.append(leaving_event, ignore_index=True)
     if removeNone:
         out_df = out_df.drop("None", axis=1)
     return(out_df)
 
+#%%
 def leavingevents(df, window=50, removeNone=True, plot=True, savePath=None):
     """ A function to investigate how long worms leave the food for. It accepts
         as input a truth matrix of ON/OFF food returns a dataframe of leaving event information.
         - savePath --plots a time-series plot of leaving events and saves to file path provided. """
-    colnames = list(df.select_dtypes(include=['bool']).columns)
+    colnames = list(df.select_dtypes(include=['bool']).columns.copy())
     if removeNone:
         colnames.remove('None')
-    foods = copy.deepcopy(colnames)
+    foods = copy.deepcopy(colnames) # TODO: FIX
     colnames.append('leaving_duration_nframes')
     df_group_worm = df.groupby(['worm_id'])
     worm_ids = np.unique(df['worm_id'])
@@ -124,8 +146,9 @@ def leavingevents(df, window=50, removeNone=True, plot=True, savePath=None):
         plt.close('all'); plt.figure(figsize=(15,3))
     for worm in worm_ids:
         df_worm = df_group_worm.get_group(worm)
+        # TODO: Do not treat foods independently! What about worms that leave to enter the other food? Ok for leaving event selection stage, but not perfect
         for fc, food in enumerate(foods):
-            # For each worm on each food patch, find indices on onfood where leaving/entering events occur
+            # For each worm on each food patch, find indices of onfood_df where leaving/entering events occur
             leaving = np.array(df_worm.iloc[np.where(df_worm[food].astype(int).diff() == -1)[0]].index)
             entering = np.array(df_worm.iloc[np.where(df_worm[food].astype(int).diff() == 1)[0]].index)
             if len(leaving) > 0: # If there is a leaving event at all, then...
@@ -136,7 +159,7 @@ def leavingevents(df, window=50, removeNone=True, plot=True, savePath=None):
                         elif entering[0] < leaving[0]: # Else if the FIRST event is an ENTERING event, then...BAD!
                             # Delete first entering event
                             entering = entering[1:]
-                            # AND add end of trajectory index as last 'entering event' (ie. compare to end of trajectory) 
+                            # AND compare leaving duration to end of trajectory by adding end of trajectory index as last 'entering event'
                             entering = np.insert(entering, len(entering), df_worm.index[-1])
                     elif not len(entering) == len(leaving): # Else, if the number of leaving & entering events are DIFFERENT, then...
                         if leaving[0] < entering[0]: # If the FIRST event is a LEAVING event, then...
@@ -173,16 +196,34 @@ def leavingevents(df, window=50, removeNone=True, plot=True, savePath=None):
                 os.makedirs(directory)
             savefig(savePath, tight_layout=True, tellme=True, saveFormat='png')
     return(out_df)
-    
+
+#%%    
 #def leavingstats(df, tellme=False):
 #    """ A function to compute summary statistics for food choice assay leaving 
 #        event data. Returns: mean, median, std, stderr, conf_min & conf_max of
 #        the rate of leaving events from each food source. """
 #    summary_df = df
 #    return(summary_df)
-        
+
+#%%        
 def movingaverage(x, N):
     """ A function for calculating a moving average along given vector x, 
         by a sliding window size of N. """
-    cumsum = np.cumsum(np.insert(x, 0, 0))
+    cumsum = np.cumsum(np.insert(x.values, 0, 0))
     return (cumsum[N:] - cumsum[:-N]) / float(N)
+
+#%%
+def movingbins(x, binsize=1000):
+    x = x.values
+    bin_means = (np.histogram(x, bins=int(np.round(len(x)/binsize)), weights=x)[0] /
+                 np.histogram(x, bins=int(np.round(len(x)/binsize)))[0])
+    return bin_means
+
+#%%
+
+
+
+
+
+
+

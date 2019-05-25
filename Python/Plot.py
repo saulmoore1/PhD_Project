@@ -18,7 +18,7 @@ from matplotlib import pyplot as plt
 from Read import gettrajdata
 from Save import savefig
 
-# FUNCTIONS
+#%% FUNCTIONS
 def hexcolours(n):
     """ A function for generating a list of n hexadecimal colours for plotting. """
     hex_list = []
@@ -29,11 +29,13 @@ def hexcolours(n):
         hex_list.append('#%02x%02x%02x' % tuple(RGB)) 
     return(hex_list)
 
+#%%
 def hex2rgb(hex):
     hex = hex.lstrip('#')
     hlen = len(hex)
     return tuple(int(hex[i:i+hlen//3], 16) for i in range(0, hlen, hlen//3))
 
+#%%
 def plotbrightfield(maskedfilepath, frame, **kwargs):
     """ Plot the first bright-field image of a given masked HDF5 video (file path). """
     with h5py.File(maskedfilepath, 'r') as f:
@@ -47,7 +49,8 @@ def plotbrightfield(maskedfilepath, frame, **kwargs):
     fig, ax = plt.subplots(**kwargs)
     plt.imshow(brightfield, cmap='gray', vmin=0, vmax=255)
     return(fig, ax)
-    
+
+#%%    
 def plottrajectory(fig, ax, featurefilepath, downsample=10):
     """ Overlay feature file trajectory data onto existing figure. 
         NB: Plot figure and axes objects must both be provided on function call. """
@@ -64,7 +67,8 @@ def plottrajectory(fig, ax, featurefilepath, downsample=10):
     plt.autoscale(enable=True, axis='y', tight=True)
     plt.show(); plt.pause(0.0001)
     return(fig, ax)
-        
+
+#%%        
 def drawpoly(plt, n_poly=2):
     """ A function to record coordinates from user mouse input when drawing a 
         number of polygons (eg. oulining food patches) on an image and return 
@@ -77,7 +81,8 @@ def drawpoly(plt, n_poly=2):
                   timeout=0,mouse_add=1,mouse_pop=3,mouse_stop=2)
         print("Done.")
     return(poly_dict)
-    
+
+#%%    
 def labelpoly(fig, ax, poly_dict):
     """ A function that accepts keyboard input from the user to assign labels 
         (stored as dictionary keys) to each polygon (set of x,y coords). """
@@ -90,6 +95,7 @@ def labelpoly(fig, ax, poly_dict):
         poly_dict['{0}'.format(label.upper())] = poly_dict.pop(key)
     return(poly_dict)
 
+#%%
 def plotpoly(fig, ax, poly_dict, colour=True):
     """ A function for plotting polygons onto an image from a dictionary of 
         coordinates. """
@@ -105,13 +111,15 @@ def plotpoly(fig, ax, poly_dict, colour=True):
             ax.add_patch(polygon)
     plt.show(); plt.pause(0.0001)
     return(fig, ax)
-    
+
+#%%    
 def plotpoints(fig, ax, x, y, **kwargs):
     """ A function for plotting points onto an image. """
     ax.plot(x, y, **kwargs)
     plt.show(); plt.pause(0.0001)
     return(fig, ax)
-            
+
+#%%            
 def plotpie(df, rm_empty=True, show=True, **kwargs):
     """ A function to plot a pie chart from a labelled vector of values 
         that sum to 1. """
@@ -123,52 +131,75 @@ def plotpie(df, rm_empty=True, show=True, **kwargs):
     if show:
         plt.show(); plt.pause(0.0001)
     return(fig)
-    
-def plottimeseries(df, colour_dict, window=1000, acclimtime=None, count=False,\
-                   legend=False, show=True, annotate=True, **kwargs):
-    """ Function to plot a time series plot.
+
+#%%    
+def plottimeseries(df, colour_dict, window=1000, acclimtime=0, annotate=True,\
+                   legend=True, ax=None, count=False, show=True, **kwargs):
+    """ Function to plot time series of mean proportion of worms on food, given 
+        an input dataframe containing mean and std for each food, and a dictionary
+        of plot colours.
         Arguments: 
-        - window = 500 (default) Number frames for moving average smoothing)
-        - orderby = None (default) If provided, first groups df by variable and 
+        - window (default = 1000) Number frames for moving average smoothing)
+        - orderby (default = None) If provided, first groups df by variable and 
           calculates either mean/sum
-        - count = False (default) 
+        - count (default = False) Return counts (number of worms), not mean proportion of worms
     """
     # List of food labels + dictionary keys for plot colours
-    food_labels = list(df.columns)
+    food_labels = list(df.columns.levels[0])
     colour_keys = [food.split('_')[0] for food in food_labels]
+    
+    # Initialise plot
+    if not ax:
+        fig, ax = plt.subplots(figsize=(12,6))
     
     # Calculate moving window + plot time series
     for i, food in enumerate(food_labels):
         if window:
-            moving_window = df[food].rolling(window=window, center=True).mean()
-            moving_window_of_std = yerr[food].rolling(window=window, center=True).mean()
-#            ax = moving_window.plot(color=colour_dict[colour_keys[i]], yerr=moving_window_of_std[food], **kwargs)
-            ax = plt.errorbar(moving_window.index(), moving_window, yerr=moving_window_of_std)
+            moving_mean = df[food]['mean'].rolling(window=window, center=True).mean()
+            moving_std = df[food]['std'].rolling(window=window, center=True).mean()
+            
+            # Plot time series
+            ax.plot(moving_mean, color=colour_dict[colour_keys[i]], **kwargs) # OPTIONAL: yerr=moving_std
+            ax.fill_between(moving_mean.index, moving_mean-moving_std, moving_mean+moving_std,\
+                                  color=colour_dict[colour_keys[i]], alpha=0.25, edgecolor=None)
         else:
-            ax = df[food].plot(color=colour_dict[colour_keys[i]], yerr=yerr[food], **kwargs)
+            # Plot un-smoothed time series
+            ax.plot(df[food]['mean'], color=colour_dict[colour_keys[i]], **kwargs)
+            ax.fill_between(df[food]['mean'].index, df[food]['mean']-df[food]['std'], df[food]['mean']+df[food]['std'],
+                            color=colour_dict[colour_keys[i]], alpha=0.5, edgecolor=None)
     if annotate:
         if count:
-            plt.ylim(-0.05, df.max(axis=1).max() + 0.5)
+            plt.ylim(-0.05, df.max(axis=1).max() + 0.25)
             plt.ylabel("Number of Worms", fontsize=15, labelpad=10)
-            #plt.axhline(y=3, color='k', linestyle='--') # plot line at n_worms = 3
+            #plt.axhline(y=10, color='k', linestyle='--') # plot line at n_worms (y) = 10
         else:
             plt.ylim(-0.05, 1.15)
             plt.ylabel("Proportion Feeding", fontsize=15, labelpad=10)
+        xticks = np.linspace(0, np.round(max(df.index),-5), num=10, endpoint=True).astype(int)
+        ax.set_xticks(xticks)
+        xticklabels = np.ceil(np.linspace(0, np.round(max(df.index), -5), num=10, endpoint=True)/25/900)/4
+        xticklabels = [str(int(lab*60)) for lab in xticklabels]
+        ax.set_xticklabels(xticklabels)
         plt.xlim(0, max(df.index))
-        plt.xlabel("Frame Number", fontsize=15, labelpad=10)
+        plt.xlabel("Time (minutes)", fontsize=15, labelpad=10)
     else:
         # Turn off tick/axes labels
         x_axis = ax.axes.get_xaxis()
         x_axis.set_label_text("")
-    if acclimtime:
+        
+    # Account for acclimation time
+    if acclimtime > 0:
         x = np.arange(0, acclimtime)
         y = acclimtime
         ax.fill_between(x, y, -0.05, color='grey', alpha='0.5', interpolate=True)
         ax.axvline(0, ls='-', lw=1, color='k')
         ax.axvline(acclimtime, ls='-', lw=1, color='k')
-        plt.text(acclimtime/max(df.index)+0.01, 0.97, "Acclimation: {0} mins".format(int(acclimtime/25/60)),\
-                 ha='left', va='center', transform=ax.transAxes, rotation=0, color='k')
-        # ax.axvline(acclimtime + window/2, ls='-', lw=2, color='r')
+        if annotate:
+            plt.text(acclimtime/max(df.index)+0.01, 0.97, "Acclimation: {0} mins".format(int(acclimtime/25/60)),\
+                     ha='left', va='center', transform=ax.transAxes, rotation=0, color='k')
+            # ax.axvline(acclimtime + window/2, ls='-', lw=2, color='r') # Gap due to window smoothing
+            
+    # Add plot legend
     if legend:
         patches = []
         legend_keys = list(np.unique(colour_keys))
@@ -181,7 +212,8 @@ def plottimeseries(df, colour_dict, window=1000, acclimtime=None, count=False,\
     if show:
         plt.show(); plt.pause(0.0001)
     return(plt)
-    
+
+#%%    
 def manuallabelling(maskedfilepath, save=True, skip=True):
     """ A function written to assist with the manual labelling of food regions in the worm
         food choice assay video recordings. Food regions are given labels and coordinates
@@ -200,25 +232,31 @@ def manuallabelling(maskedfilepath, save=True, skip=True):
     coordfilepath = coordfilepath.replace(".hdf5", "_FoodCoords.txt")
     plotpath = coordfilepath.replace("FoodCoords/", "Plots/")
     plotpath = plotpath.replace("_FoodCoords.txt", "_LabelledOverlayPlot.png")
+    
     # Avoid re-labelling videos
     if os.path.exists(coordfilepath) and skip: 
         print("Skipping file. Food coordinates already saved.")
     else:
-        try: # Manually label food regions
+        # Manually label food regions
+        try:
             # Plot the first brightfield image
             print("\n\nProcessing file:\n%s" % maskedfilepath)                    
             plt.close("all")
             fig, ax = plotbrightfield(maskedfilepath, 0, figsize=(10,10))
             plt.show()
+            
             # USER INPUT: Draw polygons around food regions in the assay
             print("Manually outline food regions.\nLeft click - add a point.\n\
                    Right click - remove a point.\nMiddle click - next")
-            poly_dict = drawpoly(plt, n_poly=2)
+            poly_dict = drawpoly(plt, n_poly=2) #TODO: Make input
             plt.show()
+            # TODO: Check that assay not bumped by using last frames for rest of analysis
+            
             # USER INPUT: Assign labels to food regions
             poly_dict = labelpoly(fig, ax, poly_dict)
+            
+            # Save coordinates to file
             if save:
-                # Save coordinates to file
                 directory = os.path.dirname(coordfilepath)
                 if not os.path.exists(directory):
                     os.makedirs(directory)
@@ -226,21 +264,25 @@ def manuallabelling(maskedfilepath, save=True, skip=True):
                 print(poly_dict, file=fid)
                 fid.close()
                 print("Coords successfully saved!")
+            
             # Plot trajectory overlay
             fig, ax = plottrajectory(fig, ax, featurefilepath, downsample=10)
             plt.show()
+            
             # Save plot overlay
             if save:
                 directory = os.path.dirname(plotpath)
                 if not os.path.exists(directory):
                     os.makedirs(directory)
                 savefig(plotpath, saveFormat='png')
+            
             # Return food coordinates
             return(poly_dict)
         except Exception as e:
             print("ERROR! Failed to process file: \n%s\n%s" % (maskedfilepath, e))
 
-def wormtrajectories(maskedfilepath, downsample=1, save=True):
+#%%
+def wormtrajectories(maskedfilepath, downsample=1, save=True, skip=True):
     """ A function to plot tracked trajectories for individual worms in a given 
         assay video recording. 
         Optional arguments:
@@ -253,40 +295,51 @@ def wormtrajectories(maskedfilepath, downsample=1, save=True):
     coordfilepath = maskedfilepath.replace(".hdf5", "_FoodCoords.txt")
     coordfilepath = coordfilepath.replace("Priota/Data/FoodChoiceAssay/MaskedVideos/",\
                                       "Saul/FoodChoiceAssay/Results/FoodCoords/")
-    # Read food coordinates
-    f = open(coordfilepath, 'r').read()
-    poly_dict = eval(f)
-    # Plot brightfield
-    plt.close("all")
-    fig, ax = plotbrightfield(maskedfilepath, 0, figsize=(10,8))
-    # Overlay food regions
-    fig, ax = plotpoly(fig, ax, poly_dict, colour=False)
-    # Read trajectory data
-    df = gettrajdata(featurefilepath)
-    # Overlay worm trajectories
-    worm_ids = list(np.unique(df['worm_id']))
-    colours = hexcolours(len(worm_ids))
-    group_worm = df.groupby('worm_id')
-    for w, worm in enumerate(worm_ids):
-        colour = colours[w]
-        df_worm = group_worm.get_group(worm)
-        ax.scatter(x=df_worm['x'][::downsample], y=df_worm['y'][::downsample],\
-                              c=colour, s=3)
-        ax.plot(df_worm['x'].iloc[0], df_worm['y'].iloc[0], color='r', marker='+',\
-                markersize=5, linestyle='', label="Start")
-        ax.plot(df_worm['x'].iloc[-1], df_worm['y'].iloc[-1], color='b', marker='+',\
-                markersize=5, linestyle='', label="End")
-    plt.legend(["Start", "End"], loc='upper right')
-    plt.autoscale(enable=True, axis='x', tight=True) # re-scaling axes
-    plt.autoscale(enable=True, axis='y', tight=True)
-    plt.show(); plt.pause(2)
-    # Save plot
-    if save:
-        plotpath = coordfilepath.replace("_FoodCoords.txt", "_WormTrajPlot.png")
-        plotpath = plotpath.replace("FoodCoords/", "Plots/")
-        directory = os.path.dirname(plotpath)
-        if not os.path.exists(directory):
-            os.makedirs(directory)
-        savefig(plotpath, saveFormat='png', tellme=True)  
+    plotpath = coordfilepath.replace("_FoodCoords.txt", "_WormTrajPlot.png")
+    plotpath = plotpath.replace("FoodCoords/", "Plots/")
 
+    # Avoid re-labelling videos
+    if os.path.exists(coordfilepath) and skip: 
+        print("Skipping file. Food coordinates already saved.")
+    else:
+        print("Plotting worm trajectories for file: %s" % maskedfilepath)
+        # Read food coordinates
+        f = open(coordfilepath, 'r').read()
+        poly_dict = eval(f)
+        
+        # Plot brightfield
+        plt.close("all")
+        fig, ax = plotbrightfield(maskedfilepath, 0, figsize=(10,8))
+        
+        # Overlay food regions
+        fig, ax = plotpoly(fig, ax, poly_dict, colour=False)
+        
+        # Read trajectory data
+        df = gettrajdata(featurefilepath)
+        
+        # Overlay worm trajectories
+        worm_ids = list(np.unique(df['worm_id']))
+        colours = hexcolours(len(worm_ids))
+        group_worm = df.groupby('worm_id')
+        for w, worm in enumerate(worm_ids):
+            colour = colours[w]
+            df_worm = group_worm.get_group(worm)
+            ax.scatter(x=df_worm['x'][::downsample], y=df_worm['y'][::downsample],\
+                                  c=colour, s=3)
+            ax.plot(df_worm['x'].iloc[0], df_worm['y'].iloc[0], color='r', marker='+',\
+                    markersize=5, linestyle='', label="Start")
+            ax.plot(df_worm['x'].iloc[-1], df_worm['y'].iloc[-1], color='b', marker='+',\
+                    markersize=5, linestyle='', label="End")
+        plt.legend(["Start", "End"], loc='upper right')
+        plt.autoscale(enable=True, axis='x', tight=True) # re-scaling axes
+        plt.autoscale(enable=True, axis='y', tight=True)
+        plt.show(); plt.pause(0.0001)
+        
+        # Save plot
+        if save:
+            directory = os.path.dirname(plotpath)
+            if not os.path.exists(directory):
+                os.makedirs(directory)
+            savefig(plotpath, saveFormat='png', tellme=True)  
 
+#%%

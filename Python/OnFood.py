@@ -3,11 +3,11 @@
 """
 SCRIPT: ON/OFF FOOD
 
-A script written to evaluate whether a each set of worm centroid x,y coordinates
-in Tierpsy-generated trajectory data fall inside/outside of the coordinates of 
-labelled food regions in the assay. Trajectory data is filtered to remove 'fake'
-worms (by spatiotemporal thresholding), and a presence/absence truth matrix 
-(ie. on food vs not on food) generated and saved to file.       
+A script written to read in trajectory data for videos in the food choice assay 
+metadata file, filter the data to remove noise, and evaluate whether worms are 
+on or off food in each frame of the assay. A presence/absence truth matrix 
+(ie. on food vs not on food) is appended to the trajectory data for each video 
+and saved to file.       
 
 @author: sm5911
 @date: 25/03/2019
@@ -44,7 +44,10 @@ if NEW:
     fullMetaData = fullMetaData[fullMetaData['worm number']==10]
 
 n_files = len(fullMetaData['filename'])
-print("%d video file entries found in metadata." % n_files)
+if NEW:
+    print("%d NEW video file entries found in metadata." % n_files)
+else:
+    print("%d video file entries found in metadata." % n_files)
 
 #%% ON/OFF FOOD (TRUTH MATRIX)
 # - Read in food region coordinates + features file trajectory data for each video

@@ -35,8 +35,8 @@ DATA_DIR = PROJECT_ROOT_DIR.replace('Saul', 'Priota/Data') # Location of feature
 
 # Plot parameters
 fps = 25 # frames per second
-smooth_window = 25*60*2 # 2-minute moving average window for time-series plot smoothing
-
+smooth_window = fps*60*2 # 2-minute moving average window for time-series plot smoothing
+OpticalDensity600 = 1.8
 # Conduct analysis on new videos only?
 NEW = True
 
@@ -47,7 +47,10 @@ if NEW:
     fullMetaData = fullMetaData[fullMetaData['worm number']==10]
 
 n_files = len(fullMetaData['filename'])
-print("%d video file entries found in metadata." % n_files)
+if NEW:
+    print("%d NEW video file entries found in metadata." % n_files)
+else:
+    print("%d video file entries found in metadata." % n_files)
 
 # Extract assay information
 pretreatments = list(np.unique(fullMetaData['Prefed_on']))
@@ -73,8 +76,8 @@ for i, maskedfilepath in enumerate(fullMetaData['filename']):
     conc = file_info['Food_Conc']
     assaychoice = file_info['Food_Combination']
     prefed = file_info['Prefed_on']
-    print("\nProcessing file: %d\n%s\nAssay:  %s\nConc:   %.3f\nPrefed: %s" % (i + 1,\
-          maskedfilepath, assaychoice, conc, prefed))
+    print("\nProcessing file: %d/%d\n%s\nAssay:  %s\nConc:   %.3f\nPrefed: %s" % (i + 1,\
+          len(fullMetaData['filename']), maskedfilepath, assaychoice, conc, prefed))
     try:
         # Specify file paths
         onfoodpath = changepath(maskedfilepath, returnpath='onfood')
@@ -82,7 +85,7 @@ for i, maskedfilepath in enumerate(fullMetaData['filename']):
 
         # Read on/off food results
         onfood_df = pd.read_csv(onfoodpath, header=0, index_col=0)
-        
+
         # Calculate mean + count number of worms on/off food in each frame
         # NB: Store proportions, along with total nworms, ie. mean (worms per frame) and later calculate mean (per frame across videos)
         choice_df = foodchoice(onfood_df, mean=True, tellme=True)
@@ -106,7 +109,7 @@ if FAIL:
 
 #%% FOOD CHOICE SUMMARY STATS + PIE/BOX PLOTS (FOR EACH VIDEO SEPARATELY)
 # - Calculate summary statistics for mean proportion worms feeding in each video
-# - Plot and save pie charts + box plots of worm food preference
+# - Plot and save box plots + pie charts of mean proportion of worms on food
 
 # =============================================================================
 # # NB: Cannot pre-allocate full results dataframe to store food choice mean 
@@ -124,8 +127,8 @@ for i, maskedfilepath in enumerate(fullMetaData['filename']):
     conc = file_info['Food_Conc']
     assaychoice = file_info['Food_Combination']
     prefed = file_info['Prefed_on']
-    print("Processing file: %d\n%s\nAssay:  %s\nConc:   %.3f\nPrefed: %s" % (i + 1,\
-          maskedfilepath, assaychoice, conc, prefed))
+    print("\nProcessing file: %d/%d\n%s\nAssay:  %s\nConc:   %.3f\nPrefed: %s" % (i + 1,\
+          len(fullMetaData['filename']), maskedfilepath, assaychoice, conc, prefed))
     
     # Specify file paths
     foodchoicepath = changepath(maskedfilepath, returnpath='foodchoice')
@@ -136,13 +139,13 @@ for i, maskedfilepath in enumerate(fullMetaData['filename']):
         # READ FOOD CHOICE RESULTS (csv)
         choice_df = pd.read_csv(foodchoicepath, header=0, index_col=0)
         
-        # CALCULATE FOOD CHOICE SUMMARY STATISTICS
+        # SUMMARY STATISTICS
         feeding_stats = summarystats(choice_df)
         
-        #NB: Save summary stats?
-        #feeding_stats.to_csv(statspath) # Save to CSV
-
-        # Define plot labels/colours
+        # Save summary stats
+        feeding_stats.to_csv(statspath) # Save to CSV
+       
+        # Define plot labels + colours
         colnames = list(choice_df.columns)
         labels = [lab.split('_')[0] for lab in colnames]
         colours = [colour_dict[treatment] for treatment in labels]
@@ -150,12 +153,13 @@ for i, maskedfilepath in enumerate(fullMetaData['filename']):
         RGBAcolours = sns.color_palette(colours)
         palette = {key: val for key, val in zip(colnames, RGBAcolours)}
         # sns.palplot(sns.color_palette(values))
-        
-        # PLOT PIE CHART OF MEAN ON/OFF FOOD
+       
+        # PIE CHARTS - mean proportion on food
         df_pie = feeding_stats.loc['mean']
+        df_pie.index = df_pie.index.get_level_values(0)
         df_pie = df_pie.loc[df_pie!=0] # Remove any empty rows
         plt.close("all")
-        fig = plotpie(df_pie, rm_empty=False, show=True, labels=labels,\
+        fig = plotpie(df_pie, rm_empty=False, show=True, labels=df_pie.index,\
                       colors=colours, textprops={'fontsize': 15}, startangle=90,\
                       wedgeprops={'edgecolor': 'k', 'linewidth': 1,\
                                   'linestyle': 'solid', 'antialiased': True})
@@ -163,22 +167,14 @@ for i, maskedfilepath in enumerate(fullMetaData['filename']):
         directory = os.path.dirname(pieplotpath)
         if not os.path.exists(directory):
             os.makedirs(directory)
-        savefig(pieplotpath, tellme=False)
-        
-        # Convert to long format, collate info
+        savefig(pieplotpath, tellme=False)      
+     
+        # Convert to long format
         choice_df['frame_number'] = choice_df.index
         choice_df_long = choice_df.melt(id_vars='frame_number', value_vars=choice_df.columns[:-1],\
                                         var_name='Food', value_name='Mean')
-        
-        # Append file info
-        choice_df_long['filename'] = maskedfilepath
-        choice_df_long['worm_number'] = file_info['worm number']
-        choice_df_long['Food_Conc'] = conc
-        choice_df_long['Food_Combination'] = assaychoice
-        choice_df_long['Prefed_on'] = prefed
-        choice_df_long['Acclim_time_s'] = file_info['Acclim_time_s']
-            
-        # Box plots (Seaborn): Mean proportion of worms feeding on each food
+                 
+        # BOX PLOTS (Seaborn) - Mean proportion of worms on each food
         plt.close("all")
         fig, ax = plt.subplots(figsize=(9,7))
         ax = sns.boxplot(x='Food', y='Mean', hue='Food', data=choice_df_long, palette=palette, dodge=False)
@@ -200,10 +196,18 @@ for i, maskedfilepath in enumerate(fullMetaData['filename']):
         # Save box plots
         savefig(boxplotpath, saveFormat='eps', tellme=False)
         print("Plots saved.\n")
-        
+       
 # =============================================================================
-#         # Append to full results dataframe
-#         results_df = results_df.append(choice_df_long[colnames])
+#        # Append file info
+#        choice_df_long['filename'] = maskedfilepath
+#        choice_df_long['worm_number'] = file_info['worm number']
+#        choice_df_long['Food_Conc'] = conc
+#        choice_df_long['Food_Combination'] = assaychoice
+#        choice_df_long['Prefed_on'] = prefed
+#        choice_df_long['Acclim_time_s'] = file_info['Acclim_time_s']
+#
+#        # Append to full results dataframe
+#        results_df = results_df.append(choice_df_long[colnames])
 # =============================================================================
     except:
         print("Error processing file:\n%s" % maskedfilepath)
@@ -226,35 +230,48 @@ for i, maskedfilepath in enumerate(fullMetaData['filename']):
     conc = file_info['Food_Conc']
     assaychoice = file_info['Food_Combination']
     prefed = file_info['Prefed_on']
-    print("\nProcessing file: %d\n%s\nAssay:  %s\nConc:   %.3f\nPrefed: %s" % (i + 1,\
-          maskedfilepath, assaychoice, conc, prefed))
+    print("\nProcessing file: %d/%d\n%s\nAssay:  %s\nConc:   %.3f\nPrefed: %s" % (i + 1,\
+          len(fullMetaData['filename']), maskedfilepath, assaychoice, conc, prefed))
     
     # Specify file paths
+    onfoodpath = changepath(maskedfilepath, returnpath='onfood')
     foodchoicepath = changepath(maskedfilepath, returnpath='foodchoice')
-    plotpath = changepath(maskedfilepath, returnpath='plots', figname='FoodChoiceTS.eps') # Path to save time series plots
+    plotpath = changepath(maskedfilepath, returnpath='plots', figname='FoodChoiceTS.png') # Path to save time series plots
 
-    # READ FOOD CHOICE (COUNT) RESULTS
-    choice_df = pd.read_csv(foodchoicepath, header=0, index_col=0)
+    onfood_df = pd.read_csv(onfoodpath, header=0, index_col=0)
+
+    # READ FOOD CHOICE RESULTS
+#    df = pd.read_csv(foodchoicepath, header=0, index_col=0)
+    df = foodchoice(onfood_df, mean=True, std=True, tellme=True)
     
-    # Shift plot to include acclimation time before assay recording (t=0 is pick time)
+    # Shift plot to include acclimation time prior to assay recording (ie. t(0) = pick time)
     acclim = int(file_info['Acclim_time_s'] * fps)
-    choice_df.index = choice_df.index + acclim 
+    df.index = df.index + acclim 
+    
+    # Caclculate mean + standard deviation per frame across videos
+    colnames = list(df.columns.levels[0])
+
+    # Remove erroneous frames where on/off food does not sum to 1
+    frames_to_rm = np.where(np.sum([df[x]['mean'] for x in colnames], axis=0).round(decimals=5)!=1)[0]
+    assert frames_to_rm.size == 0,\
+        "{:d} frames found in which feeding proportions do not sum to 1.".format(len(frames_to_rm))
+
     
     # PLOT TIME-SERIES ON/OFF FOOD (count)
     plt.close("all")
-    fig = plottimeseries(choice_df, colour_dict, window=smooth_window, acclimtime=acclim,\
-                         legend=True, ls='-', figsize=(12,6))
+    fig = plottimeseries(df=df, colour_dict=colour_dict, window=smooth_window,\
+                         acclimtime=acclim, annotate=True, legend=True, ls='-')
     
     # SAVE TIME SERIES PLOTS
     directory = os.path.dirname(plotpath)
     if not os.path.exists(directory):
         os.makedirs(directory)
-    savefig(plotpath, saveFormat='eps', tellme=False)
+    savefig(plotpath, saveFormat='png', tellme=False)
     print("Time series plots saved.\n(Time taken: %d seconds.)\n" % (time.time() - toc))
 print("Complete!\n(Total time taken: %d seconds.)\n" % (time.time() - tic))
 
 
-#%% FIGURE 1 - Box plots of food choice (Grouped by prefed on, assay type, and concentration)
+#%% FIGURE 1 - Box plots of food choice (Grouped by treatment combination: prefed on (HB101/OP50), food combination (control/choice), and concentration (0.125,0.25,0.5,1))
 # - Subset results by grouping files by assay type (control/choice experiment) and by food concentration
 
 tic = time.time()
@@ -263,9 +280,10 @@ groupedMetaData = fullMetaData.groupby(['Prefed_on','Food_Combination','Food_Con
 
 # For each prefood-assaychoice-concentration treatment combination
 for p, prefood in enumerate(pretreatments):
-    # Initialise plot for prefed group
+    # Initialise plot for prefed group (12 subplots - 3 food combinations, 4 concentrations)
     plt.close("all")
-    fig, axs = plt.subplots(nrows=3, ncols=5, figsize=(16,10), sharey=True) # 15 subplots (3 assay types, 5 assay concentrations)
+    fig, axs = plt.subplots(nrows=len(assaychoices), ncols=len(concentrations),\
+                            figsize=(14,10), sharey=True)
     for a, assay in enumerate(assaychoices):
         for c, conc in enumerate(concentrations):
             try:
@@ -274,27 +292,41 @@ for p, prefood in enumerate(pretreatments):
                 
                 # Get group info
                 info = df_conc.iloc[0,:]
+                colnames = info['Food_Combination'].split('/')
+                if colnames[0] == colnames[1]:
+                    colnames = ["{}_{}".format(food, f + 1) for f, food in enumerate(colnames)]
+                colnames.insert(len(colnames), "None")
                 
+                # Pre-allocate dataframe for boxplots
+                df = pd.DataFrame(index=range(df_conc.shape[0]), columns=colnames)
+
+                # If single file, read full food choice data (mean proportion feeding)
                 if df_conc.shape[0] == 1:
-                    # Read food choice data (mean proportion feeding)
                     foodchoicepath = changepath(info['filename'], returnpath='foodchoice')
-                    df = pd.read_csv(foodchoicepath, header=0, index_col=0)
-                    
+                    df = pd.read_csv(foodchoicepath, header=0, index_col=0)   
+                
+                # Read summary stats for mean proportion feeding in each video
                 elif df_conc.shape[0] > 1:
-                    # Read food choice data for each file and compile into df for plotting
-                    df = pd.DataFrame()
-                    for row in range(df_conc.shape[0]):
-                        info = df_conc.iloc[row,:]
-                        foodchoicepath = changepath(info['filename'], returnpath='foodchoice')
-                        tmp_df = pd.read_csv(foodchoicepath, header=0, index_col=0)
-                        if df.empty:
-                            df = tmp_df
-                        else:
-                            df = df.append(tmp_df, sort=True)
+                    for i in range(df_conc.shape[0]):
+                        info = df_conc.iloc[i]
+                        # Read in food choice summary stats (mean proportion feeding)
+                        statspath = changepath(info['filename'], returnpath='summary')
+                        df.iloc[i] = pd.read_csv(statspath, header=0, index_col=0).loc['mean']                    
+                    
+# =============================================================================
+#                     # Read food choice data for each file and compile into df for plotting
+#                     df = pd.DataFrame()
+#                     for row in range(df_conc.shape[0]):
+#                         info = df_conc.iloc[row,:]
+#                         foodchoicepath = changepath(info['filename'], returnpath='foodchoice')
+#                         tmp_df = pd.read_csv(foodchoicepath, header=0, index_col=0)
+#                         if df.empty:
+#                             df = tmp_df
+#                         else:
+#                             df = df.append(tmp_df, sort=True)
+# =============================================================================
                     
                 # Plot labels/colours
-                colnames = list(df.columns)
-                
                 labels = [lab.split('_')[0] for lab in colnames]
                 colours = [colour_dict[treatment] for treatment in labels]
                 
@@ -302,48 +334,69 @@ for p, prefood in enumerate(pretreatments):
                 RGBAcolours = sns.color_palette(colours)
                 palette = {key: val for key, val in zip(colnames, RGBAcolours)}
                 # sns.palplot(sns.color_palette(values))
-        
+                
                 # Convert to long format
-                df['frame_number'] = df.index
-                df_long = df.melt(id_vars='frame_number', value_vars=df.columns[:-1],\
+                df['videoID'] = df.index
+                df_long = df.melt(id_vars='videoID', value_vars=df.columns[:-1],\
                                   var_name='Food', value_name='Mean')
+                df_long['Mean'] = df_long['Mean'].astype(float)
+        
+# =============================================================================
+#                 # Convert to long format
+#                 df['frame_number'] = df.index
+#                 df_long = df.melt(id_vars='frame_number', value_vars=df.columns[:-1],\
+#                                   var_name='Food', value_name='Mean')
+# =============================================================================
                 
                 # Plot Seaborn boxplots
-                sns.boxplot(x='Food', y='Mean', hue='Food', ax=axs[a,c], data=df_long, palette=palette, dodge=False)
+                sns.boxplot(data=df_long, x='Food', y='Mean', hue='Food', ax=axs[a,c], palette=palette, dodge=False)
                 axs[a,c].get_legend().set_visible(False)
                 axs[a,c].set_ylabel('')    
                 axs[a,c].set_xlabel('')
-                axs[a,c].set_xticklabels(labels=labels)
-                axs[a,c].set_ylim(-0.15, 1.15)
-                axs[a,c].set_xlim(-0.9,len(np.unique(df_long['Food'])))
+                xlabs = axs[a,c].get_xticklabels()
+                xlabs = [lab.get_text().split('_')[0] for lab in xlabs[:]]
+                axs[a,c].set_xticklabels(labels=xlabs, fontsize=12)
+                axs[a,c].set_ylim(-0.05, 1.05)
+                axs[a,c].set_xlim(-0.75,len(np.unique(df_long['Food']))-0.25)
                 axs[a,c].text(0.81, 0.9, ("n={0}".format(df_conc.shape[0])),\
                               transform=axs[a,c].transAxes, fontsize=12)
                 if a == 0:
-                    axs[a,c].text(0.5, 1.15, ("conc={0}".format(conc)),\
+                    axs[a,c].text(0.5, 1.1, "$OD_{{{}}}={}$".format(600, conc*OpticalDensity600),\
                                   horizontalalignment='center', fontsize=18,\
                                   transform=axs[a,c].transAxes)
-                if c == 0 and a == 1:
-                    axs[a,c].set_ylabel("Mean Proportion Feeding", labelpad=30, fontsize=20)
+                if c == 0:
+                    axs[a,c].set_ylabel("{0}".format(assay), labelpad=15, fontsize=18)
+                    if a == 1:
+                        axs[a,c].text(-2.75, 0.5, "Mean Proportion Feeding",\
+                                      fontsize=25, rotation=90, horizontalalignment='center',\
+                                      verticalalignment='center')
+                    
             except Exception as e:
                 print("No videos found for concentration: %s\n(Assay: %s, Prefed on: %s)\n" % (e, assay, prefood))
                 axs[a,c].axis('off')
                 axs[a,c].text(0.81, 0.9, "n=0", fontsize=12, transform=axs[a,c].transAxes)
                 if a == 0:
-                    axs[a,c].text(0.5, 1.15, ("conc={0}".format(conc)),\
+                    axs[a,c].text(0.5, 1.1, "$OD_{{{}}}={}$".format(600, conc*OpticalDensity600),\
                                   horizontalalignment='center', fontsize=18,\
                                   transform=axs[a,c].transAxes)
-                if c == 0 and a == 1:
-                    axs[a,c].set_ylabel("Mean Proportion Feeding", labelpad=30, fontsize=20)
-    plt.text(0.95, -0.6, "Prefed on: {0}".format(prefood), horizontalalignment='center', fontsize=20)
+                if c == 0:
+                    axs[a,c].set_ylabel("{0}".format(assay), labelpad=15, fontsize=18)
+                    if a == 1:
+                        axs[a,c].text(-3.2, 0.5, "Mean Proportion Feeding",\
+                                      fontsize=25, rotation=90, horizontalalignment='center',\
+                                      verticalalignment='center')
+                    
+#    plt.text(3, -0.7, "Prefed on: {0}".format(prefood), horizontalalignment='center', fontsize=25)
     patches = []
     for i, (key, value) in enumerate(colour_dict.items()):
         patch = mpatches.Patch(color=value, label=key)
         patches.append(patch)
     fig.legend(handles=patches, labels=list(colour_dict.keys()), loc="upper right", borderaxespad=0.4,\
                frameon=False, fontsize=15)
-    fig.tight_layout(rect=[0.02, 0.07, 0.9, 0.95])
-    fig.subplots_adjust(hspace=0.2, wspace=0.2)    
+    fig.tight_layout(rect=[0.07, 0.02, 0.88, 0.95])
+    fig.subplots_adjust(hspace=0.2, wspace=0.1)    
     plt.show(); plt.pause(2)
+    
     # Save figure 1
     fig_name = "FoodChoiceBox_prefed" + prefood + ".eps"
     figure_out = os.path.join(PROJECT_ROOT_DIR, "Results", "Plots", fig_name)
@@ -356,16 +409,6 @@ print("Complete!\n(Time taken: %d seconds)" % (time.time() - tic))
 #%% FIGURE 3 - Time series plots of food choice by concentration and by assay type (GROUPED BY ASSAY/CONC)
 # Plot time series plots - proportion on-food through time  
 
-# TODO: Shift to Account for acclim time
-# TODO: Put error bars on time-series => df_std
-# TODO: Acclimation: crop for boxplot, shift for time-series
-# TODO: std errorbars on TS plots:
-# -- Add time column (secs)
-# -- Bin columns by small index/frame intervals (~1s to 2min), and average by within-bin = FOR EACH VID
-# -- Average across different videos = Append to growing df, then take mean + std (by rounded time/index) (could add file_id column for easy plot groupby)
-# -- BEFORE YOU CALL plottimeseries (give mean + std)
-# NB: DONT DO STATS AFTER ROLLING WINDOW!
-
 tic = time.time()
 # Group files in metadata by prefed, assaychoice and concentration treatment combinations
 groupedMetaData = fullMetaData.groupby(['Prefed_on','Food_Combination','Food_Conc'])
@@ -375,23 +418,24 @@ for p, prefood in enumerate(pretreatments):
     # Initialise plot for prefed group
     plt.close("all")
     xmax = 180000
-    fig, axs = plt.subplots(nrows=3, ncols=5, figsize=(15,10), sharex=True) # 15 subplots (3 assay types, 5 assay concentrations)
+    fig, axs = plt.subplots(nrows=len(assaychoices), ncols=len(concentrations),\
+                            figsize=(16,7), sharex=True) # 12 subplots (3 food combinations, 4 food concentrations)
     for a, assay in enumerate(assaychoices):
         for c, conc in enumerate(concentrations):
             try:
                 # Get prefood-assaychoice-concentration group
                 df_conc = groupedMetaData.get_group((prefood,assay,conc))
                 
-                # Get group info
+                # Get acclim time
                 info = df_conc.iloc[0,:]
+                acclim = int(info['Acclim_time_s'] * fps)
                 
                 # If single file, read food choice data (mean proportion feeding)
                 if df_conc.shape[0] == 1:
                     foodchoicepath = changepath(info['filename'], returnpath='foodchoice')
                     df = pd.read_csv(foodchoicepath, header=0, index_col=0)   
                     
-                    # Shift df indices to account for acclimation period prior 
-                    # to assay recording (t0 = pick time)
+                    # Shift df indices to account for acclimation (t0 = pick time)
                     acclim = int(info['Acclim_time_s'] * fps)
                     df.index = df.index + acclim
                     
@@ -403,8 +447,7 @@ for p, prefood in enumerate(pretreatments):
                         foodchoicepath = changepath(info['filename'], returnpath='foodchoice')
                         tmp_df = pd.read_csv(foodchoicepath, header=0, index_col=0)  
                         
-                        # Shift df indices to account for acclimation period prior 
-                        # to assay recording (t0 = pick time)
+                        # Shift df indices to account for acclimation (t0 = pick time)
                         acclim = int(info['Acclim_time_s'] * fps)
                         tmp_df.index = tmp_df.index + acclim
                         
@@ -413,33 +456,34 @@ for p, prefood in enumerate(pretreatments):
                         else:
                             df = df.append(tmp_df, sort=True)
                             
-                # Mean per frame across videos
+                # Caclculate mean + standard deviation per frame across videos
+                colnames = list(df.columns)
                 df['frame'] = df.index
-                df_mean = df.groupby('frame').mean()
-                df_std = df.groupby('frame').std()
+                fundict = {x:['mean','std'] for x in colnames}
+                df_plot = df.groupby('frame').agg(fundict)
 
                 # Remove erroneous frames where on/off food does not sum to 1
-                frames_to_rm = np.where(np.round(df_mean.sum(axis=1),decimals=5)!=1)[0]
-                if frames_to_rm.size != 0:
-                    print("%d frames found in which feeding proportions do not sum to 1." % len(frames_to_rm))
+                frames_to_rm = np.where(np.sum([df_plot[x]['mean'] for x in colnames], axis=0).round(decimals=5)!=1)[0]
+                assert frames_to_rm.size == 0,\
+                    "{:d} frames found in which feeding proportions do not sum to 1.".format(len(frames_to_rm))
                 
                 # Time series plots
-                plottimeseries(df_mean, colour_dict, window=smooth_window,\
-                               legend=False, annotate=False, ax=axs[a,c], yerr=df_std) # acclimtime=acclim
+                plottimeseries(df_plot, colour_dict, window=smooth_window,\
+                               legend=False, annotate=False, acclimtime=acclim, ax=axs[a,c])
                 
                 # Add number of replicates (videos) for each treatment combination
                 axs[a,c].text(0.79, 0.9, ("n={0}".format(df_conc.shape[0])),\
                               transform=axs[a,c].transAxes, fontsize=13)
                 
                 # Set axis limits
-                if max(df_mean.index) > xmax:
-                    xmax = max(df_mean.index)
-                axs[a,c].set_xlim(-xmax/15, np.round(xmax,-5))
-                axs[a,c].set_ylim(-0.1, 1.15)
+                if max(df_plot.index) > xmax:
+                    xmax = max(df_plot.index)
+                axs[a,c].set_xlim(0, np.round(xmax,-5))
+                axs[a,c].set_ylim(-0.05, 1.05)
                                 
                 # Set column labels on first row
                 if a == 0:
-                    axs[a,c].text(0.5, 1.15, ("conc={0}".format(conc)),\
+                    axs[a,c].text(0.5, 1.15, "$OD_{{{}}}={}$".format(600, conc*OpticalDensity600),\
                                   horizontalalignment='center', fontsize=18,\
                                   transform=axs[a,c].transAxes)
                     
@@ -448,20 +492,22 @@ for p, prefood in enumerate(pretreatments):
                     yticks = list(np.round(np.linspace(0,1,num=6,endpoint=True),decimals=1))
                     axs[a,c].set_yticks(yticks)
                     axs[a,c].set_yticklabels(yticks)
+                    axs[a,c].set_ylabel("{0}".format(assay), labelpad=15, fontsize=15)
                     if a == 1:
-                        axs[a,c].set_ylabel("Mean Proportion Feeding", labelpad=25, fontsize=20)
+                        axs[a,c].text(-np.round(xmax,-5)/2, 0.5, "Mean Proportion Feeding",\
+                                      fontsize=22, rotation=90, horizontalalignment='center',\
+                                      verticalalignment='center')
                 else:
                     axs[a,c].set_yticklabels([])
                     
                 # Set main x axis label + ticks along final row of plots
                 if a == len(assaychoices) - 1:
-                    xticks = np.linspace(0,np.round(xmax,-5),num=5,endpoint=True).astype(int)
+                    xticklabels = ["0", "30", "60", "90", "120"]
+                    xticks = [int(int(lab)*fps*60) for lab in xticklabels]
                     axs[a,c].set_xticks(xticks)
-                    xticklabels = np.ceil(np.linspace(0,np.round(xmax,-5),num=5,endpoint=True)/fps/1800)/2
-                    xticklabels = [str(int(lab*60)) for lab in xticklabels]
                     axs[a,c].set_xticklabels(xticklabels)
-                    if c == 2:
-                        axs[a,c].set_xlabel("Time (minutes)", labelpad=25, fontsize=20)
+                    if c == 1:
+                        axs[a,c].set_xlabel("Time (minutes)", labelpad=25, fontsize=20, horizontalalignment='left')
                 else:
                     axs[a,c].set_xticklabels([])
 
@@ -480,7 +526,7 @@ for p, prefood in enumerate(pretreatments):
                 axs[a,c].axis('off')
     
     # Add 'prefed on' to multiplot
-    plt.text(max(df_mean.index), -0.7, "Prefed on: {0}".format(prefood), horizontalalignment='right', fontsize=30)
+#    plt.text(max(df_plot.index), -0.7, "Prefed on: {0}".format(prefood), horizontalalignment='right', fontsize=30)
     
     # Add legend
     patches = []
@@ -491,14 +537,14 @@ for p, prefood in enumerate(pretreatments):
                frameon=False, fontsize=15)
     
     # Tight-layout + adjustments
-    fig.tight_layout(rect=[0.02, 0.02, 0.9, 0.93])
-    fig.subplots_adjust(hspace=0.2, wspace=0.2)
+    fig.tight_layout(rect=[0.07, 0.02, 0.9, 0.93])
+    fig.subplots_adjust(hspace=0.1, wspace=0.1)
     plt.show(); plt.pause(1)
     
     # Save figure 3
-    fig_name = "FoodChoiceTS_prefed" + prefood + ".eps"
+    fig_name = "FoodChoiceTS_prefed" + prefood + ".png"
     figure_out = os.path.join(PROJECT_ROOT_DIR, "Results", "Plots", fig_name)
-    savefig(figure_out, saveFormat='eps', tight_layout=False)
+    savefig(figure_out, saveFormat='png', tight_layout=False)
 print("Complete!\n(Time taken: %d seconds)" % (time.time() - tic))
 
 #%%

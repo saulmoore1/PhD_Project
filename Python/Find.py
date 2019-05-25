@@ -11,7 +11,7 @@ MODULE: FIND
 # IMPORTS
 import os, re
 
-# FUNCTIONS
+#%% FUNCTIONS
 def lookforfiles(root_dir, regex, depth=None, exact=False):
     """ A function to looks for files in a given starting directory 
         that match a given regular expression pattern. 
@@ -34,7 +34,8 @@ def lookforfiles(root_dir, regex, depth=None, exact=False):
                 if re.search(pattern=regex, string=file):
                     filelist.append(os.path.join(root, file))
     return(filelist)
-    
+
+#%%    
 def lookfordirs(root_dir, regex, depth=None, exact=False):
     """ A function to look for sub-directories within a given starting directory 
         that match a given regular expression pattern. """
@@ -57,6 +58,7 @@ def lookfordirs(root_dir, regex, depth=None, exact=False):
                     dirlist.append(os.path.join(root, dir))        
     return(dirlist)   
 
+#%%
 def findworms(trajectory_df, threshold_move, threshold_time, tellme=True):
     """ A function to filter Tierpsy trajectory data worm IDs to remove unwanted
         tracked entities (ie. not worms), based on threshold parameters for the 
@@ -82,12 +84,14 @@ def findworms(trajectory_df, threshold_move, threshold_time, tellme=True):
         print("%d/%d worm IDs filtered in total." % (n_worms - n_worms_alive, n_worms))
     return(filterMove_df)
 
+#%%
 def changepath(maskedfilepath, returnpath=None, figname=None):
     """ A function written to change the filepath of a given masked video to one
         of the following file paths: 
         returnpath = ['features','skeletons','intensities','coords','onfood',
-                      'foodchoice','summary','leavingevents','plots'] 
+                      'foodchoice','summary','plots'] 
     """
+    outfilepath=False
     if returnpath:
         if returnpath == 'features':
             outfilepath = maskedfilepath.replace("MaskedVideos/", "Results/")
@@ -114,10 +118,10 @@ def changepath(maskedfilepath, returnpath=None, figname=None):
             outfilepath = maskedfilepath.replace("Priota/Data/FoodChoiceAssay/MaskedVideos/",\
                                                  "Saul/FoodChoiceAssay/Results/FoodChoice/")
             outfilepath = outfilepath.replace(".hdf5", "_Summary.csv")
-        elif returnpath == 'leavingevents':
-            outfilepath = maskedfilepath.replace("Priota/Data/FoodChoiceAssay/MaskedVideos/",\
-                                                 "Saul/FoodChoiceAssay/Results/LeavingRate/")
-            outfilepath = outfilepath.replace(".hdf5", "_leavingevents_true.csv")
+#        elif returnpath == 'leavingevents':
+#            outfilepath = maskedfilepath.replace("Priota/Data/FoodChoiceAssay/MaskedVideos/",\
+#                                                 "Saul/FoodChoiceAssay/Results/LeavingRate/")
+#            outfilepath = outfilepath.replace(".hdf5", "_leavingevents_true.csv")
         elif returnpath == 'plots':
             if figname:
                 outfilepath = maskedfilepath.replace("Priota/Data/FoodChoiceAssay/MaskedVideos/",\
@@ -127,10 +131,14 @@ def changepath(maskedfilepath, returnpath=None, figname=None):
                 print("Please provide figname for plot!")
     else:
         print("Please select from the following options for returnpath:\
-              \n['features', 'coords', 'onfood', 'foodchoice', 'summary', 'leavingevents', 'plots']")
-    return(outfilepath)
+              \n['features', 'coords', 'onfood', 'foodchoice', 'summary', 'plots']")
     
+    if outfilepath:
+        return(outfilepath)
+    else:
+        print("ERROR!")
     
+#%%    
     
     
     

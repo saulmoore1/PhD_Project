@@ -3,14 +3,19 @@
 """
 SCRIPT: RUN FOOD CHOICE ASSAY
 
-A script written to execute the food choice assay reproducible analysis workflow. 
-- Collates video information and saves to file.
-- Manual labelling
-- On/off food
-- Food choice
-- Leaving events/rate
-- Checks that all results files have been saved successfully + cleans up workflow 
-  to remove erroneous files.
+A script written to execute the food choice assay reproducible analysis workflow,
+and call all relevent scripts and import the necessary modules. 
+The analysis workflow does the following:
+- Collates video metadata + saves to file
+- Read masked video file, accepts user input to manually label food regions + 
+  saves coordinates to file
+- Reads Tierpsy features file + plots worm trajectory data
+- Computes whether worms are on or off food (using user-labelled coordinates)
+- Calculates worm food choice preference in each video
+- Calculates the number of times worms leave the food in each video
+- # Investigates the rate of leaving over time + worm velocity
+- # Determines worm locomotory state
+- Checks that results files have been saved successfully + cleans up workflow
 
 @author: sm5911
 @date: 21/03/2019
@@ -21,6 +26,7 @@ A script written to execute the food choice assay reproducible analysis workflow
 import os, time, re#, sys
 import pandas as pd
 import numpy as np
+import subprocess
 from matplotlib import pyplot as plt
 from datetime import datetime, date
 
@@ -30,13 +36,13 @@ from Find import lookforfiles
 from Read import getauxinfo
 from Plot import manuallabelling, wormtrajectories
 
-# NB: Could create a config.yaml file to specify global variables for filter/crop/plot params such as thresholds, windows, bin sizes, etc?
+# NB: Could create a config file (.yaml?) to specify global variables for filter/crop/plot params such as thresholds, windows, bin sizes, etc?
 
 #%% PREAMBLE
 
 # GLOBAL VARIABLES
 PROJECT_ROOT_DIR = '/Volumes/behavgenom$/Saul/FoodChoiceAssay/' # Project working directory
-DATA_DIR = PROJECT_ROOT_DIR.replace('Saul', 'Priota/Data') # Location of data: RawVideos + Tierpsy results
+DATA_DIR = PROJECT_ROOT_DIR.replace('Saul', 'Priota/Data') # Location of data: RawVideos, MaskedVideos + Tierpsy results
 
 # Find all masked video files in the data directory
 maskedfilelist = lookforfiles(os.path.join(DATA_DIR, 'MaskedVideos'), '.*.hdf5$')
@@ -44,11 +50,13 @@ print("%d masked video files found." % len(maskedfilelist))
 
 #%% PREPROCESSING - Compile metadata and auxiliary file info
 
+print("\nPreprocessing video metadata:")
 # Read metadata file
 metafilepath = os.path.join(DATA_DIR, "AuxiliaryFiles", "metadata.csv")
 metaData = pd.read_csv(metafilepath)
 
 # Retrieve filenames for missing entries in metadata
+# TODO: Make this a function
 for i, filepath in enumerate(metaData['filename']):
     if isinstance(filepath, str):
         # If filepath exists, make sure it contains no spaces
@@ -64,13 +72,13 @@ for i, filepath in enumerate(metaData['filename']):
         # Re-format date + form string to query by regex from date + set + channel info
         d = datetime.datetime.strptime(Date, '%Y%m%d')
         Date = d.strftime('%d%m%Y')
-        querystring = '/Set{0}'.format(Set) + '/Set' + Set + '_Ch' + Camera + '_' + Date + '_'
+        querystring = '/Set{0}'.format(Set) + '/Set' + Set + '_Ch' + Camera + '_' + Date + '_' # Put all in format
         
-        # Find matching filename in masked video list
+        # Find matching filename in masked video list + add to metadata
         for file in maskedfilelist:           
             if re.search(querystring, file):
-                print("Match found! Filename added.")
                 metaData.loc[i,'filename'] = file
+                print("Match found! Filename added.")
                 
 # Subset metadata to remove entries with missing filenames that could not be retrieved
 is_filename = [isinstance(path, str) for path in metaData['filename']]
@@ -124,67 +132,69 @@ print("Done.")
 # NB: Date '20181101' has no record in the 'metadata.csv' file. These 6 video files are omitted from subsequent analyses
 
 #%% MANUAL LABELLING
+# TODO: Automate food labelling using (U-Net) ML algorithm -- pre-trained already by Luigi
 
 # Find masked HDF5 video files (for labelling) 
-print("Labelling and plotting trajectories for %d videos..." % len(maskedfilelist))
+print("\nManual labelling:\n%d masked videos found..\n" % len(maskedfilelist))
 
 # Interactive plotting (for user input when labelling plots)
 plt.ion()
 tic = time.time()
 for i in range(len(maskedfilelist)):    
     maskedfilepath = maskedfilelist[i]
-
-    # Manually outline + assign labels to food regions
-    # And save coordinates + trajectory overlay to file           
+    # Manually outline + assign labels to food regions + save coordinates + trajectory overlay to file           
     manuallabelling(maskedfilepath, save=True, skip=True)
 plt.ioff()
 print("Manual labelling complete!\n(Time taken: %d seconds.)\n" % (time.time() - tic))
 
-#%% Plot worm trajectory start/end points (unfiltered data)
-    
+#%% VISUALISATION - Plot worm trajectory start/end points (unfiltered data)
+
+print("\nPlotting tracked worm trajectories (start/end points):\n")  
 tic = time.time()
-for i, maskedfilepath in enumerate(fullMetaData['filename']):
-    # Extract file information
-    file_info = fullMetaData.iloc[i,:]
-    date = file_info['date(YEARMODA)']
-    conc = file_info['Food_Conc']
-    assaytype = file_info['Food_Combination']
-    prefed = file_info['Prefed_on']
-    print("\nProcessing file: %d\n%s\nAssay:  %s\nConc:   %.3f\nPrefed: %s" % (i + 1,\
-          maskedfilepath, assaytype, conc, prefed))
-    
+for i, maskedfilepath in enumerate(fullMetaData['filename']):    
     # Plot + save worm trajectories (start/end points)
-    wormtrajectories(maskedfilepath, downsample=1, save=True)
-print("Plotting complete!\n(Time taken: %d seconds.)" % (time.time() - tic))
+    wormtrajectories(maskedfilepath, downsample=10, save=True, skip=True)
+print("Worm trajectory plotting complete!\n(Time taken: %d seconds.)" % (time.time() - tic))
 
 #%% ON/OFF FOOD
 
-import OnFood
+print("\nComputing whether worms are on/off food:\n")
+subprocess.call(['python', 'OnFood.py', ""]) # TODO: Cleanest is function 
+#os.system("python OnFood.py")
 
 #%% FOOD CHOICE
 
-import FoodChoice
+print("\nCalculating worm food preference:\n")
+subprocess.call(['python', 'FoodChoice.py'])
+#os.system("python FoodChoice.py")
 
-#%% LEAVING RATE
+#%% LEAVING EVENTS
 
-import LeavingEvents
+print("\nCalculating worm leaving events:\n")
+subprocess.call(['python', 'LeavingEvents.py'])
+#os.system("python LeavingEvents.py")
 
-#%% CLEAN UP / REMOVE FILES
+#%% CLEAN UP - Remove unwanted files
+
+# Are you sure?
+REMOVE = True
 
 # Find files by regex to be removed
-files_to_remove = lookforfiles(os.path.join(PROJECT_ROOT_DIR, 'Results', 'FoodChoice'), ".*_Summary.csv$")
-
 tic = time.time()
-print("Removing %d files.." % len(files_to_remove))
-for file in files_to_remove:
-    if os.path.exists(file):
-        os.remove(file)
+files_to_remove = lookforfiles(os.path.join(PROJECT_ROOT_DIR, 'Results', 'Plots'), ".*_FoodChoiceTS.eps$")
+
+# Remove files
+if REMOVE:
+    print("Removing %d files.." % len(files_to_remove))
+    for file in files_to_remove:
+        if os.path.exists(file):
+            os.remove(file)
 print("Done. (Time taken: %d seconds.)" % (time.time() - tic))
 
-#%% A check that files exist & have saved properly:
+#%% CHECK - if files exist & have saved properly:
 
 # Filename list
-regex_list = {"Plots": [".*_LabelledOverlayPlot.png$", ".*_FoodChoiceTS.png$", ".*_ViolinPlot.png$",\
+regex_list = {"Plots": [".*_LabelledOverlayPlot.png$", ".*_FoodChoiceTS.png$",\
                         ".*_PiePlot.png$", ".*_LeavingPlot.png$", ".*_WormTrajPlot.png$"],\
               "FoodCoords": [".*_FoodCoords.txt$"],\
               "FoodChoice": [".*_OnFood.csv$", ".*_FoodChoice_Mean.csv$",\
@@ -192,9 +202,33 @@ regex_list = {"Plots": [".*_LabelledOverlayPlot.png$", ".*_FoodChoiceTS.png$", "
               ".*_FoodChoiceSummary_Count.csv$"],\
               "LeavingRate": [".*_LeavingEvents.csv$"]}
 
+print("\nChecking all results files:\n")
 # Check files in filename list
 for folder, items in regex_list.items():
     for item in items:
         files = []
         files = lookforfiles(os.path.join(PROJECT_ROOT_DIR, 'Results', folder), item)
         print("Number of %s files found: %d" % (item.split(".*_")[-1].split(".")[0], len(files)))
+
+#%% BACTERIAL FOOD SELECTION
+filepath = "/Volumes/behavgenom$/Saul/Misc/Dirksen_2016_Caenorhabditis_Microbiome.xlsx"
+
+excelfile = pd.ExcelFile(filepath)
+worksheet = excelfile.sheet_names
+Top100_elegans = excelfile.parse(worksheet[3], skiprows=1, header=0, index_col=None)
+Top100_remanei = excelfile.parse(worksheet[4], skiprows=1, header=0, index_col=None)
+Top100_briggsae = excelfile.parse(worksheet[5], skiprows=1, header=0, index_col=None)
+
+SharedOTUs = set(Top100_elegans['OTU']).intersection(Top100_remanei['OTU'], Top100_briggsae['OTU'])
+
+colnames = list(set(Top100_elegans.columns).intersection(Top100_remanei.columns, Top100_briggsae.columns))
+SharedBiome_df = pd.DataFrame(index=SharedOTUs, columns=colnames)
+for OTU in SharedOTUs:
+    SharedBiome_df.loc[OTU] = Top100_elegans[Top100_elegans['OTU']==OTU][colnames].values
+SharedBiome_df = SharedBiome_df.reset_index(drop=True)
+
+# Save info for shared microbial species (Caenorhabditis gut flora)
+SharedBiome_df.to_csv("/Volumes/behavgenom$/Saul/Misc/Dirksen_2016_Shared_Microbiome.csv")
+
+#%% 
+print("\nFood choice analysis complete!")
