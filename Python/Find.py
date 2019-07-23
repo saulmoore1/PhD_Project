@@ -138,7 +138,12 @@ def changepath(maskedfilepath, returnpath=None, figname=None):
     else:
         print("ERROR!")
     
-#%%    
+#%%     
+def listdiff(list1, list2):
+    """  A function to return elements of a list that are different """
+    c = set(list1).union(set(list2))  # or c = set(list1) | set(list2)
+    d = set(list1).intersection(set(list2))  # or d = set(list1) & set(list2)
+    return list(c - d)
     
     
     

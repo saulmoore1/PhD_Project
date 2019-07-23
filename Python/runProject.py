@@ -55,8 +55,9 @@ print("\nPreprocessing video metadata:")
 metafilepath = os.path.join(DATA_DIR, "AuxiliaryFiles", "metadata.csv")
 metaData = pd.read_csv(metafilepath)
 
-# Retrieve filenames for missing entries in metadata
-# TODO: Make this a function
+# Retrieve filenames for entries in metadata
+
+# TODO: Make this a function?
 for i, filepath in enumerate(metaData['filename']):
     if isinstance(filepath, str):
         # If filepath exists, make sure it contains no spaces
@@ -159,32 +160,32 @@ print("Worm trajectory plotting complete!\n(Time taken: %d seconds.)" % (time.ti
 #%% ON/OFF FOOD
 
 print("\nComputing whether worms are on/off food:\n")
-subprocess.call(['python', 'OnFood.py', ""]) # TODO: Cleanest is function 
-#os.system("python OnFood.py")
+#subprocess.call(['python', 'OnFood.py', ""]) # TODO: Cleanest as a function 
+os.system("python OnFood.py")
 
 #%% FOOD CHOICE
 
 print("\nCalculating worm food preference:\n")
-subprocess.call(['python', 'FoodChoice.py'])
-#os.system("python FoodChoice.py")
+#subprocess.call(['python', 'FoodChoice.py'])
+os.system("python FoodChoice.py")
 
 #%% LEAVING EVENTS
 
 print("\nCalculating worm leaving events:\n")
-subprocess.call(['python', 'LeavingEvents.py'])
-#os.system("python LeavingEvents.py")
+#subprocess.call(['python', 'LeavingEvents.py'])
+os.system("python LeavingEvents.py")
 
 #%% CLEAN UP - Remove unwanted files
 
 # Are you sure?
-REMOVE = True
+CLEAN_UP = True
 
 # Find files by regex to be removed
 tic = time.time()
 files_to_remove = lookforfiles(os.path.join(PROJECT_ROOT_DIR, 'Results', 'Plots'), ".*_FoodChoiceTS.eps$")
 
 # Remove files
-if REMOVE:
+if CLEAN_UP:
     print("Removing %d files.." % len(files_to_remove))
     for file in files_to_remove:
         if os.path.exists(file):

@@ -22,11 +22,19 @@ from Save import savefig
 #%% FUNCTIONS
 def onfood(poly_dict, df, returnNone=True):
     """ A function for evaluating whether a set of coordinates fall inside/outside 
-        of polygon regions/shapes. It takes as its input: (1) a dictionary of 
-        polygon (eg. food region) x,y coords, (2) a dataframe of worm centroid 
-        x,y coords by frame_number from Tierpsy-generated featuresN data. The 
-        dataframe is returned with a presence/absence truth matrix appended
+        of polygon regions/shapes. 
+        
+        INPUTS:
+            
+        (1) poly_dict - a dictionary of polygon (eg. food region) x,y coords, 
+        (2) df - a dataframe of worm centroid x,y coords by frame_number from Tierpsy
+            generated featuresN data. 
+        (Optional)
+        (3) returnNone - True*/False; return proportion off-food as well? 
+            
+        The dataframe is returned with a presence-absence truth matrix appended 
         (ie. on food/not on food). """
+        
     for key, values in poly_dict.items():
         polygon = mpath.Path(values, closed=True)
         df[key] = polygon.contains_points(df[['x','y']])
@@ -42,6 +50,7 @@ def foodchoice(df, mean=True, std=False, tellme=False):
         of worms present in each food region (columns) in each frame (rows). 
         It takes as input: a dataframe (truth matrix) of ON/OFF food for each 
         tracked entity in each frame. If mean=False, returns counts on/off food. """
+        
     colnames = list(df.columns[4:])
     # Super-vectorized pandas operations using 'groupby'
     if not mean:
@@ -101,6 +110,7 @@ def leavingeventsroll(df, nfood=2, window=50, removeNone=True):
         as input, a dataframe comprising a truth matrix of (on food/
         not on food) (rows=len(trajectory_data),columns=food), and returns a 
         dataframe of leaving rates for each worm ID tracked by Tierpsy. """
+        
     colnames = df.columns.values.tolist()
     if removeNone:
         colnames.remove('None')
@@ -133,6 +143,7 @@ def leavingevents(df, window=50, removeNone=True, plot=True, savePath=None):
     """ A function to investigate how long worms leave the food for. It accepts
         as input a truth matrix of ON/OFF food returns a dataframe of leaving event information.
         - savePath --plots a time-series plot of leaving events and saves to file path provided. """
+        
     colnames = list(df.select_dtypes(include=['bool']).columns.copy())
     if removeNone:
         colnames.remove('None')
@@ -209,6 +220,7 @@ def leavingevents(df, window=50, removeNone=True, plot=True, savePath=None):
 def movingaverage(x, N):
     """ A function for calculating a moving average along given vector x, 
         by a sliding window size of N. """
+        
     cumsum = np.cumsum(np.insert(x.values, 0, 0))
     return (cumsum[N:] - cumsum[:-N]) / float(N)
 

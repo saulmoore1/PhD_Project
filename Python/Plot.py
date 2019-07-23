@@ -21,6 +21,7 @@ from Save import savefig
 #%% FUNCTIONS
 def hexcolours(n):
     """ A function for generating a list of n hexadecimal colours for plotting. """
+    
     hex_list = []
     HSV = [(x*1/n,0.5,0.5) for x in range(n)]
     # Generate RGB hex code
@@ -31,13 +32,16 @@ def hexcolours(n):
 
 #%%
 def hex2rgb(hex):
+    """ A function for converting from hexadecimal to RGB colour format for plotting. """
+    
     hex = hex.lstrip('#')
     hlen = len(hex)
     return tuple(int(hex[i:i+hlen//3], 16) for i in range(0, hlen, hlen//3))
 
 #%%
 def plotbrightfield(maskedfilepath, frame, **kwargs):
-    """ Plot the first bright-field image of a given masked HDF5 video (file path). """
+    """ Plot the first bright-field image of a given masked HDF5 video. """
+    
     with h5py.File(maskedfilepath, 'r') as f:
         if frame == 'all':
             # Extract all frames and take the brightest pixels over time
@@ -54,6 +58,7 @@ def plotbrightfield(maskedfilepath, frame, **kwargs):
 def plottrajectory(fig, ax, featurefilepath, downsample=10):
     """ Overlay feature file trajectory data onto existing figure. 
         NB: Plot figure and axes objects must both be provided on function call. """
+        
     df = gettrajdata(featurefilepath)
     # Downsample frames for plotting
     if downsample < 1 or downsample == None: # Input error handling
@@ -74,6 +79,7 @@ def drawpoly(plt, n_poly=2):
         number of polygons (eg. oulining food patches) on an image and return 
         them as a dictionary (keys=polygons,values=xycoords). 
         NB: For assigning labels to polygons, see 'labelpoly'. """
+        
     poly_dict = {}
     for polygon in range(n_poly):
         print("Draw polygon %d" % (polygon + 1))
@@ -86,6 +92,7 @@ def drawpoly(plt, n_poly=2):
 def labelpoly(fig, ax, poly_dict):
     """ A function that accepts keyboard input from the user to assign labels 
         (stored as dictionary keys) to each polygon (set of x,y coords). """
+        
     labels = list(poly_dict.keys())
     colours = hexcolours(len(labels))
     for i, key in enumerate(labels):
@@ -99,6 +106,7 @@ def labelpoly(fig, ax, poly_dict):
 def plotpoly(fig, ax, poly_dict, colour=True):
     """ A function for plotting polygons onto an image from a dictionary of 
         coordinates. """
+        
     labels = list(poly_dict.keys())
     if colour:
         colours = hexcolours(len(labels))
@@ -115,6 +123,7 @@ def plotpoly(fig, ax, poly_dict, colour=True):
 #%%    
 def plotpoints(fig, ax, x, y, **kwargs):
     """ A function for plotting points onto an image. """
+    
     ax.plot(x, y, **kwargs)
     plt.show(); plt.pause(0.0001)
     return(fig, ax)
@@ -123,6 +132,7 @@ def plotpoints(fig, ax, x, y, **kwargs):
 def plotpie(df, rm_empty=True, show=True, **kwargs):
     """ A function to plot a pie chart from a labelled vector of values 
         that sum to 1. """
+        
     if rm_empty: # Remove any empty rows
         df = df.loc[df!=0]
     fig = plt.pie(df, autopct='%1.1f%%', **kwargs)
@@ -144,6 +154,7 @@ def plottimeseries(df, colour_dict, window=1000, acclimtime=0, annotate=True,\
           calculates either mean/sum
         - count (default = False) Return counts (number of worms), not mean proportion of worms
     """
+    
     # List of food labels + dictionary keys for plot colours
     food_labels = list(df.columns.levels[0])
     colour_keys = [food.split('_')[0] for food in food_labels]
@@ -214,7 +225,7 @@ def plottimeseries(df, colour_dict, window=1000, acclimtime=0, annotate=True,\
     return(plt)
 
 #%%    
-def manuallabelling(maskedfilepath, save=True, skip=True):
+def manuallabelling(maskedfilepath, n_poly=2, save=True, skip=True, out_dir="FoodChoiceAssay"):
     """ A function written to assist with the manual labelling of food regions in the worm
         food choice assay video recordings. Food regions are given labels and coordinates
         are saved to file. If a coordinate file already exists for the video, the file
@@ -225,10 +236,11 @@ def manuallabelling(maskedfilepath, save=True, skip=True):
         - Save plot (default, save=True)
         - Skips files which have already been labelled (default, skip=True)
     """
+    
     featurefilepath = maskedfilepath.replace(".hdf5", "_featuresN.hdf5")
     featurefilepath = featurefilepath.replace("MaskedVideos/", "Results/")
     coordfilepath = maskedfilepath.replace("Priota/Data/FoodChoiceAssay/MaskedVideos/",\
-                                           "Saul/FoodChoiceAssay/Results/FoodCoords/")
+                                           ("Saul/"+out_dir+"/Results/FoodCoords/"))
     coordfilepath = coordfilepath.replace(".hdf5", "_FoodCoords.txt")
     plotpath = coordfilepath.replace("FoodCoords/", "Plots/")
     plotpath = plotpath.replace("_FoodCoords.txt", "_LabelledOverlayPlot.png")
@@ -248,7 +260,7 @@ def manuallabelling(maskedfilepath, save=True, skip=True):
             # USER INPUT: Draw polygons around food regions in the assay
             print("Manually outline food regions.\nLeft click - add a point.\n\
                    Right click - remove a point.\nMiddle click - next")
-            poly_dict = drawpoly(plt, n_poly=2) #TODO: Make input
+            poly_dict = drawpoly(plt, n_poly=n_poly) #TODO: Make input
             plt.show()
             # TODO: Check that assay not bumped by using last frames for rest of analysis
             
@@ -289,6 +301,7 @@ def wormtrajectories(maskedfilepath, downsample=1, save=True, skip=True):
         - downsample=1 -- set step size for frame downsampling
         - save=True -- if true, plots are saved to file
     """
+    
     # Specify file paths
     featurefilepath = maskedfilepath.replace(".hdf5", "_featuresN.hdf5")
     featurefilepath = featurefilepath.replace("MaskedVideos/", "Results/")
