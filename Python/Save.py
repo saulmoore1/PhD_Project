@@ -14,9 +14,9 @@ from matplotlib import pyplot as plt
 
 #%% FUNCTIONS
 def savefig(Path, tight_layout=True, tellme=True, saveFormat='eps', **kwargs):
-    """ Function for easy plot saving. A simple wrapper for plt.savefig """
+    """ Helper function for easy plot saving. A simple wrapper for plt.savefig """
     if tellme:
-        print("Saving figure:", os.path.basename(Path))
+        print("\nSaving figure:", os.path.basename(Path))
     if tight_layout:
         plt.tight_layout()
     if saveFormat == 'eps':

@@ -231,7 +231,32 @@ def movingbins(x, binsize=1000):
                  np.histogram(x, bins=int(np.round(len(x)/binsize)))[0])
     return bin_means
 
-#%%
+#%%    
+def pcainfo(pca, zdf):
+    """ A function to plot PCA explained variance, and print the top 10 most 
+        important features in the first principle component (P.C.) """
+    
+    cum_expl_var_frac = np.cumsum(pca.explained_variance_ratio_)
+
+    # Plot explained variance
+    fig, ax = plt.subplots()
+    plt.plot(range(1,len(cum_expl_var_frac)+1),
+             cum_expl_var_frac,
+             marker='o')
+    ax.set_xlabel('P.C. #')
+    ax.set_ylabel('explained $\sigma^2$')
+    ax.set_ylim((0,1.05))
+    fig.tight_layout()
+    
+    # print important features
+    important_feats = zdf.columns[np.argsort(pca.components_[0]**2)[-10:][::-1]]
+    
+    print("Top features in first principle component:")
+    for feat in important_feats:
+        print(feat)
+
+    return important_feats, fig
+
 
 
 

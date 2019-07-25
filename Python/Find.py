@@ -118,10 +118,6 @@ def changepath(maskedfilepath, returnpath=None, figname=None):
             outfilepath = maskedfilepath.replace("Priota/Data/FoodChoiceAssay/MaskedVideos/",\
                                                  "Saul/FoodChoiceAssay/Results/FoodChoice/")
             outfilepath = outfilepath.replace(".hdf5", "_Summary.csv")
-#        elif returnpath == 'leavingevents':
-#            outfilepath = maskedfilepath.replace("Priota/Data/FoodChoiceAssay/MaskedVideos/",\
-#                                                 "Saul/FoodChoiceAssay/Results/LeavingRate/")
-#            outfilepath = outfilepath.replace(".hdf5", "_leavingevents_true.csv")
         elif returnpath == 'plots':
             if figname:
                 outfilepath = maskedfilepath.replace("Priota/Data/FoodChoiceAssay/MaskedVideos/",\
@@ -131,8 +127,8 @@ def changepath(maskedfilepath, returnpath=None, figname=None):
                 print("Please provide figname for plot!")
     else:
         print("Please select from the following options for returnpath:\
-              \n['features', 'coords', 'onfood', 'foodchoice', 'summary', 'plots']")
-    
+              \n['features', 'skeletons', 'intensities', 'coords', 'onfood', \
+              'foodchoice', 'summary', 'plots']")
     if outfilepath:
         return(outfilepath)
     else:

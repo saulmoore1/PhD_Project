@@ -8,6 +8,7 @@ MODULE: PLOT
 
 """
 
+#TODO: Change module names to reasonable names eg. foodplotlib.py
 # IMPORTS
 import os, h5py, colorsys
 import numpy as np
