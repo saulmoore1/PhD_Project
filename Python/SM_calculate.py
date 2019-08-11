@@ -61,7 +61,6 @@ def foodchoice(df, mean=True, std=False, tellme=False):
             out_df = df.groupby('frame_number').agg(fundict)
         else:
             out_df = df.groupby(['frame_number'])[colnames].mean()
-    
     if tellme:
         if not mean:
             for i, food in enumerate(colnames):
@@ -72,7 +71,6 @@ def foodchoice(df, mean=True, std=False, tellme=False):
                 for i, food in enumerate(colnames):
                     print("Mean percentage feeding on %s: %.2f%%"\
                           % (food, sum(out_df[food]['mean'])/len(out_df[food]['mean'])*100))
-
             else:
                 for i, food in enumerate(colnames):
                     print("Mean percentage feeding on %s: %.2f%%"\
@@ -117,7 +115,6 @@ def leavingeventsroll(df, nfood=2, window=50, removeNone=True):
     
     # Pre-allocate growing dataframe to store leaving event data
     out_df = pd.DataFrame(columns=colnames) # dtype=int for speed?
-    
     df_group_worm = df.groupby(['worm_id'])
     unique_worm_ids = np.unique(df['worm_id'])
     for worm in unique_worm_ids:
@@ -147,7 +144,7 @@ def leavingevents(df, window=50, removeNone=True, plot=True, savePath=None):
     colnames = list(df.select_dtypes(include=['bool']).columns.copy())
     if removeNone:
         colnames.remove('None')
-    foods = copy.deepcopy(colnames) # TODO: FIX
+    foods = copy.deepcopy(colnames) # TODO: Do not rely on deepcopy here!
     colnames.append('leaving_duration_nframes')
     df_group_worm = df.groupby(['worm_id'])
     worm_ids = np.unique(df['worm_id'])
@@ -208,14 +205,6 @@ def leavingevents(df, window=50, removeNone=True, plot=True, savePath=None):
             savefig(savePath, tight_layout=True, tellme=True, saveFormat='png')
     return(out_df)
 
-#%%    
-#def leavingstats(df, tellme=False):
-#    """ A function to compute summary statistics for food choice assay leaving 
-#        event data. Returns: mean, median, std, stderr, conf_min & conf_max of
-#        the rate of leaving events from each food source. """
-#    summary_df = df
-#    return(summary_df)
-
 #%%        
 def movingaverage(x, N):
     """ A function for calculating a moving average along given vector x, 
@@ -226,6 +215,9 @@ def movingaverage(x, N):
 
 #%%
 def movingbins(x, binsize=1000):
+    """
+    
+    """
     x = x.values
     bin_means = (np.histogram(x, bins=int(np.round(len(x)/binsize)), weights=x)[0] /
                  np.histogram(x, bins=int(np.round(len(x)/binsize)))[0])
@@ -238,7 +230,7 @@ def ranksumtest(test_data, control_data):
     
     Returns
     -------
-    2 lists: a list of test statistics, and an associated list of p-values
+    2 lists: a list of test statistics, and a list of associated p-values
     """
     
     colnames = list(test_data.columns)
@@ -254,37 +246,5 @@ def ranksumtest(test_data, control_data):
         statistics[j] = statistic
         
     return statistics, pvalues
-
-#%%    
-def pcainfo(pca, zdf):
-    """ A function to plot PCA explained variance, and print the top 10 most 
-        important features in the first principle component (P.C.) """
-    
-    cum_expl_var_frac = np.cumsum(pca.explained_variance_ratio_)
-
-    # Plot explained variance
-    fig, ax = plt.subplots()
-    plt.plot(range(1,len(cum_expl_var_frac)+1),
-             cum_expl_var_frac,
-             marker='o')
-    ax.set_xlabel('P.C. #')
-    ax.set_ylabel('explained $\sigma^2$')
-    ax.set_ylim((0,1.05))
-    fig.tight_layout()
-    
-    # print important features
-    important_feats = zdf.columns[np.argsort(pca.components_[0]**2)[-10:][::-1]]
-    
-    print("Top features in first principle component:")
-    for feat in important_feats:
-        print(feat)
-
-    return important_feats, fig
-
-
-
-
-
-
 
 

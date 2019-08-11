@@ -8,7 +8,6 @@ MODULE: PLOT
 
 """
 
-#TODO: Change module names to reasonable names eg. foodplotlib.py
 # IMPORTS
 import os, h5py, colorsys
 import numpy as np
@@ -226,7 +225,7 @@ def plottimeseries(df, colour_dict, window=1000, acclimtime=0, annotate=True,\
     return(plt)
 
 #%%    
-def manuallabelling(maskedfilepath, n_poly=2, save=True, skip=True, out_dir="FoodChoiceAssay"):
+def manuallabelling(maskedfilepath, n_poly=2, save=True, skip=True, out_dir="MicrobiomeAssay"):
     """ A function written to assist with the manual labelling of food regions in the worm
         food choice assay video recordings. Food regions are given labels and coordinates
         are saved to file. If a coordinate file already exists for the video, the file
@@ -240,8 +239,8 @@ def manuallabelling(maskedfilepath, n_poly=2, save=True, skip=True, out_dir="Foo
     
     featurefilepath = maskedfilepath.replace(".hdf5", "_featuresN.hdf5")
     featurefilepath = featurefilepath.replace("MaskedVideos/", "Results/")
-    coordfilepath = maskedfilepath.replace("Priota/Data/FoodChoiceAssay/MaskedVideos/",\
-                                           ("Saul/"+out_dir+"/Results/FoodCoords/"))
+    coordfilepath = maskedfilepath.replace("Priota/Data/"+out_dir+"/MaskedVideos/",\
+                                           "Saul/"+out_dir+"/Results/FoodCoords/")
     coordfilepath = coordfilepath.replace(".hdf5", "_FoodCoords.txt")
     plotpath = coordfilepath.replace("FoodCoords/", "Plots/")
     plotpath = plotpath.replace("_FoodCoords.txt", "_LabelledOverlayPlot.png")
@@ -261,9 +260,10 @@ def manuallabelling(maskedfilepath, n_poly=2, save=True, skip=True, out_dir="Foo
             # USER INPUT: Draw polygons around food regions in the assay
             print("Manually outline food regions.\nLeft click - add a point.\n\
                    Right click - remove a point.\nMiddle click - next")
-            poly_dict = drawpoly(plt, n_poly=n_poly) #TODO: Make input
+            poly_dict = drawpoly(plt, n_poly=n_poly)
             plt.show()
-            # TODO: Check that assay not bumped by using last frames for rest of analysis
+            
+            # TODO: Check that assay not jogged during recording by using last frames for rest of analysis
             
             # USER INPUT: Assign labels to food regions
             poly_dict = labelpoly(fig, ax, poly_dict)
@@ -357,3 +357,35 @@ def wormtrajectories(maskedfilepath, downsample=1, save=True, skip=True):
             savefig(plotpath, saveFormat='png', tellme=True)  
 
 #%%
+def pcainfo(pca, zscores, PC=1, n_feats2print=10):
+    """ A function to plot PCA explained variance, and print the most 
+        important features in the given principle component (P.C.) """
+    
+    # Input error handling
+    PC = int(PC)
+    if PC == 0:
+        PC += 1
+    elif PC < 1:
+        PC = abs(PC)
+        
+    cum_expl_var_frac = np.cumsum(pca.explained_variance_ratio_)
+
+    # Plot explained variance
+    fig, ax = plt.subplots()
+    plt.plot(range(1,len(cum_expl_var_frac)+1),
+             cum_expl_var_frac,
+             marker='o')
+    ax.set_xlabel('P.C. #')
+    ax.set_ylabel('explained $\sigma^2$')
+    ax.set_ylim((0,1.05))
+    fig.tight_layout()
+    
+    # print important features
+    important_feats = zscores.columns[np.argsort(pca.components_[PC-1]**2)[-n_feats2print:][::-1]]
+    
+    print("\nTop %d features in Principal Component %d:\n" % (n_feats2print, PC))
+    for feat in important_feats:
+        print(feat)
+
+    return important_feats, fig
+

@@ -159,10 +159,9 @@ if __name__ == '__main__':
                             metadata.loc[i,'filename'] = os.path.dirname(file)
                             
     matches = sum([isinstance(path, str) for path in metadata.filename]) - n_filepaths
-    print("Complete!\n%d filenames added." % matches)
+    print("Complete!\n%d/%d filenames added." % (matches, sum(date_total)/11))
                   
     # Get list of pathnames for featuresN files
-    print("\nSearching for results files..")
     featuresNlist = []
     for i, expDate in enumerate(IMAGING_DATES):
         tmplist = lookforfiles(os.path.join(DATA_DIR, "Results", expDate), ".*_featuresN.hdf5$")
@@ -198,12 +197,15 @@ if __name__ == '__main__':
             n_featuresN = len(featlist)
             metadata.loc[i, 'n_featuresN_files'] = n_featuresN
             
-    print("Complete!\n(Metadata updated: Added number of video chunks + features files)")
+    print("(Metadata updated: Added number of video chunks + features files)")
     
     #print("%d extra chunks found (11th video segment)" % extra_chunk)
     
+    # Convert food_type column to uppercase
+    metadata['food_type'] = metadata['food_type'].str.upper()
+    
     # Save full metadata
-    print("\nSaving updated metadata...")
+    print("Saving updated metadata...")
     metadata.to_csv(os.path.join(PROJECT_ROOT_DIR, "metadata.csv"), index=False)
     
     # Record script end time

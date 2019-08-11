@@ -22,7 +22,7 @@ def savefig(Path, tight_layout=True, tellme=True, saveFormat='eps', **kwargs):
     if saveFormat == 'eps':
         plt.savefig(Path, format=saveFormat, dpi=600, **kwargs)
     else:
-        plt.savefig(Path, format=saveFormat, dpi=900, **kwargs)
+        plt.savefig(Path, format=saveFormat, dpi=600, **kwargs)
     if tellme:
         print("Done.")
 
