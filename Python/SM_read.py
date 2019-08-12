@@ -23,17 +23,13 @@ def gettrajdata(featuresfilepath):
         and extract the following info as a dataframe:
         ['coord_x', 'coord_y', 'frame_number', 'worm_index_joined'] """
     # Read HDF5 file + extract info
-    try:
-        with h5py.File(featuresfilepath, 'r') as f:
-            df = pd.DataFrame({'x': f['trajectories_data']['coord_x'],\
-                               'y': f['trajectories_data']['coord_y'],\
-                               'frame_number': f['trajectories_data']['frame_number'],\
-                               'worm_id': f['trajectories_data']['worm_index_joined']})
+    with h5py.File(featuresfilepath, 'r') as f:
+        df = pd.DataFrame({'x': f['trajectories_data']['coord_x'],\
+                           'y': f['trajectories_data']['coord_y'],\
+                           'frame_number': f['trajectories_data']['frame_number'],\
+                           'worm_id': f['trajectories_data']['worm_index_joined']})
 #                              {'midbody_speed': f['timeseries_data']['speed_midbody']}
-        return(df)
-    except Exception as EE:
-        print("WARNING: %s" % str(EE))
-        print("FAILED to read file!")
+    return(df)
 #        f = tables.open_file(featuresfilepath)
 #        table = f.get
         
