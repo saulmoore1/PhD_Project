@@ -6,12 +6,10 @@
 
 Bacterial effects on Caenorhabditis elegans behaviour 
 - Microbiome strains
-- Bacillus and E. coli strains
 
 This script reads Tierpsy results for experimental data collected as part of the 
 preliminary screening of Schulenberg Lab bacterial strains isolated from the C. 
-elegans gut microbiome, as well as several other strains previously reported
-to affect C. elegans behaviour. It does the following:
+elegans gut microbiome. It does the following:
 
 - Reads the project metadata file, and completes missing filepath info
 - Checks for results files (features/skeletons/intensities)
@@ -55,15 +53,6 @@ from SM_clean import cleanSummaryResults
 
 verbose = True
 
-# Global variables
-PROJECT_NAME = 'MicrobiomeAssay'
-PROJECT_ROOT_DIR = '/Volumes/behavgenom$/Saul/' + PROJECT_NAME
-DATA_DIR = '/Volumes/behavgenom$/Priota/Data/' + PROJECT_NAME
-
-# Select imaging date(s) for analysis
-IMAGING_DATES = ['20190704','20190705','20190711','20190712','20190718','20190719'] 
-dates2exclude = []#[20190711]
-
 # Filter params
 snippet = 0
 preconditioned_from_L4 = True
@@ -83,11 +72,26 @@ rotate = True
 depthshade = False
 
 # tSNE params
-perplexity = [100, 50, 30, 5]
+perplexity = np.arange(5,51,5)
 
 # UMAP params
-n_neighbours = [3, 5, 10, 20]
+n_neighbours = [3,5,10,15,20,25,30]
 min_dist = 0.3
+
+# Global variables
+PROJECT_NAME = 'MicrobiomeAssay'
+PROJECT_ROOT_DIR = '/Volumes/behavgenom$/Saul/' + PROJECT_NAME
+DATA_DIR = '/Volumes/behavgenom$/Priota/Data/' + PROJECT_NAME
+
+# Select imaging date(s) for analysis
+IMAGING_DATES = ['20190704','20190705','20190711','20190712','20190718','20190719']
+dates2exclude = []#[20190711]
+
+# Schulenburg et al microbiome strain names (core set)
+MICROBIOME_STRAINS = ['MYB9','MYB10','MYB11','MYB27','MYB45','MYB53','MYB71',\
+                      'MYB131','MYB181','BIGB0170','BIGB0172','BIGB0170',\
+                      'BIGB393','CENZENT1','JUB19','JUB44','JUB66','JUB134','PM']
+MICROBIOME_STRAINS.insert(0, 'OP50')
 
 
 #%% PROCESS METADATA
@@ -104,11 +108,13 @@ process_metadata.communicate()
 
 #%% PROCESS FEATURE SUMMARY RESULTS
 
-# Use subprocess to call 'process_metadata.py', passing imaging dates as arguments to the script
-print("\nProcessing feature summary results...")
-metadata_filepath = os.path.join(PROJECT_ROOT_DIR, "metadata.csv")
-process_feature_summary = sp.Popen([sys.executable, "process_feature_summary.py", metadata_filepath, *IMAGING_DATES])
-process_feature_summary.communicate()
+# =============================================================================
+# # Use subprocess to call 'process_metadata.py', passing imaging dates as arguments to the script
+# print("\nProcessing feature summary results...")
+# metadata_filepath = os.path.join(PROJECT_ROOT_DIR, "metadata.csv")
+# process_feature_summary = sp.Popen([sys.executable, "process_feature_summary.py", metadata_filepath, *IMAGING_DATES])
+# process_feature_summary.communicate()
+# =============================================================================
 
 
 #%% READ METADATA
@@ -130,7 +136,7 @@ if any(list(~np.array(is_filename))):
     # Reset index
     metadata.reset_index(drop=True, inplace=True)
     
-
+    
 #%% CHECK FEATURES N RESULTS - TRY TO READ TRAJECTORY DATA
 
 ERROR_LIST = []
@@ -169,11 +175,12 @@ else:
 # =============================================================================
 
 #%% READ + FILTER + CLEAN SUMMARY RESULTS
-# - Subset to look at results for first video snippets only
-# - Subset to look at results for L4-preconditioned worms only
-# - Remove columns with all zeros
-# - Remove columns with too many NaNs (>75%)
-# - Impute remaining NaN values (using mean feature value for each food)
+# - Subset for Schulenburg microbiome strains only (rows)
+# - Subset to look at results for first video snippets only (rows)
+# - Subset to look at results for L4-preconditioned worms only (rows)
+# - Remove features with all zeros (columns)
+# - Remove features with too many NaNs (>75%, columns)
+# - Impute remaining NaN values (with global mean or mean value for group, ie. food)
 
 # Read feature summary results
 results_inpath = os.path.join(PROJECT_ROOT_DIR, 'Results', 'fullresults.csv')
@@ -193,18 +200,22 @@ droppedlist_out = os.path.join(PROJECT_ROOT_DIR, 'Results', 'Dropped_Features_Al
 fid = open(droppedlist_out, 'w')
 print(*droppedFeatsList_allZero, file=fid)
 fid.close()
-    
+
+# Filter for data for bacterial strains that are part of the microbiome 'core set'
+L4_1st_snippets_df = L4_1st_snippets_df[L4_1st_snippets_df['food_type'].isin(MICROBIOME_STRAINS)]
+
+# Filter for selected imaging dates
+L4_1st_snippets_df = L4_1st_snippets_df[L4_1st_snippets_df['date_yyyymmdd'].isin(IMAGING_DATES)]
+
 # Record the bacterial strain names for use in analyses
 bacterial_strains = list(np.unique(L4_1st_snippets_df['food_type'].str.lower()))
 
-# OPTIONAL: Exclude certain imaging dates from PCA
-L4_1st_snippets_df = L4_1st_snippets_df[~L4_1st_snippets_df['date_yyyymmdd'].isin(dates2exclude)]
-
 
 #%% PERFORM STATISTICAL TESTS 
-# - Looks at first segment only  
-# - Starts with L4-prefed worms (long exposure to food)
-#   TODO: Looks to see if response data are homoscedastic / not normally distributed
+# - Investigate microbiome strains only
+# - Look at first segment only  
+# - Start with L4-prefed worms (long exposure to food)
+#   TODO: Look to see if response data are homoscedastic / not normally distributed
 # - T-TESTS + RANK-SUM TESTS for pairwise differences in features between each food and OP50 control
 # - ANOVAs + KRUSKAL-WALLIS TESTS for features that vary significantly across all foods (incl. OP50/DA1880/DA1885)
 # - Bonferroni correction for multiple comparisons (also, many features are highly correlated)
@@ -212,7 +223,7 @@ L4_1st_snippets_df = L4_1st_snippets_df[~L4_1st_snippets_df['date_yyyymmdd'].isi
 
 tests = [ttest_ind, ranksumtest, f_oneway, kruskal]#, AnovaRM]
 
-test_bacteria = [strain for strain in bacterial_strains if strain != 'op50']
+test_bacteria = [strain for strain in bacterial_strains if strain != "op50"]
 
 # Filter feature summary results for OP50 control
 OP50_control_df = L4_1st_snippets_df[L4_1st_snippets_df['food_type'].str.lower() == "op50"]
@@ -318,6 +329,14 @@ for test in tests:
         test_cols = list(feature_colnames)
         test_cols.insert(0, 'food_type')
         test_data = L4_1st_snippets_df[test_cols]
+        
+        # Drop columns that contain only zeros
+        n_cols = len(test_data.columns)
+        test_data = test_data.drop(columns=test_data.columns[(test_data == 0).all()])
+        
+        zero_cols = n_cols - len(test_data.columns)
+        if verbose:
+            print("Dropped %d feature summaries for %s (all zeros)" % (zero_cols, test_name))
 
         # Perform 1-way ANOVAs for each feature between the test bacteria 
         # (NB: Post-hoc analysis (eg.Tukey HSD) allows for pairwise comparisons between foods for each feature)
@@ -353,9 +372,9 @@ for test in tests:
         sigfeats_out = pd.DataFrame(sigfeats_out)
         
     # Save test statistics to file
-    stats_outpath = os.path.join(PROJECT_ROOT_DIR, 'Results', 'Stats', 'L4_snippet_1',\
+    stats_outpath = os.path.join(PROJECT_ROOT_DIR, 'Results', 'Microbiome_Strains', 'Stats', 'L4_snippet_1',\
                                  test_name, test_name + '_results.csv')
-    sigfeats_outpath = os.path.join(PROJECT_ROOT_DIR, 'Results', 'Stats', 'L4_snippet_1',\
+    sigfeats_outpath = os.path.join(PROJECT_ROOT_DIR, 'Results', 'Microbiome_Strains', 'Stats', 'L4_snippet_1',\
                                     test_name, test_name + '_significant_features.csv')
     
     # Make parent directory if it does not exist
@@ -369,7 +388,7 @@ for test in tests:
     # Save feature list to text file
     sigfeats_out.to_csv(sigfeats_outpath, index=False)
 
-# TODO: MANOVA (because response data are not independent, dimensionality reduction techniques involving eigenvalues)?
+# TODO: MANOVA (because response data are not independent - a dimensionality reduction technique involving eigenvalues)?
 # TODO: Make into a script/functions and use to look for differences between L4-prefed vs. Naive adults 
 # - time dependence? does it take time for food-behavioural effects to emerge?
 # naive_1st_snippets_df = first_snippets_df[first_snippets_df['preconditioned_from_L4'].str.lower() == "no"]
@@ -381,7 +400,7 @@ for test in tests:
 # - Plot features that show significant differences from behaviour on OP50
 
 tic = time.time()
-test_names = ['ranksumtest','ttest_ind']
+test_names = ['ranksumtest']#,'ttest_ind']
 
 # Read list of important features (highlighted by previous research - see Javer, 2018 paper)
 featslistpath = os.path.join(PROJECT_ROOT_DIR,'Data','top256_tierpsy_no_blob_no_eigen_only_abs_no_norm.csv')
@@ -390,10 +409,9 @@ top256features = pd.read_csv(featslistpath)
 # Take first set of 256 features (it does not matter which set is chosen)
 top256features = top256features[top256features.columns[0]]
 
-
 for test_name in test_names:
     # Load test results (pvalues) for plotting
-    test_inpath = os.path.join(PROJECT_ROOT_DIR, 'Results', 'Stats', 'L4_snippet_1',\
+    test_inpath = os.path.join(PROJECT_ROOT_DIR, 'Results', 'Microbiome_Strains', 'Stats', 'L4_snippet_1',\
                                test_name, test_name + '_results.csv')
     test_pvalues_df = pd.read_csv(test_inpath, index_col=0)
         
@@ -407,8 +425,8 @@ for test_name in test_names:
     plt.ioff()
     for f, feature in enumerate(features2plot):
         # NB: Currently n=6 L4 first snippet replicates for each bacterial food (1 imaging date per food) to date
-        plotpath_out = os.path.join(PROJECT_ROOT_DIR, "Results", "Plots", "L4_snippet_1", "All", "Top256_Javer_2018",\
-                            test_name, feature + '_L4_snippet_1' + '.eps')
+        plotpath_out = os.path.join(PROJECT_ROOT_DIR, "Results", "Microbiome_Strains", "Plots", "L4_snippet_1", "All", "Top256_Javer_2018",\
+                                    feature + '_L4_snippet_1' + '.eps')
         if not os.path.exists(plotpath_out):
             print("Plotting feature: '%s'" % feature)
             # Seaborn boxplots for each feature
@@ -446,7 +464,7 @@ print("Time taken: %.1f seconds" % (toc - tic))
 # - Plot features separately with feature as title and in separate folders for each food
 
 # Parameters
-test_names = ['ttest_ind','ranksumtest']
+test_names = ['ranksumtest'] # 'ttest_ind'
 n_top_features = 10
 show_plot = False
 
@@ -457,7 +475,7 @@ else:
 for test_name in test_names:
     print("\nPlotting box plots of top %d highest ranked features by '%s':\n" % (n_top_features, test_name))
     # Read test results (pvalues)
-    test_results_inpath = os.path.join(PROJECT_ROOT_DIR, 'Results', 'Stats', 'L4_snippet_1',\
+    test_results_inpath = os.path.join(PROJECT_ROOT_DIR, 'Results', 'Microbiome_Strains', 'Stats', 'L4_snippet_1',\
                                        test_name, test_name + '_results.csv')
     test_pvalues_df = pd.read_csv(test_results_inpath, index_col=0)
 
@@ -526,8 +544,8 @@ for test_name in test_names:
                           borderaxespad=0.4, frameon=False, fontsize=15)
                 
                 # Save figure
-                plots_outpath = os.path.join(PROJECT_ROOT_DIR, 'Results', 'Plots', 'L4_snippet_1', food, test_name,\
-                                             feature + '_Rank_{0}.eps'.format(f + 1))
+                plots_outpath = os.path.join(PROJECT_ROOT_DIR, 'Results', 'Microbiome_Strains', 'Plots', 'L4_snippet_1', food,\
+                                             feature + '_' + test_name + '_{0}.eps'.format(f + 1))
                 directory = os.path.dirname(plots_outpath)
                 if not os.path.exists(directory):
                     os.makedirs(directory)
@@ -542,7 +560,7 @@ for test_name in test_names:
 #   groups for each food - does OP50 control form a nice group?
 
 # Read list of important features (highlighted by previous research - see Javer, 2018 paper)
-featslistpath = os.path.join(PROJECT_ROOT_DIR,'Data','top256_tierpsy_no_blob_no_eigen_only_abs_no_norm.csv')
+featslistpath = os.path.join(PROJECT_ROOT_DIR, 'Data', 'top256_tierpsy_no_blob_no_eigen_only_abs_no_norm.csv')
 top256features = pd.read_csv(featslistpath)
 
 # Take first set of 256 features (it does not matter which set is chosen)
@@ -555,10 +573,13 @@ colnames_data = colnames_all[25:]
 L4_1st_snippets_data = L4_1st_snippets_df[colnames_data]
 L4_1st_snippets_nondata = L4_1st_snippets_df[colnames_nondata]
 
-plotroot = os.path.join(PROJECT_ROOT_DIR, 'Results', 'Plots', 'L4_snippet_1', 'All', 'HCA')
+plotroot = os.path.join(PROJECT_ROOT_DIR, 'Results', 'Microbiome_Strains', 'Plots', 'L4_snippet_1', 'All', 'HCA')
 
 # Normalise the data (z-scores)
 zscores = L4_1st_snippets_data.apply(zscore, axis=0)
+
+# Drop features with NaN values after normalising
+zscores.dropna(axis=1, inplace=True)
 
 # Heatmap (clustergram) of Top10 features per food (n=45)
 plt.close('all')
@@ -585,7 +606,7 @@ plt.show(); plt.pause(1)
                     
 #%% HIERARCHICAL CLUSTERING (HEATMAP) - ALL FOODS - STATS TEST TOP FEATURES
 
-test_names = ['ranksumtest','ttest_ind']  
+test_names = ['ranksumtest']#'ttest_ind'
 
 # Divide dataframe into 2 dataframes: data (feature summaries) and non-data (metadata)
 colnames_all = list(L4_1st_snippets_df.columns)
@@ -594,16 +615,16 @@ colnames_data = colnames_all[25:]
 L4_1st_snippets_data = L4_1st_snippets_df[colnames_data]
 L4_1st_snippets_nondata = L4_1st_snippets_df[colnames_nondata]
 
-plotroot = os.path.join(PROJECT_ROOT_DIR, 'Results', 'Plots', 'L4_snippet_1', 'All', 'HCA')
+plotroot = os.path.join(PROJECT_ROOT_DIR, 'Results', 'Microbiome_Strains', 'Plots', 'L4_snippet_1', 'All', 'HCA')
 
 for test_name in test_names:
     # Read test results (pvalues)
-    results_inPath = os.path.join(PROJECT_ROOT_DIR, 'Results', 'Stats', 'L4_snippet_1',\
+    results_inPath = os.path.join(PROJECT_ROOT_DIR, 'Results', 'Microbiome_Strains', 'Stats', 'L4_snippet_1',\
                                   test_name, test_name + '_results.csv')
     test_pvalues_df = pd.read_csv(results_inPath, index_col=0)
     
     # Read significant features list for each food
-    sigfeats_in = os.path.join(PROJECT_ROOT_DIR, 'Results', 'Stats', 'L4_snippet_1',\
+    sigfeats_in = os.path.join(PROJECT_ROOT_DIR, 'Results', 'Microbiome_Strains', 'Stats', 'L4_snippet_1',\
                                test_name, test_name + '_significant_features.csv')
     sigfeats_df = pd.read_csv(sigfeats_in)
         
@@ -643,6 +664,9 @@ for test_name in test_names:
     # Normalise the data (z-scores)
     zscores = L4_1st_snippets_data.apply(zscore, axis=0)
     
+    # Drop features with NaN values after normalising
+    zscores.dropna(axis=1, inplace=True)
+
     # Heatmap (clustergram) of Top10 features per food (n=45)
     plt.close('all')
     bacterial_strains = list(L4_1st_snippets_nondata['food_type'].unique())
@@ -672,10 +696,9 @@ for test_name in test_names:
 
     
 #%% PRINCIPAL COMPONENTS ANALYSIS (PCA) - ALL FOODS
-# - Investigate first video snippets for L4-preconditioned worms to begin with
 
 tic = time.time()
-plotroot = os.path.join(PROJECT_ROOT_DIR, 'Results', 'Plots', 'L4_snippet_1', 'All', 'PCA')
+plotroot = os.path.join(PROJECT_ROOT_DIR, 'Results', 'Microbiome_Strains', 'Plots', 'L4_snippet_1', 'All', 'PCA')
  
 # Select non-data columns to drop for PCA
 non_data_columns = L4_1st_snippets_df.columns[0:25]
@@ -783,7 +806,7 @@ else:
     
 #%% t-distributed Stochastic Neighbour Embedding (t-SNE)
 
-plotroot = os.path.join(PROJECT_ROOT_DIR, 'Results', 'Plots', 'L4_snippet_1', 'All', 'tSNE')
+plotroot = os.path.join(PROJECT_ROOT_DIR, 'Results', 'Microbiome_Strains', 'Plots', 'L4_snippet_1', 'All', 'tSNE')
 
 # Record non-data columns to drop for tSNE
 non_data_columns = L4_1st_snippets_df.columns[0:25]
@@ -817,7 +840,7 @@ for perplex in perplexity:
     ax = fig.add_subplot(1,1,1) 
     ax.set_xlabel('tSNE Component 1', fontsize=15, labelpad=12)
     ax.set_ylabel('tSNE Component 2', fontsize=15, labelpad=12)
-    ax.set_title('2-Component tSNE', fontsize=20)
+    ax.set_title('2-Component tSNE (perplexity={0})'.format(perplex), fontsize=20)
     
     bacterial_strains = tSNE_results_df['food_type'].unique()
     
@@ -841,7 +864,7 @@ for perplex in perplexity:
     
 #%% Uniform Manifold Projection (UMAP)
 
-plotroot = os.path.join(PROJECT_ROOT_DIR, 'Results', 'Plots', 'L4_snippet_1', 'All', 'UMAP')
+plotroot = os.path.join(PROJECT_ROOT_DIR, 'Results', 'Microbiome_Strains', 'Plots', 'L4_snippet_1', 'All', 'UMAP')
 
 # Record non-data columns to drop for UMAP
 non_data_columns = L4_1st_snippets_df.columns[0:25]
@@ -877,8 +900,7 @@ for n in n_neighbours:
     ax = fig.add_subplot(1,1,1) 
     ax.set_xlabel('UMAP Component 1', fontsize=15, labelpad=12)
     ax.set_ylabel('UMAP Component 2', fontsize=15, labelpad=12)
-    ax.set_title('2-Component UMAP', fontsize=20)
-    
+    ax.set_title('2-Component UMAP (n_neighbours={0})'.format(n), fontsize=20)
         
     bacterial_strains = UMAP_projection_df['food_type'].unique()
     

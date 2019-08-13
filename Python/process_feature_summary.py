@@ -4,7 +4,7 @@
 @author: sm5911
 @date: 11/08/2019
 
-PROCESS METADATA
+PROCESS FEATURES SUMMARY RESULTS
 
 A script written to process microbiome assay project feature summary results. 
 INPUTS:
@@ -65,7 +65,6 @@ if __name__ == '__main__':
     full_results_df = pd.DataFrame()
     
     for date in IMAGING_DATES:
-        # TODO: Also pass feature summary results dir to script (why need metadata dir?)
         results_dir = metadata_filepath.replace("/Saul/MicrobiomeAssay/metadata.csv", 
                                                 "/Priota/Data/MicrobiomeAssay/Results/{0}".format(date))
         

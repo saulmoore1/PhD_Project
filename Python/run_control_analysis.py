@@ -4,9 +4,9 @@
 @author: sm5911
 @date: 11/08/2019
 
-Bacterial effects on Caenorhabditis elegans behaviour 
+FOOD BEHAVIOUR CONTROL
 
-OP50 Control across imaging days
+Bacterial effects on Caenorhabditis elegans behaviour: OP50 Control across imaging days
 
 """
 
@@ -48,7 +48,7 @@ if __name__ == '__main__':
     p_value_threshold = 0.05
     
     # Plot params
-    n_top_features = 10 # Box plots
+    n_top_features = 10 # box
     
     # PCA params
     PCs_to_keep = 10
@@ -73,12 +73,17 @@ if __name__ == '__main__':
                                                                          impute_NaNs_by_group=False,\
                                                                          preconditioned_from_L4=True,\
                                                                          snippet=0, nan_threshold=0.75)
-    droppedlist_out = os.path.join(PROJECT_ROOT_DIR, 'Results', 'Dropped_Features_NaN_List.txt')
+    
+    # Save list of dropped features (cleaning step)
+    droppedlist_out = os.path.join(PROJECT_ROOT_DIR, 'Results', 'OP50_Control', 'Dropped_Features_NaN_List.txt')
+    directory = os.path.dirname(droppedlist_out)
+    if not os.path.exists(directory):
+        os.makedirs(directory)
     fid = open(droppedlist_out, 'w')
     print(*droppedFeatsList_NaN, file=fid)
     fid.close()
     
-    droppedlist_out = os.path.join(PROJECT_ROOT_DIR, 'Results', 'Dropped_Features_AllZeros_List.txt')
+    droppedlist_out = droppedlist_out.replace('NaN', 'AllZero')
     fid = open(droppedlist_out, 'w')
     print(*droppedFeatsList_allZero, file=fid)
     fid.close()
@@ -149,7 +154,7 @@ if __name__ == '__main__':
     test_name = str(test).split(' ')[1].split('.')[-1].split('(')[0].split('\'')[0]
     
     # Save test statistics to file
-    stats_outpath = os.path.join(PROJECT_ROOT_DIR, 'Results', 'Stats', 'L4_snippet_1',\
+    stats_outpath = os.path.join(PROJECT_ROOT_DIR, 'Results', 'OP50_Control', 'Stats', 'L4_snippet_1',\
                                  test_name, 'OP50_control_across_days_' + test_name + '.csv')
     directory = os.path.dirname(stats_outpath)
     if not os.path.exists(directory):
@@ -162,7 +167,7 @@ if __name__ == '__main__':
     sigfeats_out.name = 'p_value_' + test_name
     
     # Save significant features list to CSV
-    sigfeats_outpath = os.path.join(PROJECT_ROOT_DIR, 'Results', 'Stats', 'L4_snippet_1',\
+    sigfeats_outpath = os.path.join(PROJECT_ROOT_DIR, 'Results', 'OP50_Control', 'Stats', 'L4_snippet_1',\
                                     test_name, 'OP50_control_across_days_significant_features_' + test_name + '.csv')
     # Save feature list to text file
     sigfeats_out.to_csv(sigfeats_outpath)
@@ -192,12 +197,12 @@ if __name__ == '__main__':
     #rs = res2[1][2] / res2[1][3]
     #pvalues = psturng(np.abs(rs), 3, 27)
     
-    # Mantel test instead..???
+    # Mantel test?
     
     
     #%% Boxplots for most important features across days
     
-    plotroot = os.path.join(PROJECT_ROOT_DIR, 'Results', 'Plots', 'L4_snippet_1', 'OP50')
+    plotroot = os.path.join(PROJECT_ROOT_DIR, 'Results', 'OP50_Control', 'Plots', 'L4_snippet_1', 'OP50')
                  
     pvals = OP50_over_time_results_df.loc['pval_corrected']
     n_sigfeats = sum(pvals < p_value_threshold)
@@ -247,7 +252,7 @@ if __name__ == '__main__':
     
     #%% PCA of OP50 CONTROL DATA ACROSS DAYS
     
-    plotroot = os.path.join(PROJECT_ROOT_DIR, 'Results', 'Plots', 'L4_snippet_1', 'OP50')
+    plotroot = os.path.join(PROJECT_ROOT_DIR, 'Results', 'OP50_Control', 'Plots', 'L4_snippet_1', 'OP50')
     
     # Drop non-data columns for PCA
     data = OP50_dates_df.drop(columns=non_data_columns)
