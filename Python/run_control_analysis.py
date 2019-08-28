@@ -4,9 +4,10 @@
 @author: sm5911
 @date: 11/08/2019
 
-FOOD BEHAVIOUR CONTROL
+Bacterial effects on Caenorhabditis elegans behaviour 
+- FOOD BEHAVIOUR CONTROL
 
-Bacterial effects on Caenorhabditis elegans behaviour: OP50 Control across imaging days
+OP50 Control across imaging days
 
 """
 
@@ -37,79 +38,151 @@ if __name__ == '__main__':
     # PRE-AMBLE
     tic = time.time()
     
-    # Global variables
+    # Global parameters
     PROJECT_NAME = 'MicrobiomeAssay'
     PROJECT_ROOT_DIR = '/Volumes/behavgenom$/Saul/' + PROJECT_NAME
     
-    verbose = True
+    verbose = True # Print statements to track script progress?
+    preprocessing = False # Process metadata file and feature summaries files?
     
-    # Stats params
+    # Which set of bacterial strains to analyse?
+    # - OPTION: Investigate microbiome/miscellaneous/all(both) strains
+    MICROBIOME = True
+    MISCELLANEOUS = True
+    
+    # - OPTION: Look at one 12-min video snippet
+    snippet = 0 # Which video segment to analyse? # TODO: Add option - 'ALL'
+    
+    # - OPTION: L4-prefed worms (long exposure to food) or Naive adults
+    preconditioned_from_L4 = True # TODO: Make so can analyse prefed vs naive adults
+    
+    # Remove size-related features from analyses? (found to exhibit high variation across iamging dates)
+    filter_size_related_feats = False
+    
+    # Statistics parameters
     test = f_oneway
-    p_value_threshold = 0.05
+    nan_threshold = 0.75 # Threshold proportion NaNs to drop features from analysis
+    p_value_threshold = 0.05 # P-vlaue threshold for statistical analyses
     
-    # Plot params
-    n_top_features = 10 # box
+    # Dimensionality reduction parameters
+    n_top_feats_per_food = 10       # HCA - Number of top features to include in HCA (for union across foods HCA)
+    useTop256 = True                # PCA/tSNE/UMAP - Restrict to Avelino's top 256 feature list?
+    PCs_to_keep = 10                # PCA - Number of principal components to record
+    rotate = True                   # PCA - Rotate 3-D plots?
+    depthshade = False              # PCA - Shade colours on 3-D plots to show depth?
+    perplexity = [10,15,20,25,30]   # tSNE - Parameter range for t-SNE mapping eg. np.arange(5,51,1)
+    n_neighbours = [10,15,20,25,30] # UMAP - Number of neighbours parameter for UMAP projections eg. np.arange(3,31,1)
+    min_dist = 0.3                  # UMAP - Minimum distance parameter for UMAP projections
     
-    # PCA params
-    PCs_to_keep = 10
-    rotate = True
-    depthshade = False
+    # Select imaging date(s) for analysis
+    IMAGING_DATES = ['20190704','20190705','20190711','20190712','20190718','20190719',\
+                     '20190725','20190726']
     
-    # Select imaging date(s) to exclude from analysis
-    dates2exclude = [] #[20190711]
-    
-    #%% READ + FILTER + CLEAN SUMMARY RESULTS
-    # - Subset to look at results for first video snippets only
-    # - Subset to look at results for L4-preconditioned worms only
-    # - Remove columns with all zeros
-    # - Remove columns with too many NaNs (>75%)
-    # - Impute remaining NaN values (using mean feature value for each food)
+    # Bacterial Strains
+    TEST_STRAINS = [# MICROBIOME STRAINS - Schulenburg et al microbiome (core set)
+                    'BIGB0170','BIGB0172','BIGB393','CENZENT1','JUB19','JUB44',\
+                    'JUB66','JUB134','MYB10','MYB11','MYB71','PM',\
+                    # MISCELLANEOUS STRAINS
+                    'MYB9','MYB27','MYB45','MYB53','MYB131','MYB181','MG1655','2783',\
+                    'MARBURG','DA1880','DA1885']
+ 
+    BACTERIAL_STRAINS = []
+    if MICROBIOME:
+        BACTERIAL_STRAINS.extend(TEST_STRAINS[:12])
+        BACTERIAL_STRAINS.insert(0, 'OP50')
+    if MISCELLANEOUS:
+        BACTERIAL_STRAINS.extend(TEST_STRAINS[12:])
+        if 'OP50' not in BACTERIAL_STRAINS:
+            BACTERIAL_STRAINS.insert(0, 'OP50')
+            
+                   
+    #%% FILTER SUMMARY RESULTS
+    # - Subset (rows) for desired bacterial strains only
+    # - Subset (rows) to look at results for given video snippet only
+    # - Subset (rows) to look at results for L4-preconditioned/naive adults worms
+    # - Remove (columns) features with all zeros 
+    # - Remove (columns) features with too many NaNs (>75%)
+    # - Remove (columns) size-related features that exhibit high variation across days
+    # - Impute remaining NaN values (with global mean OR with mean for that food)
     
     # Read feature summary results
     results_inpath = os.path.join(PROJECT_ROOT_DIR, 'Results', 'fullresults.csv')
     full_results_df = pd.read_csv(results_inpath, dtype={"comments" : str})
     
-    L4_1st_snippets_df, droppedFeatsList_NaN, droppedFeatsList_allZero = cleanSummaryResults(full_results_df,\
-                                                                         impute_NaNs_by_group=False,\
-                                                                         preconditioned_from_L4=True,\
-                                                                         snippet=0, nan_threshold=0.75)
+    results_df, droppedFeats_NaN, droppedFeats_allZero = cleanSummaryResults(full_results_df,\
+                                                         impute_NaNs_by_group=False,\
+                                                         preconditioned_from_L4=preconditioned_from_L4,\
+                                                         snippet=snippet, nan_threshold=nan_threshold)
     
-    # Save list of dropped features (cleaning step)
-    droppedlist_out = os.path.join(PROJECT_ROOT_DIR, 'Results', 'OP50_Control', 'Dropped_Features_NaN_List.txt')
+    droppedlist_out = os.path.join(PROJECT_ROOT_DIR, 'Results', 'OP50_Control', 'Dropped_Features_NaN.txt')
     directory = os.path.dirname(droppedlist_out)
     if not os.path.exists(directory):
         os.makedirs(directory)
     fid = open(droppedlist_out, 'w')
-    print(*droppedFeatsList_NaN, file=fid)
+    print(*droppedFeats_NaN, file=fid)
     fid.close()
     
     droppedlist_out = droppedlist_out.replace('NaN', 'AllZero')
     fid = open(droppedlist_out, 'w')
-    print(*droppedFeatsList_allZero, file=fid)
+    print(*droppedFeats_allZero, file=fid)
     fid.close()
-        
-    # Record the imaging dates and bacterial strain names for use in analyses
-    IMAGING_DATES = list(full_results_df['date_yyyymmdd'].unique())
-    bacterial_strains = list(np.unique(L4_1st_snippets_df['food_type'].str.lower()))
     
-    # Subset data for OP50 only (across imaging days)
-    OP50_dates_df = L4_1st_snippets_df[L4_1st_snippets_df['food_type'].str.lower()=='op50']            
+    # Filter for selected bacterial strains
+    results_df = results_df[results_df['food_type'].isin(BACTERIAL_STRAINS)]
     
-    # Exclude certain imaging dates from analyses
-    OP50_dates_df = OP50_dates_df[~OP50_dates_df['date_yyyymmdd'].isin(dates2exclude)]
+    # Filter for selected imaging dates
+    results_df = results_df[results_df['date_yyyymmdd'].isin(IMAGING_DATES)]
     
+    # Filter out size-related features
+    if filter_size_related_feats:
+        size_feat_keys = ['blob','box','width','length','area']
+        size_features = []
+        for feature in results_df.columns:
+            for key in size_feat_keys:
+                if key in feature:
+                    size_features.append(feature)         
+        feats2keep = [feat for feat in results_df.columns if feat not in size_features]
+        print("Dropped %d features that are size-related" % (len(results_df.columns)-len(feats2keep)))
+        results_df = results_df[feats2keep]
+    
+    # Extract OP50 control data from feature summaries
+    OP50_control_df = results_df[results_df['food_type'].str.lower() == "op50"]
+    
+    # Record the bacterial strain names for use in analyses
+    bacterial_strains = list(np.unique(results_df['food_type'].str.lower()))
+    test_bacteria = [strain for strain in bacterial_strains if strain != "op50"]
+    
+    # Record feature column names + non-data columns to drop for statistics
+    colnames_all = results_df.columns
+    colnames_nondata = results_df.columns[:25]
+    colnames_data = results_df.columns[25:]
+    
+  
+    #%% READ + FILTER + CLEAN SUMMARY RESULTS
+                
     # Drop columns that contain only zeros
-    n_cols = len(OP50_dates_df.columns)
-    OP50_dates_df = OP50_dates_df.drop(columns=OP50_dates_df.columns[(OP50_dates_df == 0).all()])
-    zero_cols = n_cols - len(OP50_dates_df.columns)
+    n_cols = len(OP50_control_df.columns)
+    OP50_control_df = OP50_control_df.drop(columns=OP50_control_df.columns[(OP50_control_df == 0).all()])
+    zero_cols = n_cols - len(OP50_control_df.columns)
     if verbose:
         print("Dropped %d feature summaries for OP50 control (all zeros)" % zero_cols)
     
+    if filter_size_related_feats:
+        # Filter out size-related features
+        size_feat_keys = ['blob','box','width','length','area']
+        size_features = []
+        for feature in OP50_control_df.columns:
+            for key in size_feat_keys:
+                if key in feature:
+                    size_features.append(feature)         
+        feats2keep = [feat for feat in OP50_control_df.columns if feat not in size_features]
+        OP50_control_df = OP50_control_df[feats2keep]
+    
     # Record non-data columns to drop for statistics
-    non_data_columns = OP50_dates_df.columns[0:25]
+    non_data_columns = OP50_control_df.columns[0:25]
     
     # Record a list of feature column names
-    feature_colnames = OP50_dates_df.columns[25:]
+    feature_colnames = OP50_control_df.columns[25:]
     
     
     #%% OP50 CONTROL DATA ACROSS DAYS: STATS (ANOVAs)
@@ -128,9 +201,9 @@ if __name__ == '__main__':
     # One-way ANOVA with Bonferroni correction for repeated measures
     print("Performing One-Way ANOVAs (for each feature) to investigate whether control OP50 results vary across imaging dates...")
     OP50_over_time_results_df = pd.DataFrame(index=['stat','pval'], columns=feature_colnames)
-    for feature in OP50_dates_df.columns[25:]:
-        test_stat, test_pvalue = test(*[OP50_dates_df[OP50_dates_df['date_yyyymmdd']==date][feature]\
-                                            for date in OP50_dates_df['date_yyyymmdd'].unique()])
+    for feature in OP50_control_df.columns[25:]:
+        test_stat, test_pvalue = test(*[OP50_control_df[OP50_control_df['date_yyyymmdd']==date][feature]\
+                                            for date in OP50_control_df['date_yyyymmdd'].unique()])
         OP50_over_time_results_df.loc['stat',feature] = test_stat
         OP50_over_time_results_df.loc['pval',feature] = test_pvalue
     
@@ -179,11 +252,11 @@ if __name__ == '__main__':
     # Tukey HSD post-hoc pairwise differences between dates for each feature
     for feature in feature_colnames:
         # Tukey HSD post-hoc analysis (no Bonferroni correction!)
-        tukeyHSD = pairwise_tukeyhsd(OP50_dates_df[feature], OP50_dates_df['date_yyyymmdd'])
+        tukeyHSD = pairwise_tukeyhsd(OP50_control_df[feature], OP50_control_df['date_yyyymmdd'])
         n_sigdiff_pairwise_beforeBF += sum(tukeyHSD.reject)
         
         # Tukey HSD post-hoc analysis (Bonferroni correction)
-        tukeyHSD_BF = MultiComparison(OP50_dates_df[feature], OP50_dates_df['date_yyyymmdd'])
+        tukeyHSD_BF = MultiComparison(OP50_control_df[feature], OP50_control_df['date_yyyymmdd'])
         n_sigdiff_pairwise_afterBF += sum(tukeyHSD_BF.tukeyhsd().reject)   
         
     total_comparisons = len(feature_colnames) * 6
@@ -214,9 +287,9 @@ if __name__ == '__main__':
         ranked_pvals = pvals.sort_values(ascending=True)
                 
         # Select the top few p-values
-        topfeats = ranked_pvals[:n_top_features]
+        topfeats = ranked_pvals[:n_top_feats_per_food]
                 
-        if n_sigfeats < n_top_features:
+        if n_sigfeats < n_top_feats_per_food:
             print("Only %d features found to vary significantly across days" % n_sigfeats)
             # Drop NaNs
             topfeats = topfeats.dropna(axis=0)
@@ -230,13 +303,13 @@ if __name__ == '__main__':
         # for f, feature in enumerate(feature_colnames[0:25]):
         for f, feature in enumerate(topfeats.index):
             print("P-value for '%s': %s" % (feature, str(topfeats[feature])))
-            OP50_topfeat_df = OP50_dates_df[['date_yyyymmdd', feature]]
+            OP50_topfeat_df = OP50_control_df[['date_yyyymmdd', feature]]
             
             # Plot boxplots of OP50 control across days for most significant features
             plt.close('all')
             fig = plt.figure(figsize=[10,6])
             ax = fig.add_subplot(1,1,1)
-            sns.boxplot(x='date_yyyymmdd', y=feature, data=OP50_dates_df)
+            sns.boxplot(x='date_yyyymmdd', y=feature, data=OP50_control_df)
             ax.set_xlabel('Imaging Date (YYYYMMDD)', fontsize=15, labelpad=12)
             ax.set_title(feature, fontsize=20, pad=20)
             
@@ -254,8 +327,18 @@ if __name__ == '__main__':
     
     plotroot = os.path.join(PROJECT_ROOT_DIR, 'Results', 'OP50_Control', 'Plots', 'L4_snippet_1', 'OP50')
     
-    # Drop non-data columns for PCA
-    data = OP50_dates_df.drop(columns=non_data_columns)
+    # Read list of important features (highlighted by previous research - see Javer, 2018 paper)
+    featslistpath = os.path.join(PROJECT_ROOT_DIR,'Data','top256_tierpsy_no_blob_no_eigen_only_abs_no_norm.csv')
+    top256features = pd.read_csv(featslistpath)
+    
+    # Take first set of 256 features (it does not matter which set is chosen)
+    top256features = top256features[top256features.columns[0]]   
+    n_feats = len(top256features)
+    top256features = [feat for feat in top256features if feat in OP50_control_df.columns]
+#    print("Dropping %d size-related features from Top256" % (n_feats - len(top256features)))
+
+    # Drop all but top256 columns for PCA
+    data = OP50_control_df[top256features]
     
     # Normalise the data before PCA
     zscores = data.apply(zscore, axis=0)
@@ -274,10 +357,7 @@ if __name__ == '__main__':
     important_feats, fig = pcainfo(pca, zscores, PC=1, n_feats2print=10)
     
     # Save plot of PCA explained variance
-    if len(dates2exclude) > 0:
-        plotpath = os.path.join(plotroot, 'PCA', 'L4_snippet_1' + '_no_{0}'.format(str(dates2exclude)) + '_PCA_explained.eps')
-    else:
-        plotpath = os.path.join(plotroot, 'PCA', 'L4_snippet_1' + '_PCA_explained.eps')
+    plotpath = os.path.join(plotroot, 'PCA', 'L4_snippet_{0}'.format(snippet) + '_PCA_explained.eps')
     directory = os.path.dirname(plotpath)
     if not os.path.exists(directory):
         os.makedirs(directory)
@@ -292,8 +372,8 @@ if __name__ == '__main__':
                                 columns=['PC' + str(n+1) for n in range(PCs_to_keep)])
     
     # Add concatenate projected PC results to metadata
-    projected_df.set_index(OP50_dates_df.index, inplace=True) # Do not lose video snippet index position
-    OP50_dates_projected_df = pd.concat([OP50_dates_df[non_data_columns], projected_df], axis=1)
+    projected_df.set_index(OP50_control_df.index, inplace=True) # Do not lose video snippet index position
+    OP50_dates_projected_df = pd.concat([OP50_control_df[non_data_columns], projected_df], axis=1)
     
     # 2D Plot - first 2 PCs - OP50 Control (coloured by imaging date)
     
@@ -316,10 +396,7 @@ if __name__ == '__main__':
     ax.grid()
     
     # Save scatterplot of first 2 PCs
-    if len(dates2exclude) > 0:
-        plotpath = os.path.join(plotroot, 'PCA', 'L4_snippet_1' + '_no_{0}'.format(str(dates2exclude)) + '_1st_2PCs.eps')
-    else:
-        plotpath = os.path.join(plotroot, 'PCA', 'L4_snippet_1'+'_1st_2PCs.eps')
+    plotpath = os.path.join(plotroot, 'PCA', 'L4_snippet_1'+'_1st_2PCs.eps')
     savefig(plotpath, tight_layout=True, tellme=True, saveFormat='eps')
     
     plt.show(); plt.pause(2)
@@ -346,10 +423,7 @@ if __name__ == '__main__':
     ax.grid()
     
     # Save scatterplot of first 3 PCs
-    if len(dates2exclude) > 0:
-        plotpath = os.path.join(plotroot, 'PCA', 'L4_snippet_1' + '_no_{0}'.format(str(dates2exclude)) + '_1st_3PCs.eps')
-    else:
-        plotpath = os.path.join(plotroot, 'PCA', 'L4_snippet_1' + '_1st_3PCs.eps')
+    plotpath = os.path.join(plotroot, 'PCA', 'L4_snippet_1' + '_1st_3PCs.eps')
     savefig(plotpath, tight_layout=False, tellme=True, saveFormat='eps')
     
     # Rotate the axes and update

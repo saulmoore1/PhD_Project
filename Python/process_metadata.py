@@ -159,7 +159,7 @@ if __name__ == '__main__':
                             metadata.loc[i,'filename'] = os.path.dirname(file)
                             
     matches = sum([isinstance(path, str) for path in metadata.filename]) - n_filepaths
-    print("Complete!\n%d/%d filenames added." % (matches, sum(date_total)/11))
+    print("Complete!\n%d/%d filenames added." % (matches, n_entries - n_filepaths))
                   
     # Get list of pathnames for featuresN files
     featuresNlist = []
