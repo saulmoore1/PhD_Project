@@ -1,0 +1,539 @@
+---
+title: "Introduction to R -- Reproducible Research in R"
+author: "Saul Moore (sm5911@ic.ac.uk)"
+date: "18-09-2019"
+output: html_document
+---
+# ------------------------------------------------------------------------------
+```{r setup}
+knitr::opts_chunk$set(cache=TRUE, fig.width=8, fig.height=5)
+
+# Clear all variables in Global Environment (they should be 100% reproducible!)
+rm(list=ls())
+```
+
+## Packages & Dependencies
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+packages <- c("devtools","ggplot2","reshape2","rmarkdown","yaml","comprehenr",
+              "kableExtra","pheatmap","goseq")
+for(package in packages){
+  if(!eval(parse(text=paste("require(",package,")")))){
+    print(paste0("Installing package: ", package))
+    install.packages(package, dependencies=TRUE)
+    if(package == "devtools"){
+      devtools::install_github("LMSBioinformatics/LMS_Reproducible-R", 
+                               subdir="reproducibleR", build_vignettes=TRUE)
+    }
+  } else {
+    print(paste0(package, " is already installed"))
+  }
+}
+
+# Bioconductor + Dependencies
+if (!requireNamespace("BiocManager", quietly = TRUE))
+  install.packages("BiocManager")
+Biopackages <- c("GenomicRanges","limma","Rsamtools","GenomicAlignments",
+                 "org.Hs.eg.db","TxDb.Mmusculus.UCSC.mm9.knownGene",
+                 "GenomicFeatures","biomaRt","DESeq2","KEGG.db")
+for(biopackage in Biopackages){
+  if(!eval(parse(text=paste("require(",biopackage,")")))){
+    BiocManager::install(biopackage)
+  }
+}
+
+```
+
+## Set working directory
+
+```{r}
+# A simple wrapper for setwd() to help remember functions, if/else statements,
+# and how to set the working directory
+set_working_directory <- function(wd){
+  if(getwd() != wd){
+    print(paste0("Setting working directory to: ", wd))
+    setwd(wd)
+  } else {
+    print(paste0("Already in working directory: ", wd))
+    print(paste0("Files present: ", dir()))
+  }
+}
+
+wd = "/Users/sm5911/OneDrive - Imperial College London/Graduate_School/Computational_Biology_Week_2019/Code"
+set_working_directory(wd)
+```
+
+## Vectors Exercises
+
+```{r}
+## Exercise 1
+# Create a vector containing the values 1,2,3,4,5
+a1 <- c(1,2,3,4,5)
+
+# Create a vector containing the values 1 to 100
+a2 <- 1:100
+
+# Create a vector containing the values 0,5,10,15,20
+a3 <- seq(from=0,to=20,by=5)
+
+# Create a vector containing the values 1,1,2,2,3,3
+a4 <- rep(1:3, each=2)
+
+# Create a vector containing the values 1,1,5,7,9,10
+a5 <- c(1,1,5,7,9,10)
+
+## Exercise 2
+# Create a vector containing the values 1 to 10
+b1 <- 10:1
+
+# Create a new vector with all but the first and last value
+b2 <- b1[-c(1,length(b1))]
+
+# Create a new vector with all but the second and fifth value
+b3 <- b1[-c(2,5)]
+
+# Create a new vector of square root of the sixth and seventh position
+b4 <- sqrt(b1[c(6,7)])
+
+# Create a new vector of alternating positions in the vector 1 to 10 using another vector
+b5 <- b1[rep(c(1,2), 5)]
+
+## Exercise 3
+# Find the number of files in the present working directory
+print(paste0("Number of files in current directory: ", length(dir())))
+
+# List the first file in the present working directory
+print(paste0("First file: ", dir()[1]))
+
+## Exercise 4
+# Create a vector of the gene names Gene_1, Gene_2, Gene_3, Gene_4
+n_genes <- 4
+gene_names <- to_vec(for(i in 1:n_genes) c(paste0("Gene_", i)))
+
+# Create a vector of the expression values 1000, 3000, 10000, 12000
+gene_expression <- c(1000, 3000, 10000, 12000)
+
+# Create a vector of the gene lengths 100, 3000, 200, 1000
+gene_length <- c(100, 3000, 200, 1000)
+
+# Find the longest gene using logical expression
+longest_gene <- gene_names[which(gene_length == max(gene_length))]
+print(paste0("Longest gene: ", longest_gene))
+
+# Identify genes which have a length greater than 100 and expression greater than 10000
+long_highly_expressed_genes <- gene_names[gene_length > 100 & gene_expression > 10000]
+print(paste0("Long, highly expressed genes: ", long_highly_expressed_genes))
+
+## Exercise 5
+# Calculate the expression over the gene length for all genes (Length normalised expression - LNE)
+LNE = gene_expression / gene_length
+
+# Identify genes with a length normalised expression greater than the average
+names(LNE) <- gene_names
+gene_above_average_LNE <- names(LNE[LNE > mean(LNE)])
+```
+
+## Matrices Exercises
+
+```{r}
+## Exercise 1
+# Create a matrix containing information on gene names, expression values, and gene lengths
+mat1 <- matrix(c(gene_length, gene_expression), nrow=length(gene_names), byrow=F)
+colnames(mat1) <- c("Length", "Expression")
+rownames(mat1) <- gene_names
+
+# Update the matrix to contain the expression over the gene length for all genes (Length normalised expression - LNE) as final column
+mat2 <- cbind(mat1, LNE)
+
+# Create a smaller matrix containing genes longer than 200
+mat3 <- mat2[mat2[,"Length"] > 200, ]
+
+# Create a smaller matrix with just expression and LNE columns containing genes longer than 200 and expression greater than 300
+mat4 <- mat2[mat2[,"Length"] > 200 & mat2[,"Expression"] > 300, c("Expression","LNE")]
+
+# Calculate the sum of expression and length columns for only genes with length > 100
+mat5 <- mat2[mat2[,"Length"] > 100, ]
+sum_over_100 <- apply(mat5[,c("Length","Expression")], 2, sum)
+```
+
+## Dataframes Exercises
+
+```{r}
+## Exercise 1
+# Create a data frame called Annotation with a column of gene names, ensembl gene names, pathway information and gene lengths
+n_genes <- 5
+gene_names <- to_vec(for(i in 1:n_genes) c(paste0("Gene_", i)))
+ensembl_ID <- c("Ens001","Ens003","Ens006","Ens007","Ens010")
+pathway_info <- c("Glycolysis","TGFb","Glycolysis","TGFb","Glycolysis")
+gene_length <- c(100,3000,200,1000,1200)
+Annotation <- data.frame(cbind(gene_names,ensembl_ID,pathway_info,gene_length))
+
+# Create another data frame called Sample1 with ensembl gene names and expression
+gene_expression1 <- c(1000,3000,10000,5000)
+ensembl_ID <- c("Ens001","Ens003","Ens006","Ens007","Ens010")
+Sample1 <- data.frame(ensembl_ID=ensembl_ID[-4],gene_expression=gene_expression1)
+
+# Create another data frame called Sample2 with ensembl gene names and expression
+gene_expression2 <- c(1500,1500,17000,500,10000)
+Sample2 <- data.frame(ensembl_ID=ensembl_ID,gene_expression=gene_expression2)
+
+# Create a data frame containing only those gene names common to all data frames 
+# with all information from Annotation and the expression from Sample 1 and Sample 2
+common_ensembls <- intersect(intersect(Annotation$ensembl_ID, Sample1$ensembl_ID), Sample2$ensembl_ID)
+MyDF <- merge(Annotation, Sample1, by="ensembl_ID")
+MyDF <- merge(MyDF, Sample2, by="ensembl_ID")
+# For some reason 'gene_length' is converted to factor (when dataframes are merged?), so must be forced back to numeric dtype
+MyDF$gene_length <- as.numeric(as.matrix(MyDF$gene_length)[,1])
+
+# Add an extra two columns containing the length normalised expressions for Sample 1 and Sample 2
+MyDF$LNE.x <- MyDF$gene_expression.x/MyDF$gene_length
+MyDF$LNE.y <- MyDF$gene_expression.y/MyDF$gene_length
+
+# Identify the mean length normalised expression across Sample1 and Sample2 for Ens006 genes
+Ens006_LNEs <- MyDF[MyDF$ensembl_ID == "Ens006",c("LNE.x","LNE.y")]
+Ens006_mean <- mean(as.numeric(Ens006_LNEs))
+
+# For all genes, identify the log2 fold change in length normalised expression from Sample 1 to Sample 2
+MyDF$log2_change_LNE <- log2(MyDF$LNE.x) - log2(MyDF$LNE.y)
+
+# Identify the total length of genes in Glycolysis pathway
+MyDF_Gly <- subset(MyDF, MyDF$pathway_info == "Glycolysis")
+print(paste0("Total length of genes involved in 'Glycolysis': ", sum(MyDF_Gly$gene_length)))
+```
+
+## Data I/O Exercises
+
+```{r}
+## Exercise 1
+# Read in the tab delimited file “GeneExpression.txt”
+gene_expression_df <- read.table("../Data/LMSBioinformatics-LMS_Reproducible-R-01e085b/r_course/data/GeneExpression.txt", sep="\t", header=TRUE)
+
+# Find the mean expression of all samples
+mean_expression_all <- mean(as.matrix(gene_expression_df[,-1])) # omit gene names (first column)
+
+# Read in the tab delimited file “GeneExpressionWithMethods.txt”
+gene_expr_methods_data <- read.table("../Data/LMSBioinformatics-LMS_Reproducible-R-01e085b/r_course/data/GeneExpressionWithMethods.txt", sep="\t", header=TRUE, skip=3)
+gene_expr_methods_metadata <- read.table("../Data/LMSBioinformatics-LMS_Reproducible-R-01e085b/r_course/data/GeneExpressionWithMethods.txt", sep="\t", header=FALSE, nrows=3)[,1]
+
+# Read in the tab delimited file “GeneExpressionWithNotes.txt”
+gene_expr_notes_data <- read.table("../Data/LMSBioinformatics-LMS_Reproducible-R-01e085b/r_course/data/GeneExpressionWithNotes.txt", sep="\t", header=TRUE, comment.char=">")
+
+# Read in tab delimited file “GeneExpression.txt”
+gene_expr_df <- read.table("../Data/LMSBioinformatics-LMS_Reproducible-R-01e085b/r_course/data/GeneExpression.txt",
+                           sep="\t", header=TRUE)
+# Order genes by their average expression 
+gene_expr_df$av_expr <- apply(gene_expr_df[,-1], 1, mean)
+gene_expr_df <- gene_expr_df[order(gene_expr_df$av_expr, decreasing=T), ]
+
+# Write out a new comma separated file with column titles
+write.csv(gene_expr_df, "../Results/1_GeneExpression_Ordered_by_avExpr.csv", row.names=F)
+```
+
+## Conditional Statements & Loops Tutorial
+
+```{r}
+# while
+x <- 0
+STOP <- 10
+while(x < STOP){
+  message(x, " is less than ", STOP, ". ", appendLF=FALSE) # No new line character
+  x <- x + 1
+}
+
+# for
+x <- 1:10
+for(i in x){
+  message("Loop ", i, " ", appendLF=FALSE)
+}
+
+# Letters
+to_vec(for(i in letters[1:5]) message("Loop ", toupper(i), " ", appendLF=F))
+```
+
+## Conditional Statements & Loops Exercises
+
+```{r}
+## Exercise 1
+# Calculate the factorial of 10 using a loop
+factorial <- function(n){
+  #  A function for calculating the factorial of a given number
+  ans <- 1
+  for(i in n:1){
+    ans <- ans * i
+  } 
+  return(ans)
+}
+
+factorial(10)
+
+# Adjusting your answer from before, what is the first number that has a factorial greater than 1000
+first_factorial_over <- function(greater_than=1000){
+  # A function for caculating the first integer with a factorial greater than given number
+  n <- 1
+  ans <- 0
+  while(ans < greater_than){
+    ans <- factorial(n)
+    n <- n + 1
+  } 
+  return(n)
+}
+
+first_factorial_over(1000)
+
+# Using an ifelse() expression, create a factor from a vector of 1 to 40 where 
+# all numbers less than 10 are “small”,10 to 30 are “mid”,31 to 40 are “big”
+vec <- 1:40
+ifelse(vec < 10 , "small", ifelse(vec > 30, "big", "mid"))
+
+
+# Read all files from expression directory with txt extension + create table of gene expression results
+n_genes <- 2000
+gene_names <- to_vec(for(i in 1:n_genes) c(paste0("Gene_", i)))
+gene_expr_df <- data.frame(GeneName=gene_names)
+
+EXPR_RESULTS_DIRPATH <- "../Data/LMSBioinformatics-LMS_Reproducible-R-01e085b/r_course/ExpressionResults/"
+files2read <- dir(EXPR_RESULTS_DIRPATH, pattern=".txt")
+
+for(file in files2read){
+  print(paste0("Reading file: ", file))
+  tmp <- read.table(paste0(EXPR_RESULTS_DIRPATH, file), header=F)
+  Expression <- tmp[,2]
+  gene_expr_df <- cbind(gene_expr_df, Expression)
+}
+
+names(gene_expr_df)[-1] <- to_vec(for(i in 1:length(files2read)) c(paste0("Expression_", i)))
+
+# Add annotation from Annotation.txt. How do the pathway information for genes 
+# compare between expression table and annotation table?
+Annotation_DF <- read.table(paste0(EXPR_RESULTS_DIRPATH, "Annotation.ann"), sep="\t", header=TRUE)
+Annotation_DF <- subset(Annotation_DF, Annotation_DF$Pathway != "<NA>")
+Annotation_DF$GeneName <- droplevels(Annotation_DF$GeneName)
+Annotation_DF <- Annotation_DF[Annotation_DF$GeneName == gene_expr_df$GeneName,]
+gene_expr_df$Ensembl <- Annotation_DF$Ensembl
+gene_expr_df$Pathway <- Annotation_DF$Pathway
+```
+
+## Functions Exercises
+
+```{r}
+## Exercise 1
+# Create a function which takes one argument and finds the smallest number whose 
+# factorial is greater than that argument (look at answer from previous exercise)
+first_factorial_over(1000)
+
+# Create a function which takes a vector argument and returns both the number of 
+# even perfect squares and a vector of perfect squares found in the vector argument
+perfect_squares <- function(vec){
+  squares <- c()
+  evensquares <- 0
+  for(i in vec){
+    if(i != 0 & sqrt(i) %% 1 == 0){ # If element can be square-rooted 
+      squares <- c(squares, i)
+      if(i %% 2){
+        evensquares <- evensquares + 1
+      }
+    }
+  }
+  return(list(squares=squares, n_even_squares=evensquares))
+}
+
+vec <- c(0,1,0,2,0,3,2,4)
+perfect_squares(vec)
+
+# Create a function which takes an argument of the directory containing expression 
+# files and the name of the annotation file and writes a the table with all samples’ 
+# expression results and all annotation to file (look at answer from previous exercises)
+create_df <- function(directory, n_genes=2000){
+  gene_names <- to_vec(for(i in 1:n_genes) c(paste0("Gene_", i)))
+  gene_expr_df <- data.frame(GeneName=gene_names)
+  files2read <- dir(directory, pattern="*.txt")
+  for(file in files2read){
+    print(paste0("Reading file: ", file))
+    tmp <- read.table(paste0(EXPR_RESULTS_DIRPATH, file), header=F)
+    Expression <- tmp[,2]
+    gene_expr_df <- cbind(gene_expr_df, Expression)
+  }
+  names(gene_expr_df)[-1] <- to_vec(for(i in 1:length(files2read)) c(paste0("Expression_", i)))
+  Annotation_DF <- read.table(paste0(directory, "Annotation.ann"),
+                              sep="\t", header=TRUE)
+  Annotation_DF <- subset(Annotation_DF, Annotation_DF$Pathway != "<NA>")
+  Annotation_DF$GeneName <- droplevels(Annotation_DF$GeneName)
+  Annotation_DF <- Annotation_DF[Annotation_DF$GeneName %in% gene_expr_df$GeneName, ]
+  gene_expr_df$Ensembl <- Annotation_DF$Ensembl
+  gene_expr_df$Pathway <- Annotation_DF$Pathway
+  return(gene_expr_df)
+}
+
+MyDF <- create_df(EXPR_RESULTS_DIRPATH)
+
+# Adapt the above function to also write a t-test result table filtered by the 
+# p-value cut-off. An additional argument specifying the allocation a samples into 
+# groups must be specified (look at answer from previous exercises)
+# summariseResults <- function(directory,sampleGroups=NULL){
+#   DF <- create_df(directory)
+#   if(!is.null(sampleGroups)){
+#     groupAsamples <- unique(sampleGroups[[1]])
+#     groupBsamples <- unique(sampleGroups[[2]])
+#     groupA <- colnames(annotatedExpression) %in% groupAsamples
+#     groupB <- colnames(annotatedExpression) %in% groupBsamples
+#     indexGroupOne <- groupA
+#     indexGroupTwo <- groupB
+#     ttestResults <- apply(annotatedExpression,1,function(x)
+#       t.test(as.numeric(x[indexGroupOne]),as.numeric(x[indexGroupTwo])))
+#     testResult <- sapply(ttestResults,function(x)
+#       c(log2(x$estimate[2]) - log2(x$estimate[1]), x$statistic,x$p.value))
+#     testResult <- t(testResult)
+#     colnames(testResult) <- c("logFC","tStatistic","pValue")
+#     annotatedResult <- cbind(annotatedExpression[,1:3],testResult)
+#     annotatedResult <- annotatedResult[order(annotatedResult$tStatistic),]
+#     outAnnotatedTestResults <- paste0(basename((normalizePath(dirName))),"_ttestResults.csv")
+#     write.table(annotatedResult,file=outAnnotatedTestResults,sep=",",col.names=T,row.names=F,quote=F)    
+#   }
+#   return(annotatedResult)
+# }
+# 
+# summariseResults(directory)
+```
+
+## Reproducible R - rmarkdown / knitr
+
+```{r compile, echo=FALSE, message=FALSE, warnings=FALSE}
+render_out_dir = "/Users/sm5911/OneDrive - Imperial College London/Graduate_School/Computational_Biology_Week_2019/Results/Reproducible-R/"
+if(!dir.exists(render_out_dir)){dir.create(render_out_dir)}
+render(input="../Data/LMSBioinformatics-LMS_Reproducible-R-01e085b/r_course/scripts/script.r",
+       output_dir=render_out_dir, output_format="html_document", output_file="Example_Rendered_HTML.html")
+```
+
+## Use python commands in R
+```{r}
+#` ---{python}
+#` import numpy as np
+#` print("Hello world")
+#` ---
+```
+
+## Plotting Tutorial
+
+```{r graphics, results='asis'}
+treatment <- c(0.02, 1.8, 17.5, 55, 75.7, 80)
+control <- c(0, 20, 40, 60, 80,100) 
+
+g_range <- range(0, treatment, control) # You can pass any number of vectors to range()!
+#+ fig.width=8, fig.height=5
+plot(treatment, type="o", col="blue", ylim=g_range, axes=FALSE, ann=FALSE)
+lines(control, type="o", pch=22, lty=2, col="red")
+title(main="Expression Data", xlab="Days", ylab="Values", col.lab=rgb(0,0.5,0), col.main="red", font.main=4)
+axis(1, at=1:6, lab=c("Mon","Tue","Wed","Thu","Fri","Sat"))
+axis(2, las=1, at=20*0:g_range[2]) # '20*' for a tick every 20, las=0/1 for tick label rotation
+box() # Add back the plot border box
+legend(1, g_range[2], c("Treatment","Control"), cex=0.9, col=c("blue","red"), pch=21:22, lty=1:2, bty="n")
+```
+
+## Plotting Exercises (2018 version?)
+
+```{r}
+## Exercise 1
+# Produce a data frame with two columns: x, which ranges from -2π to 2π and has a 
+# small interval between values (for plotting), and cosine(x). Plot cosine(x) vs. 
+# x as a line. Repeat, but try some different line types or colours
+x <- seq(from=-2*pi, to=2*pi, by=pi/256)
+cosine_x <- cos(x)
+plot_df <- data.frame(x, cosine_x)
+plot(cosine_x ~ x, type="o", col="blue", ylim=c(-2,2))
+lines(-2*cosine_x ~ x, type="o", lty="dashed", col="red") # dashed = 2
+lines(0.5*cosine_x + pi/4 ~ x, type="o", lty=4, col="yellow") # 4 = dotdash
+```
+
+## Plotting Exercises (2019)
+
+```{r}
+### Plotting Exercise 1
+data(mtcars); 
+tmp <- head(mtcars)
+kable(tmp) %>% kable_styling() # Knitr::Kable
+
+## Exercise 1
+# Plot with R base graphics
+plot(mtcars$wt ~ mtcars$mpg, xlab="Miles per Gallon (US)", ylab="Weight (1000 lbs)",
+     main="scatter plot", col="red", pch=16)
+
+## Exercise 2
+#` Plo with ggplot
+g <- ggplot(data=mtcars, mapping=aes(x=mpg, y=wt, color=as.factor(gear)))
+g + geom_point() + ggtitle("scatter plot")
+
+### Plotting Exercise 2 - Game of Thrones
+## "Quesions 2" (1.-6.)
+# Bar plot of number of GoT characters that are Highborn or Lowborn
+subset_GoT <- read.csv("../Data/LMSBioinformatics-LMS_PlottingInR-5086b34/course/GoT_dataset/subset_GoT.csv",
+                       header=TRUE, stringsAsFactors=TRUE)
+str(subset_GoT) # social_status is a factor w/ 2 levels ("Highborn","Lowborn")
+table(subset_GoT$social_status)
+levels(subset_GoT$sex) <- c("Female","Male")
+levels(subset_GoT$occupation) <- c("Boiled Leather","Silk","Unknown")
+g <- ggplot(data=subset_GoT, mapping=aes(x=social_status, fill=allegiance_switched))
+g + geom_bar(position=position_dodge2(padding=0.1)) + 
+  facet_grid(sex~occupation) + # Option for custom facet grid labels: labeller=labeller(sex=c("Female","Male"))
+  xlab("Social Status") + ylab("Number of Characters") +
+  ggtitle("Occupation/social status of GoT characters
+                that switched allegiance")
+ggsave("../Results/Plotting-R/subset_GoT.pdf", dpi=600)
+```
+
+```{r}
+## Magic Command: %in% 
+list_A <- c("A", "A", "B", "C")
+list_B <- c("A", "C", "C", "D")
+logical_index <- list_A %in% list_B
+list_C <- list_A[logical_index] # Elements in list A that are present in list B
+# A %in% B -- for unique genes in A that are not present in B
+# A %over% B -- for intersection (overlap) of genes present in both A and B
+```
+
+## Bioconductor Tutorial
+
+```{r, results='asis'}
+## An overview of annotation, genomic interval manipulation, BAM file handling 
+## and coverage generation using Bioconductor
+
+# Genomic Ranges: provides data structure for efficiently storing genomic coordinates
+# (eg. gene coords, TF binding sites/overlap, counting aligned sequence reads)
+
+# Run Length Encoding (Rle)
+chromosomes <- Rle(c("chr1","chr2","chr1","chr3"), c(1,3,2,4)) # Chr1 x 1, Chr2 x 3, Chr1 x 2, Chr3 x 2
+kable(chromosomes) %>% kable_styling()
+
+# Constructing a GRanges object for a collection of genomic features with single 
+# start and end locations on the genome
+gr1 <- GRanges(seqnames=chromosomes,
+               ranges=IRanges(start=11:20, end=50:59, names=letters[0:10]),
+               strand=Rle(c("-","+","-","+","-"), c(1,2,2,3,2)),
+               score=1:10, GC=runif(10,0,1))
+kable(gr1) %>% kable_styling()
+
+# NB: The start of a read will always be left-most coordinate of the read 
+#     regardless of which strand the read aligned to
+
+# Metadata column contains score and GC content, extracted using mcols function
+kable(mcols(gr1)) %>% kable_styling()
+
+# Constructing a GRanges object from a dataframe
+mm9_genes <- read.table("../Data/LMS_Bioconductor-master/course/data/mm9Genes.txt",
+                        sep="\t", header=TRUE)
+kable(head(mm9_genes)) %>% kable_styling()
+
+mm9_genes_GR <- GRanges(seqnames=mm9_genes$chr,
+                       ranges=IRanges(start=mm9_genes$start, end=mm9_genes$end),
+                       strand=mm9_genes$strand,
+                       ENSID=mm9_genes$ens,
+                       Symbol=mm9_genes$Symbol)
+
+# kable(mm9_genes_GR) %>% kable_styling()
+# kable(mcols(mm9_genes_GR)) %>% kable_styling()
+
+```
+
+```{r}
+sessionInfo()
+```
+
