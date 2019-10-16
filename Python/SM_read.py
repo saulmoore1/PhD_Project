@@ -80,25 +80,30 @@ def getfeatsums(directory):
     feat_summary_list = lookforfiles(directory, '^features_summary*', depth=1)
         
     # CHECK: Match file and features summaries
-    matched_summaries = {}
+    matched_summaries = []
     for file in file_summary_list:
         feat = file.replace('filenames_summary', 'features_summary')
         if feat in feat_summary_list:
-            matched_summaries[file] = feat
+            matched_summaries.append([file,feat])
         else:
             warnings.warn('No match found for: \n%s' % file)
+            
+    if len(matched_summaries) > 1:
+        print("ERROR: Multiple feature summary files found in directory: '%s'" % directory)
+    elif len(matched_summaries) < 1:
+        print("ERROR: No feature summary results found.")
 
     # Read matched feature summaries and filename summaries
-    for file, feat in matched_summaries.items():
-        files_df = pd.read_csv(file)
-        feats_df = pd.read_csv(feat)
+    file, feat = matched_summaries[0]
+    files_df = pd.read_csv(file)
+    feats_df = pd.read_csv(feat)
         
-        # Remove entries from file summary data where corresponding feature summary data is missing
-        missing_featfiles = listdiff(files_df['file_id'], feats_df['file_id'])
-        files_df = files_df[np.logical_not(files_df['file_id'].isin(missing_featfiles))]
+    # Remove entries from file summary data where corresponding feature summary data is missing
+    missing_featfiles = listdiff(files_df['file_id'], feats_df['file_id'])
+    files_df = files_df[np.logical_not(files_df['file_id'].isin(missing_featfiles))]
         
-        files_df.reset_index(drop=True, inplace=True)
-        feats_df.reset_index(drop=True, inplace=True)
+    files_df.reset_index(drop=True, inplace=True)
+    feats_df.reset_index(drop=True, inplace=True)
                 
     # Check that file_id column matches
     if (files_df['file_id'] != feats_df['file_id'].unique()).any():
