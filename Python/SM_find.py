@@ -10,6 +10,7 @@ MODULE: FIND
 
 # IMPORTS
 import os, re
+import numpy as np
 
 #%% FUNCTIONS
 def lookforfiles(root_dir, regex, depth=None, exact=False):
@@ -74,7 +75,8 @@ def findworms(trajectory_df, threshold_move, threshold_time, tellme=True):
         print("%d worm IDs filtered that existed for less than %d frames (%.1f seconds)." %\
               (n_worms - n_worms_time, threshold_time, threshold_time/25))
     # Filter by MOVEMENT
-    filterMove_df = group_worm.filter(lambda x: x['x'].ptp() > threshold_move or x['y'].ptp() > threshold_move)
+    filterMove_df = group_worm.filter(lambda x: np.ptp(x['x'], axis=0) > threshold_move\
+                                      or np.ptp(x['y'], axis=0) > threshold_move)
     # Re-group by worm id
     group_worm = filterMove_df.groupby('worm_id')
     n_worms_alive = group_worm.count().shape[0]
@@ -133,7 +135,15 @@ def changepath(maskedfilepath, returnpath=None, figname=None):
         return(outfilepath)
     else:
         print("ERROR!")
-    
+
+#class ChangePath:
+#    def __init__(self, MaskedVideoPATH):
+#        self.featuresN = MaskedVideoPATH.replace("MaskedVideos", "Results").replace(".hdf5", "_featuresN.hdf5")
+#       
+#maskedvideodir = '/Volumes/behavgenom$/Priota/Data/MicrobiomeAssay/MaskedVideos/20190718/food_behaviour_s8_myb9_20190718_160006.22956819/000000.hdf5'
+#x = ChangePath(maskedvideodir)
+#x.featuresN
+   
 #%%     
 def listdiff(list1, list2):
     """  A function to return elements of 2 lists that are different """

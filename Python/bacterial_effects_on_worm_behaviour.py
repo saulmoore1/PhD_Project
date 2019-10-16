@@ -16,7 +16,6 @@ The script does the following:
 - Compiles feature summary results for selected results/treatments
 - OPTIONAL: perform analyses with all / microbiome / miscellaneous bacterial strains
 - OPTIONAL: perform analyses on L4-preconditioned / Day1-naive worms
-# TODO: look for differences between L4-prefed vs. Naive adults 
 - Performs statistical analyses to test for:
   1. Significant differences in N2 worm behaviour on different foods
      - T-test/ranksum tests (pairwise for all features) between each food and OP50 control
@@ -31,6 +30,9 @@ The script does the following:
 - Extracts siginificant features for each food for visualisation
 
 """
+
+# TODO: Write script to compare differences between L4-prefed vs naive Day1 worms on different foods 
+
 
 #%% PRE-AMBLE
 
@@ -57,42 +59,48 @@ from SM_read import gettrajdata
 from SM_calculate import ranksumtest
 from SM_plot import manuallabelling, pcainfo
 from SM_save import savefig
-from SM_clean import cleanSummaryResults
+from SM_clean import filterSummaryResults
 
-# Global parameters
+
+#%% GLOBAL PARAMETERS
+
 PROJECT_NAME = 'MicrobiomeAssay'
 PROJECT_ROOT_DIR = '/Volumes/behavgenom$/Saul/' + PROJECT_NAME
 DATA_DIR = '/Volumes/behavgenom$/Priota/Data/' + PROJECT_NAME
 
 verbose = True # Print statements to track script progress?
-preprocessing = False # Process metadata file and feature summaries files?
+
+# Preprocessing
+PROCESS_METADATA = True # Process metadata file?
+PROCESS_FEATURE_SUMMARY_RESULTS = True # Process feature summary files?
+CHECK_FEATURESN_RESULTS = True
 
 # Which set of bacterial strains to analyse?
 # OPTIONAL: Investigate microbiome/miscellaneous/all(both) strains
 MICROBIOME = True
 MISCELLANEOUS = False
-CONTROL = False
+ANALYSE_OP50_CONTROL_ACROSS_DAYS = False
 
-# OPTIONAL: Look at one 12-min video snippet
+# OPTIONAL: Select a 12-min video snippet to analyse
 snippet = 0 # Which video segment to analyse? # TODO: Add option - 'ALL' - loop??
 
 # OPTIONAL: L4-prefed worms (long exposure to food) or Naive adults
-preconditioned_from_L4 = False
+preconditioned_from_L4 = 'yes' # 'yes' for L4-prefed worms, or 'no' for naive worms
 
 # Remove size-related features from analyses? (found to exhibit high variation across iamging dates)
 filter_size_related_feats = True
 
 # Statistics parameters
-nan_threshold = 0.75 # Threshold proportion NaNs to drop features from analysis
+nan_threshold = 0.05 # Threshold proportion NaNs to drop features from analysis
 p_value_threshold = 0.05 # P-vlaue threshold for statistical analyses
 
 # Plot parameters
-overwrite_top256 = False # Overwrite/replace previous existing plots?
+overwrite_top256 = True # Overwrite/replace previous existing plots?
 show_plots = False
 
 # Dimensionality reduction parameters
 useTop256 = True                # Restrict dimensionality reduction inputs to Avelino's top 256 feature list?
-test2use = 'ranksumtest'       # Preferred test results to use to select top features for dimensionality reduction
+test2use = 'ranksumtest'        # Preferred test results to use to select top features for dimensionality reduction
 n_top_features = 10             # HCA - Number of top features to include in HCA (for union across foods HCA)
 PCs_to_keep = 10                # PCA - Number of principal components to record
 rotate = True                   # PCA - Rotate 3-D plots?
@@ -105,9 +113,12 @@ min_dist = 0.3                  # UMAP - Minimum distance parameter for UMAP pro
 thresh_movement = 10 # Threshold trajectory length for filtering tracked objects (for true worms)
 thresh_duration = 50 # Threshold duration an object must be tracked for to be identified as a worm
 
+MANUAL_LABELLING = False
+FILTER_TRAJECTORY_DATA = False
+
 # Select imaging date(s) for analysis
 IMAGING_DATES = ['20190704','20190705','20190711','20190712','20190718','20190719',\
-                 '20190725','20190726']
+                 '20190725','20190726','20190801']
 
 # Bacterial Strains
 TEST_STRAINS = [# MICROBIOME STRAINS - Schulenburg et al microbiome (core set)
@@ -126,7 +137,6 @@ if MISCELLANEOUS:
     if 'OP50' not in BACTERIAL_STRAINS:
         BACTERIAL_STRAINS.insert(0, 'OP50')
 
-
 if MICROBIOME and MISCELLANEOUS:
     PATH = 'All_Strains'
 elif MICROBIOME:
@@ -139,19 +149,14 @@ if preconditioned_from_L4:
 else:
     FOOD_EXPOSURE = 'Day1_naive'
 
-MANUAL_LABELLING = False
-FILTER_TRAJECTORY_DATA = False
-
-# TODO: Put L4/Day1 + snippet before stats/plots in out path
-# TODO: Fix script to investigate control OP50 variation (across days/temp/humidity/etc)
-# TODO: Write script to compare L4-prefed vs naive Day1 worms on different foods
-
 #%% PROCESS METADATA
 
 # Use subprocess to call 'process_metadata.py', passing imaging dates as arguments to the script
-if preprocessing:
+if PROCESS_METADATA:
     print("\nProcessing metadata file...")
-    process_metadata = sp.Popen([sys.executable, "process_metadata.py", *IMAGING_DATES])
+    metafilepath = os.path.join(DATA_DIR, "AuxiliaryFiles", "metadata.csv")
+    process_metadata = sp.Popen([sys.executable, "process_metadata.py",\
+                                 metafilepath, *IMAGING_DATES])
     process_metadata.communicate()
 
 # Read metadata (CSV file)
@@ -172,7 +177,7 @@ if any(list(~np.array(is_filename))):
 #%% PROCESS FEATURE SUMMARY RESULTS
 
 # Use subprocess to call 'process_metadata.py', passing imaging dates as arguments to the script
-if preprocessing:
+if PROCESS_FEATURE_SUMMARY_RESULTS:
     print("\nProcessing feature summary results...")
     process_feature_summary = sp.Popen([sys.executable, "process_feature_summary.py",\
                                         metafilepath, *IMAGING_DATES])
@@ -181,11 +186,11 @@ if preprocessing:
     
 #%% CHECK FEATURES N RESULTS - TRY TO READ TRAJECTORY DATA
 
-if preprocessing:
+if CHECK_FEATURESN_RESULTS:
     ERROR_LIST = []
     print("Checking for missing or corrupt results files...")
     for i, maskedvideodir in enumerate(metadata.filename):
-        featuresfilepath = changepath(maskedvideodir + '/000000.hdf5', returnpath='features')
+        featuresfilepath = changepath(maskedvideodir + ('/%.6d.hdf5' % snippet), returnpath='features')
         if i % 10 == 0:
             print("%d/%d" % (i, len(metadata.filename)))
         try:
@@ -208,16 +213,6 @@ if preprocessing:
         print("Check complete! All results files present.")
 
 
-#%% RUN CONTROL ANALYSIS SCRIPT
-    
-# Use subprocess to call 'food_behaviour_control.py', passing imaging dates as arguments to the script
-script_name = 'run_control_analysis.py'
-if CONTROL:
-    print("\nRunning script: '%s' to analyse OP50 control data..." % script_name)
-    food_behaviour_control = sp.Popen([sys.executable, script_name], stdout=open(os.devnull, "w"), stderr=sp.STDOUT)
-    food_behaviour_control.communicate()
-
-
 #%% FILTER SUMMARY RESULTS
 # - Subset (rows) for desired bacterial strains only
 # - Subset (rows) to look at results for given video snippet only
@@ -231,23 +226,30 @@ if CONTROL:
 results_inpath = os.path.join(PROJECT_ROOT_DIR, 'Results', 'fullresults.csv')
 full_results_df = pd.read_csv(results_inpath, dtype={"comments" : str})
 
-results_df, droppedFeats_NaN, droppedFeats_allZero = cleanSummaryResults(full_results_df,\
+# Record feature columns names for filtering/cleaning
+feature_column_names = list(full_results_df.columns[25:])
+
+results_df, droppedFeats_NaN, droppedFeats_allZero = filterSummaryResults(full_results_df,\
                                                      impute_NaNs_by_group=False,\
-                                                     preconditioned_from_L4=preconditioned_from_L4,\
-                                                     snippet=snippet, nan_threshold=nan_threshold)
+                                                     preconditioned_from_L4=preconditioned_from_L4,
+                                                     featurecolnames=feature_column_names,\
+                                                     snippet=snippet,\
+                                                     nan_threshold=nan_threshold)
 
-droppedlist_out = os.path.join(PROJECT_ROOT_DIR, 'Results', PATH, 'Dropped_Features_NaN.txt')
-directory = os.path.dirname(droppedlist_out)
-if not os.path.exists(directory):
-    os.makedirs(directory)
-fid = open(droppedlist_out, 'w')
-print(*droppedFeats_NaN, file=fid)
-fid.close()
-
-droppedlist_out = droppedlist_out.replace('NaN', 'AllZero')
-fid = open(droppedlist_out, 'w')
-print(*droppedFeats_allZero, file=fid)
-fid.close()
+# =============================================================================
+# droppedlist_out = os.path.join(PROJECT_ROOT_DIR, 'Results', PATH, 'Dropped_Features_NaN.txt')
+# directory = os.path.dirname(droppedlist_out)
+# if not os.path.exists(directory):
+#     os.makedirs(directory)
+# fid = open(droppedlist_out, 'w')
+# print(*droppedFeats_NaN, file=fid)
+# fid.close()
+# 
+# droppedlist_out = droppedlist_out.replace('NaN', 'AllZero')
+# fid = open(droppedlist_out, 'w')
+# print(*droppedFeats_allZero, file=fid)
+# fid.close()
+# =============================================================================
 
 # Filter for selected bacterial strains
 results_df = results_df[results_df['food_type'].isin(BACTERIAL_STRAINS)]
@@ -267,9 +269,6 @@ if filter_size_related_feats:
     print("Dropped %d features that are size-related" % (len(results_df.columns)-len(feats2keep)))
     results_df = results_df[feats2keep]
 
-# Extract OP50 control data from feature summaries
-OP50_control_df = results_df[results_df['food_type'].str.upper() == "OP50"]
-
 # Record the bacterial strain names for use in analyses
 bacterial_strains = list(np.unique(results_df['food_type'].str.upper()))
 test_bacteria = [strain for strain in bacterial_strains if strain != "OP50"]
@@ -278,6 +277,32 @@ test_bacteria = [strain for strain in bacterial_strains if strain != "OP50"]
 colnames_all = results_df.columns
 colnames_nondata = results_df.columns[:25]
 colnames_data = results_df.columns[25:]
+
+
+#%% ANALYSE OP50 CONTROL DATA - VARIATION ACROSS DAYS
+# TODO: Fix script to investigate control OP50 variation (across days/temp/humidity/etc)
+
+# Extract OP50 control data from feature summaries
+OP50_control_df = results_df[results_df['food_type'].str.upper() == "OP50"]
+
+# Save OP50 control data
+PATH_OP50 = os.path.join(PROJECT_ROOT_DIR, 'Results', 'OP50_control',\
+                            FOOD_EXPOSURE, 'snippet_{0}'.format(snippet),\
+                            'OP50_control_results.csv')
+
+directory = os.path.dirname(PATH_OP50) # make folder if it does not exist
+if not os.path.exists(directory):
+    os.makedirs(directory)
+OP50_control_df.to_csv(PATH_OP50)
+
+# Use subprocess to call 'food_behaviour_control.py', passing imaging dates as arguments to the script
+SCRIPT_NAME_OP50 = 'run_control_analysis.py'
+
+if ANALYSE_OP50_CONTROL_ACROSS_DAYS:
+    print("\nRunning script: '%s' to analyse OP50 control data..." % SCRIPT_NAME_OP50)
+    food_behaviour_control = sp.Popen([sys.executable, SCRIPT_NAME_OP50, PATH_OP50],\
+                                      stdout=open(os.devnull, "w"), stderr=sp.STDOUT)
+    food_behaviour_control.communicate()
 
 
 #%% PERFORM STATISTICAL TESTS 
@@ -428,7 +453,7 @@ for test in tests:
         
     # Save test statistics to file
     stats_outpath = os.path.join(PROJECT_ROOT_DIR, 'Results', PATH, 'Stats',\
-                                 FOOD_EXPOSURE, 'snippet_{0}'.format(snippet + 1),\
+                                 FOOD_EXPOSURE, 'snippet_{0}'.format(snippet),\
                                  test_name, test_name + '_results.csv')
     sigfeats_outpath = stats_outpath.replace('_results.csv', '_significant_features.csv')
     directory = os.path.dirname(stats_outpath) # make folder if it does not exist
@@ -440,7 +465,7 @@ for test in tests:
 # TODO: MANOVA (because response data are not independent - a dimensionality reduction technique involving eigenvalues)?
     
     
-#%% PRE-AMBLE
+#%% VARIABLES - Plotting and feature analysis
     
 # Make dictionary of colours for plotting
 colour_dictionary = dict(zip(bacterial_strains, sns.color_palette(palette="gist_rainbow",\
@@ -461,21 +486,16 @@ n_feats = len(top256features)
 top256features = [feat for feat in top256features if feat in data_df.columns]
 print("Dropping %d size-related features from Top256" % (n_feats - len(top256features)))
  
-# Load test results (pvalues) for plotting
-test_inpath = os.path.join(PROJECT_ROOT_DIR, 'Results', PATH, 'Stats', FOOD_EXPOSURE, 'snippet_{0}'.format(snippet + 1),\
-                           test2use, test2use + '_results.csv')
-test_pvalues_df = pd.read_csv(test_inpath, index_col=0)
-
-# Read significant features list for each food
-sigfeats_in = os.path.join(PROJECT_ROOT_DIR, 'Results', PATH, 'Stats', FOOD_EXPOSURE, 'snippet_{0}'.format(snippet + 1),\
-                           test2use, test2use + '_significant_features.csv')
-sigfeats_df = pd.read_csv(sigfeats_in)
-
 
 #%% BOX PLOTS - INDIVIDUAL PLOTS OF TOP RANKED FEATURES FOR EACH FOOD
 # - Rank features by pvalue significance (lowest first) and select the Top 10 features for each food
 # - Plot boxplots of the most important features for each food compared to OP50
 # - Plot features separately with feature as title and in separate folders for each food
+
+# Load test results (pvalues) for plotting
+test_inpath = os.path.join(PROJECT_ROOT_DIR, 'Results', PATH, 'Stats', FOOD_EXPOSURE, 'snippet_{0}'.format(snippet),\
+                           test2use, test2use + '_results.csv')
+test_pvalues_df = pd.read_csv(test_inpath, index_col=0)
 
 # NB: non-parametric ranksum test preferred over t-test
 print("\nPlotting box plots of top %d highest ranked features by '%s':\n" % (n_top_features, test2use))
@@ -542,7 +562,7 @@ for i, food in enumerate(test_pvalues_df.index):
 
             # Save figure
             plots_outpath = os.path.join(PROJECT_ROOT_DIR, 'Results', PATH, 'Plots',\
-                                         FOOD_EXPOSURE, 'snippet_{0}'.format(snippet + 1), food,\
+                                         FOOD_EXPOSURE, 'snippet_{0}'.format(snippet), food,\
                                          feature + '_' + test2use + '_{0}.eps'.format(f + 1))
             directory = os.path.dirname(plots_outpath)
             if not os.path.exists(directory):
@@ -553,7 +573,7 @@ for i, food in enumerate(test_pvalues_df.index):
                 plt.show(); plt.pause(2)
 
 
-#%% PLOT SUMMARY STATISTICS (for Avelino's Top 256)
+#%% PLOT FEATURE SUMMARIES -- ALL FOODS (for Avelino's Top 256)
 # - Investigate Avelino's top 256 features to look for any differences between foods (see paper: Javer et al, 2018)
 # - Plot features that show significant differences from behaviour on OP50
  
@@ -564,8 +584,10 @@ features2plot = [feature for feature in top256features if feature in test_pvalue
 features2plot = [feature for feature in features2plot if (test_pvalues_df[feature] < p_value_threshold).any()]
 
 # OPTIONAL: Plot cherry-picked features
-#    features2plot = ['speed_90th', 'angular_velocity_head_base_abs_90th', 'angular_velocity_tail_base_abs_90th',\
-#                     'angular_velocity_neck_abs_90th', 'angular_velocity_midbody_abs_90th']
+features2plot = ['speed_90th','speed_50th','speed_hips_50th','speed_midbody_50th',\
+                 'curvature_neck_abs_50th','curvature_midbody_abs_50th','curvature_hips_abs_50th','curvature_tail_abs_50th',\
+                 'major_axis_50th',\
+                 'angular_velocity_head_base_abs_50th','angular_velocity_tail_base_abs_50th','angular_velocity_neck_abs_50th','angular_velocity_midbody_abs_50th']
 
 # Seaborn boxplots with swarmplot overlay for each feature - saved to file
 tic = time.time()
@@ -573,7 +595,7 @@ plt.ioff()
 sns.set(color_codes=True); sns.set_style('darkgrid')
 for f, feature in enumerate(features2plot):
     plotpath_out = os.path.join(PROJECT_ROOT_DIR, "Results", PATH, "Plots", \
-                                FOOD_EXPOSURE, 'snippet_{0}'.format(snippet + 1), "All",\
+                                FOOD_EXPOSURE, 'snippet_{0}'.format(snippet), "All",\
                                 "Top256_Javer_2018", feature + '.eps')
     if not os.path.exists(plotpath_out) or overwrite_top256:
         print("Plotting feature: '%s'" % feature)
@@ -606,7 +628,8 @@ for f, feature in enumerate(features2plot):
 toc = time.time()
 print("Time taken: %.1f seconds" % (toc - tic))
 
-#%% PRE-AMBLE
+
+#%% NORMALISE THE DATA
 
 # Normalise the data (z-scores)
 zscores = data_df.apply(zscore, axis=0)
@@ -618,13 +641,17 @@ if useTop256:
     print("Using top 256 features for dimensionality reduction...")
     zscores = zscores[top256features]
 
+# NB: In general, for the curvature and angular velocity features we should only 
+# use the 'abs' versions, because the sign is assigned based on whether the worm 
+# is on its left or right side and this is not known for the multiworm tracking data
+
 
 #%% HIERARCHICAL CLUSTERING (HEATMAP) - ALL FOODS - AVELINO TOP 256
 # - Scikit-learn clustermap of features by foods, to see if they cluster into
 #   groups for each food - does OP50 control form a nice group?
                     
 plotroot = os.path.join(PROJECT_ROOT_DIR, 'Results', PATH, 'Plots', FOOD_EXPOSURE,\
-                        'snippet_{0}'.format(snippet + 1), 'All', 'HCA')
+                        'snippet_{0}'.format(snippet), 'All', 'HCA')
 
 # Heatmap (clustergram) of Top10 features per food (n=45)
 plt.close('all')
@@ -651,9 +678,11 @@ plt.show(); plt.pause(1)
                     
 #%% PRINCIPAL COMPONENTS ANALYSIS (PCA) - ALL FOODS Top256
 
+# TODO: Plot features that have greatest influence on PCA (eg. PC1)
+
 tic = time.time()
 plotroot = os.path.join(PROJECT_ROOT_DIR, 'Results', PATH, 'Plots', FOOD_EXPOSURE,\
-                        'snippet_{0}'.format(snippet + 1), 'All', 'PCA')
+                        'snippet_{0}'.format(snippet), 'All', 'PCA')
 
 # Perform PCA on extracted features
 print("\nPerforming Principal Components Analysis (PCA)...")
@@ -762,7 +791,7 @@ else:
 #%% t-distributed Stochastic Neighbour Embedding (t-SNE)
 
 plotroot = os.path.join(PROJECT_ROOT_DIR, 'Results', PATH, 'Plots', FOOD_EXPOSURE,\
-                        'snippet_{0}'.format(snippet + 1), 'All', 'tSNE')
+                        'snippet_{0}'.format(snippet), 'All', 'tSNE')
 
 # Perform tSNE on extracted features
 print("\nPerforming t-distributed stochastic neighbour embedding (t-SNE)...")
@@ -814,7 +843,7 @@ for perplex in perplexity:
 #%% Uniform Manifold Projection (UMAP)
 
 plotroot = os.path.join(PROJECT_ROOT_DIR, 'Results', PATH, 'Plots', FOOD_EXPOSURE,\
-                        'snippet_{0}'.format(snippet + 1), 'All', 'UMAP')
+                        'snippet_{0}'.format(snippet), 'All', 'UMAP')
 
 # Perform UMAP on extracted features
 print("\nPerforming uniform manifold projection (UMAP)...")
@@ -868,12 +897,8 @@ for n in n_neighbours:
 #%% Linear Discriminant Analysis (LDA)
 # - Projection of data along top 2 most influential eigenvectors (not any one feature)
 
-# TODO: Linear Discriminant Analysis 
-
-# NB: In general, for the curvature and angular velocity features we should only 
-# use the 'abs' versions, because the sign is assigned based on whether the worm 
-# is on its left or right side and this is not known for the multiworm tracking data
-
+# TODO: Linear Discriminant Analysis??
+    
     
 #%% MANUAL LABELLING OF FOOD REGIONS (To check time spent feeding throughout video)
 
@@ -886,7 +911,7 @@ for i, expDate in enumerate(IMAGING_DATES):
     maskedfilelist.extend(tmplist)
 print("%d masked videos found for imaging dates provided:\n%s" % (len(maskedfilelist), [*zip(IMAGING_DATES, date_total)]))
 
-first_snippets = [snip for snip in maskedfilelist if "000000.hdf5" in snip]
+first_snippets = [snip for snip in maskedfilelist if ('/%.6d.hdf5' % snippet) in snip]
 print("\nManual labelling:\n%d masked video snippets found for %d assay recordings (duration: 2hrs)"\
       % (len(maskedfilelist), len(first_snippets)))
 
@@ -902,29 +927,20 @@ if MANUAL_LABELLING:
 # TODO: Automate food labelling using (U-Net) ML algorithm -- pre-trained already by Luigi
 
 
-#%% PLOT WORM TRAJECTORIES
+#%% PLOT + FILTER WORM TRAJECTORIES
 
 # TODO: Filter worm trajectories
 if FILTER_TRAJECTORY_DATA:
-    for dirname in metadata['filename']:
-        maskedfilepath = os.path.join(dirname, '000000.hdf5')
-        featuresfilepath = changepath(maskedfilepath, returnpath='features')
+    for i, maskedvideodir in enumerate(metadata.filename):
+        featuresfilepath = changepath(maskedvideodir + ('/%.6d.hdf5' % snippet), returnpath='features')
         try:
             trajectory_df = gettrajdata(featuresfilepath)
+            print(trajectory_df.head())
             findworms(trajectory_df, threshold_move=thresh_movement,\
                       threshold_time=thresh_duration,\
-                      tellme=True)    
+                      tellme=True)
         except Exception as EE:
             print(EE)
-          
-#%% FILTER WORM TRAJECTORIES
-
-
-
-
-
-
-
 
 
 #%%
@@ -948,6 +964,11 @@ if FILTER_TRAJECTORY_DATA:
 # =============================================================================
 # #%% HIERARCHICAL CLUSTERING (HEATMAP) - ALL FOODS - STATS TEST TOP FEATURES
 # 
+# # Read significant features list for each food
+# sigfeats_in = os.path.join(PROJECT_ROOT_DIR, 'Results', PATH, 'Stats', FOOD_EXPOSURE, 'snippet_{0}'.format(snippet),\
+#                            test2use, test2use + '_significant_features.csv')
+# sigfeats_df = pd.read_csv(sigfeats_in)
+#
 # # Normalise the data (z-scores)
 # zscores = data_df.apply(zscore, axis=0)
 # 

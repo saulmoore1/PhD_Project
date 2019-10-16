@@ -27,26 +27,41 @@ import pandas as pd
 # Custom imports
 from SM_find import lookforfiles
 
-
-#%% MAIN
-
 if __name__ == '__main__':
     # Record script start time
     tic = time.time()
-    
-    # Global variables
-    PROJECT_NAME = 'MicrobiomeAssay'
-    PROJECT_ROOT_DIR = '/Volumes/behavgenom$/Saul/' + PROJECT_NAME
-    DATA_DIR = '/Volumes/behavgenom$/Priota/Data/' + PROJECT_NAME  
 
-    if len(sys.argv) > 1:
-        IMAGING_DATES = list(sys.argv[1:])
-        print("\nRunning script", sys.argv[0], "...")
-        print("%d imaging dates provided: %s" % (len(IMAGING_DATES), IMAGING_DATES))
-    else:
-        IMAGING_DATES = ['20190704', '20190705']
-        print("WARNING: No imaging dates provided. Using defaults: %s" % IMAGING_DATES)
+
+############################################################################################################    
+#%% INPUT / OUTPUT PATHS (EDIT AS NEEDED!)
+############################################################################################################    
+    # PATH TO LOOK FOR TIERPSY FILES - assumes that directory contains 'Results' and 'MaskedVideos'
+    RESULTS_DIRECTORY = '/Volumes/behavgenom$/Saul/MicrobiomeAssay'
+
+    # PATH TO DIRECTORY TO SAVE UPDATED METADATA - Where do you want to save the updated metadata file?
+    METADATA_OUT_DIRECTORY = '/Volumes/behavgenom$/Priota/Data/MicrobiomeAssay'
+############################################################################################################    
     
+    
+#%%    
+    if len(sys.argv) == 1:
+        print("\nRunning script", sys.argv[0], "...")
+    if len(sys.argv) > 1:
+        metafilepath = sys.argv[1]   
+    else: 
+        print("ERROR: No metadata filepath provided!")
+
+    # Read metadata (CSV file)
+    metadata = pd.read_csv(metafilepath)
+    print("\nMetadata file loaded.")
+    
+    if len(sys.argv) > 2:
+        IMAGING_DATES = list(sys.argv[2:])
+        print("%d imaging dates provided:\n%s" % (len(IMAGING_DATES), IMAGING_DATES))
+    else:
+        IMAGING_DATES = list(metadata['date_yyyymmdd'].unique().astype(str))
+        print("WARNING: No imaging dates provided. Using defaults:\n%s\n" % IMAGING_DATES)
+
     # Hydra rig dictionary of unique camera IDs across channels
     CAM2CH_DICT = {"22956818":'Ch1', # Hydra01
                   "22956816":'Ch2',
@@ -61,9 +76,9 @@ if __name__ == '__main__':
                   "22956822":'Ch5',
                   "22956806":'Ch6',
                   "22956814":'Ch1', # Hydra03
-                  "22956827":'Ch2',
+                  "22956833":'Ch2',
                   "22956819":'Ch3',
-                  "22956833":'Ch4',
+                  "22956827":'Ch4',
                   "22956823":'Ch5',
                   "22956840":'Ch6',
                   "22956812":'Ch1', # Hydra04
@@ -81,31 +96,26 @@ if __name__ == '__main__':
     
     # Convert dictionary of unique cameraIDs to dataframe
     CAM2CH_DF = pd.DataFrame([(k,v) for k,v in CAM2CH_DICT.items()], columns=['cameraID','channel'])
-    
-    #%% READ METADATA
-    
-    # Read metadata (CSV file)
-    metafilepath = os.path.join(DATA_DIR, "AuxiliaryFiles", "metadata.csv")
-    metadata = pd.read_csv(metafilepath)
-    print("'{0}' metadata loaded.".format(PROJECT_NAME))
-    
-    
+
+   
     #%% OBTAIN MASKED VIDEO FILEPATHS FOR METADATA
     
     n_filepaths = sum([isinstance(path, str) for path in metadata.filename])
     n_entries = len(metadata.filename)
     
     print("%d/%d filename entries found in metadata" % (n_filepaths, n_entries))
-    print("\nAttempting to fetch filenames for %d entries..." % (n_entries - n_filepaths))
+    print("\nAttempting to fetch filenames for %d entries..." % (n_entries - n_filepaths))    
     
     # Return list of pathnames for masked videos in the data directory under given imaging dates
     maskedfilelist = []
     date_total = []
+    maskedfilepath = os.path.join(RESULTS_DIRECTORY, "MaskedVideos")
+    print("Looking in '%s' for MaskedVideo files..." % maskedfilepath)
     for i, expDate in enumerate(IMAGING_DATES):
-        tmplist = lookforfiles(os.path.join(DATA_DIR, "MaskedVideos", expDate), ".*.hdf5$")
+        tmplist = lookforfiles(os.path.join(maskedfilepath, expDate), ".*.hdf5$")
         date_total.append(len(tmplist))
         maskedfilelist.extend(tmplist)
-    print("%d masked videos found for imaging dates provided:\n%s" % (len(maskedfilelist), [*zip(IMAGING_DATES, date_total)]))
+    print("%d masked video snippets found for imaging dates provided:\n%s" % (len(maskedfilelist), [*zip(IMAGING_DATES, date_total)]))
     
     # Pre-allocate column in metadata for storing camera ID info
     metadata['cameraID'] = ''  
@@ -142,29 +152,28 @@ if __name__ == '__main__':
             metadata.loc[i,'cameraID'] = cameraID
                                             
             # Query by regex using date/camera info
-            querystr_projectname = '/food'
             querystr_setnum1 = '_s{0}_'.format(set_number)
             querystr_setnum2 = '_set{0}_'.format(set_number)
             querystr_date_camID_file = '_' + date + '_\d{6}.' + cameraID + '/000000.hdf5'            
             
             # Retrieve filepath, using data recorded in metadata
             for file in maskedfilelist:
-                # If folder name starts with '/food' (auto-generated to include project title, eg. '/food_behaviour_*')
-                if re.search(querystr_projectname, file.lower()):
-                    # If folder name contains '_s{}_' or '_set{}_' (WARNING: this is manually assigned/typed when recording)
-                    if re.search(querystr_setnum1, file.lower()) or re.search(querystr_setnum2, file.lower()):
-                        # If ends with '_date_XXXXXX.cameraID/000000.hdf5' (auto-generated to include date/time/camID/filename)
-                        if re.search(querystr_date_camID_file, file.lower()):
-                            # Record filepath to parent directory (containing all chunks for that video)
-                            metadata.loc[i,'filename'] = os.path.dirname(file)
+                # If folder name contains '_s{}_' or '_set{}_' (WARNING: this is manually assigned/typed when recording)
+                if re.search(querystr_setnum1, file.lower()) or re.search(querystr_setnum2, file.lower()):
+                    # If ends with '_date_XXXXXX.cameraID/000000.hdf5' (auto-generated to include date/time/camID/filename)
+                    if re.search(querystr_date_camID_file, file.lower()):
+                        # Record filepath to parent directory (containing all chunks for that video)
+                        metadata.loc[i,'filename'] = os.path.dirname(file)
                             
     matches = sum([isinstance(path, str) for path in metadata.filename]) - n_filepaths
-    print("Complete!\n%d/%d filenames added." % (matches, n_entries - n_filepaths))
+    print("Complete!\n%d/%d filenames added.\n" % (matches, n_entries - n_filepaths))
                   
     # Get list of pathnames for featuresN files
     featuresNlist = []
+    feauresNfilepath = os.path.join(RESULTS_DIRECTORY, "Results")
+    print("Looking in '%s' for MaskedVideo files..." % feauresNfilepath)
     for i, expDate in enumerate(IMAGING_DATES):
-        tmplist = lookforfiles(os.path.join(DATA_DIR, "Results", expDate), ".*_featuresN.hdf5$")
+        tmplist = lookforfiles(os.path.join(feauresNfilepath, str(expDate)), ".*_featuresN.hdf5$")
         featuresNlist.extend(tmplist)
     
     # Pre-allocate columns in metadata for storing n_video_chunks, n_featuresN_files
@@ -187,7 +196,7 @@ if __name__ == '__main__':
                 if n_chunks == 11: 
                     extra_chunk += 1
                 else:
-                    print("WARNING: Expected 11 video '.mp4' snippets, found %d (i=%d)" % (n_chunks,i))
+                    print("WARNING: In directory: '%s'\nExpected 11 video '.mp4' snippets, but found %d!" % (dirpath, n_chunks))
             #cameras = list(set([re.findall(r'(?<=\d{8}_\d{6}\.)\d{8}', chunkpath)[0] for chunkpath in chunklist]))
             #channels = {CAM2CH_DICT[k] for k in cameras}
             metadata.loc[i, 'n_maskedvideo_chunks'] = n_chunks
@@ -205,8 +214,9 @@ if __name__ == '__main__':
     metadata['food_type'] = metadata['food_type'].str.upper()
     
     # Save full metadata
-    print("Saving updated metadata...")
-    metadata.to_csv(os.path.join(PROJECT_ROOT_DIR, "metadata.csv"), index=False)
+    metaoutpath = os.path.join(METADATA_OUT_DIRECTORY, "metadata.csv")
+    print("Saving updated metadata to '%s'" % metaoutpath)
+    metadata.to_csv(metaoutpath, index=False)
     
     # Record script end time
     toc = time.time()

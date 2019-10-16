@@ -38,7 +38,8 @@ if __name__ == '__main__':
     
     IMAGING_DATES = None
     if len(sys.argv) < 2:
-        print("ERROR: Please provide path to metadata file (CSV)!")
+        metadata_filepath = "/Volumes/behavgenom$/Saul/MicrobiomeAssay/metadata.csv"
+        print("WARNING: No metadata file path provided!\nUsing default path: '%s'" % metadata_filepath)
     elif len(sys.argv) >= 2:
         metadata_filepath = sys.argv[1]
         print("\nRunning script", sys.argv[0], "...")
@@ -52,7 +53,7 @@ if __name__ == '__main__':
     # Subset metadata to remove remaining entries with missing filepaths
     is_filename = [isinstance(path, str) for path in metadata['filename']]
     if any(list(~np.array(is_filename))):
-        print("WARNING: Could not find filepaths for %d entries in metadata.\n\t These files will be omitted from further analyses!" \
+        print("WARNING: Could not find filepaths for %d entries in metadata!\n\t These files will be omitted from further analyses." \
               % sum(list(~np.array(is_filename))))
         metadata = metadata[list(np.array(is_filename))]
         # Reset index

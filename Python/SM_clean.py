@@ -53,30 +53,35 @@ def fillNaNgroupby(df, group_by, non_data_cols=None, method='mean', axis=0):
     return df[original_cols]
 
 #%%
-def cleanSummaryResults(full_results_df, impute_NaNs_by_group=False, preconditioned_from_L4=True,\
-                        nondatacols=None, snippet=0, nan_threshold=0.75):
+def filterSummaryResults(full_results_df, impute_NaNs_by_group=False, preconditioned_from_L4='yes',\
+                        featurecolnames=None, snippet=0, nan_threshold=0.75):
     """ 
-
+    A function written to: 
+    (1) clean feature summary results in the following ways: 
+        (a) remove features with too many NaN values ('nan_threshold'=0-1)
+        (b) remove features that are all zeroes, and (c) impute remaining missing 
+            values (with global or group mean, 'impute_NaNs_by_group'=True/False)
+    (2) filter feature summary results by the following treatments: 
+        (a) whether worms have been exposed to the food prior to assay recording 
+            ('preconditioned_from_L4'='yes'/'no')
+        (b) the video snippet of interest ('snippet'=0-10)
+    Feature column names should be provided
     """
-    if preconditioned_from_L4:
-        L4_yesno = 'yes'
-    else:
-        L4_yesno = 'no'
-    # Filter feature summary results to look at 1st video snippets only
-    snippet_df = full_results_df[full_results_df['filename'].str.contains('00000{0}_featuresN.hdf5'.format(snippet))]
+    # Filter feature summary results to analyse the video snippet required
+    snippet_df = full_results_df[full_results_df['filename'].str.contains('%.6d_featuresN.hdf5' % snippet)]
     
     # Filter feature summary results to look at L4-prefed worms (long food exposure) only
-    precondition_snippet_df = snippet_df[snippet_df['preconditioned_from_L4'].str.lower() == L4_yesno]
+    precondition_snippet_df = snippet_df[snippet_df['preconditioned_from_L4'].str.lower() == preconditioned_from_L4.lower()]
     
     # Divide dataframe into 2 dataframes: data (feature summaries) and non-data (metadata)
     colnames_all = list(precondition_snippet_df.columns)
-    if nondatacols:
-        colnames_nondata = nondatacols
-        colnames_data = [col for col in colnames_all if col not in colnames_nondata]
+    if isinstance(featurecolnames, list):
+        colnames_data = featurecolnames
+        colnames_nondata = [col for col in colnames_all if col not in colnames_data]
     else:
         # Use defaults
-        colnames_nondata = colnames_all[:25]
         colnames_data = colnames_all[25:]
+        colnames_nondata = colnames_all[:25]
         
     data_df = precondition_snippet_df[colnames_data]
     nondata_df = precondition_snippet_df[colnames_nondata]

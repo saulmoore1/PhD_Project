@@ -93,10 +93,6 @@ def getfeatsums(directory):
         files_df = pd.read_csv(file)
         feats_df = pd.read_csv(feat)
         
-        # NB: Due to fine-scale variation in camera recording duration, erroneous 
-        # 11th video segments are occasionally created that do not contain enough 
-        # data for features summaries to be produced. Consequently, len(files_df)!=len(feats_df) 
-        
         # Remove entries from file summary data where corresponding feature summary data is missing
         missing_featfiles = listdiff(files_df['file_id'], feats_df['file_id'])
         files_df = files_df[np.logical_not(files_df['file_id'].isin(missing_featfiles))]
@@ -105,7 +101,7 @@ def getfeatsums(directory):
         feats_df.reset_index(drop=True, inplace=True)
                 
     # Check that file_id column matches
-    if (files_df['file_id'] != feats_df['file_id']).any() or (files_df.index != feats_df.index).any():
+    if (files_df['file_id'] != feats_df['file_id'].unique()).any():
         print("ERROR: Features summary and filenames summary do not match!")
     else:
         return files_df, feats_df
