@@ -12,13 +12,46 @@ Acknowledgements: Luigi Feriani (Github - lferiani) for the function: pcainfo()
 
 #%% IMPORTS & DEPENDENCIES
 
-import os
+#%%
+import os, re
 import numpy as np
 from scipy import stats
 from matplotlib import pyplot as plt
 
 #%% FUNCTIONS
 
+#%%
+def lookforfiles(root_dir, regex, depth=None, exact=False):
+    """ A function to looks for files in a given starting directory 
+        that match a given regular expression pattern. 
+        eg. lookforfiles("~/Documents", ".*.csv$") """
+    filelist = []
+    # Iterate over all files within sub-directories contained within the starting root directory
+    for root, subdir, files in os.walk(root_dir, topdown=True):
+        if depth:
+            start_depth = root_dir.count(os.sep)
+            if root.count(os.sep) - start_depth < depth:
+                for file in files:
+                    if re.search(pattern=regex, string=file):
+                        if exact:
+                            if os.path.join(root, file).count(os.sep) - start_depth == depth:
+                                filelist.append(os.path.join(root, file))
+                        else: # if exact depth is not specified, return all matches to specified depth
+                            filelist.append(os.path.join(root, file))
+        else: # if depth argument is not provided, return all matches
+            for file in files:
+                if re.search(pattern=regex, string=file):
+                    filelist.append(os.path.join(root, file))
+    return(filelist)
+
+#%%     
+def listdiff(list1, list2):
+    """  A function to return elements of 2 lists that are different """
+    c = set(list1).union(set(list2))  # or c = set(list1) | set(list2)
+    d = set(list1).intersection(set(list2))  # or d = set(list1) & set(list2)
+    return list(c - d)
+    
+#%%
 def ranksumtest(test_data, control_data):
     """ 
     Wilcoxon rank sum test (column-wise between 2 dataframes of equal dimensions)
@@ -42,6 +75,7 @@ def ranksumtest(test_data, control_data):
         
     return statistics, pvalues
 
+#%%
 def savefig(Path, tight_layout=True, tellme=True, saveFormat='eps', **kwargs):
     """ Helper function for easy plot saving. A simple wrapper for plt.savefig """
     if tellme:
@@ -55,6 +89,7 @@ def savefig(Path, tight_layout=True, tellme=True, saveFormat='eps', **kwargs):
     if tellme:
         print("Done.")
         
+#%%        
 def pcainfo(pca, zscores, PC=1, n_feats2print=10):
     """ A function to plot PCA explained variance, and print the most 
         important features in the given principal component (P.C.) """
