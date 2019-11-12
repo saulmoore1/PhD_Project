@@ -25,7 +25,7 @@ import numpy as np
 import pandas as pd
 
 # Path to Github / local helper functions
-sys.path.insert(0, '/Users/sm5911/Documents/GitHub/PhD_Project/Python/PanGenome')
+sys.path.insert(0, '/Users/sm5911/Documents/GitHub/PhD_Project/Python/Psychobiotics_96WP')
 
 # Custom imports
 from helper import lookforfiles, listdiff
@@ -99,8 +99,8 @@ if __name__ == '__main__':
     # Subset metadata to remove remaining entries with missing filepaths
     is_filename = [isinstance(path, str) for path in metadata['filename']]
     if any(list(~np.array(is_filename))):
-        print("WARNING: Could not find filepaths for %d entries in metadata!\n\t These files will be omitted from further analyses." \
-              % sum(list(~np.array(is_filename))))
+        print("""WARNING: Could not find filepaths for %d entries in metadata!
+        These files will be omitted from further analyses.""" % sum(list(~np.array(is_filename))))
         metadata = metadata[list(np.array(is_filename))]
         # Reset index
         metadata.reset_index(drop=True, inplace=True)
@@ -110,9 +110,9 @@ if __name__ == '__main__':
             IMAGING_DATES = sorted(list(metadata['date_recording_yyyymmdd'].dropna().astype(int).unique().astype(str)))
             print("Found the following imaging dates in metadata: %s" % IMAGING_DATES)
         except Exception as EE:
-            print("ERROR: Could not read imaging dates from metadata.\n\
-                   Please provide them when calling this script, or include them\n\
-                   in metadata under the column name: 'date_recording_yyyymmdd'")
+            print("""ERROR: Could not read imaging dates from metadata.
+            Please provide them when calling this script, or include them
+            in metadata under the column name: 'date_recording_yyyymmdd'""")
             print(EE)
         
 #%%     
@@ -180,25 +180,10 @@ if __name__ == '__main__':
         
     # Save full feature summary results to CSV
     results_outpath = os.path.join(PROJECT_ROOT_DIR, "Results/fullresults.csv")
+    if os.path.exists(results_outpath):
+        print("Overwriting existing results file: '%s'" % results_outpath)
     full_results_df.to_csv(results_outpath, index=False)
 
     toc = time.time()
-    print("Complete! Full results + error log saved to file.\n(Time taken: %.1f seconds)\n" % (toc - tic))
-
-#%%
-#for i in full_results_df.index:
-#    if i % 10 == 0:
-#        print("Processing full results file: %d/%d" % (i+1, max(full_results_df.index)+1))
-#    resultinfo = full_results_df.iloc[i]
-#    masked_dirname = resultinfo['filename']
-#    well_number = resultinfo['well_number']
-#    feat_filename = os.path.join(masked_dirname, "metadata_featuresN.hdf5").replace("MaskedVideos", "Results")
-#    try:
-#        featsum_data = full_feats_df.iloc[np.where(np.logical_and(full_feats_df['filename']==feat_filename,\
-#                                                                  full_feats_df['well_name']==well_number))[0][0]]
-#        full_results_df.loc[i,feature_colnames] = featsum_data[feature_colnames].values
-#        
-#    except Exception as EE:
-#        error_log.append([masked_dirname, well_number])
-#        print("WARNING: Cannot locate results for %s (well: %s)" % (masked_dirname, well_number))
-#        print(EE)
+    print("Complete!\nFull results saved to file: %s\n(Time taken: %.1f seconds)\n" % (results_outpath, toc - tic))
+    

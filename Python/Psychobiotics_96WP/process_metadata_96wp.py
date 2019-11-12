@@ -9,8 +9,9 @@ performs the following actions:
     2. Records the number of video segments (12min chunks) for each entry (2hr video/replicate) in metadata
     3. Records the number of featuresN results files for each entry
     4. Saves updated metadata file
-
-Created on Wed Jul 24 23:46:53 2019
+    
+Required fields in metadata: 
+    ['filename','date_recording_yyyymmdd','instrument_name','well_number','run_number','camera_number','food_type']
 
 @author: sm5911
 @date: 13/10/2019
@@ -19,12 +20,12 @@ Created on Wed Jul 24 23:46:53 2019
 #%% IMPORTS
 
 # General imports
-import os, sys, re, time#, glob, json
+import os, sys, re, time, datetime#, json, glob
 import numpy as np
 import pandas as pd
 
 # Path to Github / local helper functions
-sys.path.insert(0, '/Users/sm5911/Documents/GitHub/PhD_Project/Python/PanGenome')
+sys.path.insert(0, '/Users/sm5911/Documents/GitHub/PhD_Project/Python/Psychobiotics_96WP')
 
 # Custom imports
 from helper import lookforfiles
@@ -265,10 +266,29 @@ if __name__ == '__main__':
 #                    rig_data_snippet.loc[d, rig_data_colnames] = json_snippet, dictionary['frame_index'], dictionary['humidity'], dictionary['tempo']
 #                    rig_data_full = pd.concat([rig_data_full, rig_data_snippet], axis=0, sort=False).reset_index(drop=True)
 
-#%%
+#%% OPTIONAL EXTRAS
+         
     # Ensure 'food_type' entries are grouped correctly by converting to uppercase
     metadata['food_type'] = metadata['food_type'].str.upper()   
  
+    # Calculate L1 diapause duration (if possible) and append to results
+    diapause_required_columns = ['date_bleaching_yyyymmdd','time_bleaching',\
+                                 'date_L1_refed_yyyymmdd','time_L1_refed_OP50']
+    
+    if all(x in metadata.columns for x in diapause_required_columns):
+        # Extract bleaching dates and times
+        bleaching_datetime = [datetime.datetime.strptime(date_str + ' ' + time_str, '%Y%m%d %H:%M:%S') for date_str, time_str\
+                              in zip(metadata['date_bleaching_yyyymmdd'].astype(str), metadata['time_bleaching'])]
+        # Extract dispensing dates and times
+        dispense_L1_datetime = [datetime.datetime.strptime(date_str + ' ' + time_str, '%Y%m%d %H:%M:%S') for date_str, time_str\
+                                in zip(metadata['date_L1_refed_yyyymmdd'].astype(str), metadata['time_L1_refed_OP50'])]
+        # Estimate duration of L1 diapause
+        L1_diapause_duration = [dispense - bleach for bleach, dispense in zip(bleaching_datetime, dispense_L1_datetime)]
+        
+        # Add duration of L1 diapause to metadata
+        metadata['L1_diapause_seconds'] = [int(timedelta.total_seconds()) for timedelta in L1_diapause_duration]
+
+#%%
     # Save full metadata
     print("Saving updated metadata to: '%s'" % COMPILED_METADATA_FILEPATH)
     metadata.to_csv(COMPILED_METADATA_FILEPATH, index=False)        
@@ -276,15 +296,3 @@ if __name__ == '__main__':
     # Record script end time
     toc = time.time()
     print("Done.\n(Time taken: %.1f seconds)" % (toc-tic))
-
-#%%        
-#        try:
-#            # Try to read imaging dates to process from metadata (CSV file)
-#            metadata = pd.read_csv(COMPILED_METADATA_FILEPATH)
-#            print("\nMetadata file loaded.")
-#
-#            IMAGING_DATES = sorted(list(metadata['date_recording_yyyymmdd'].dropna().astype(int).unique().astype(str)))
-#            print("WARNING: No imaging dates provided. Using dates found in metadata:\n%s\n" % IMAGING_DATES)
-#        except Exception as EE:
-#            print("ERROR: Could not read imaging dates from metadata! Make sure column 'date_recording_yyyymmdd' exists!")
-#            print(EE)

@@ -18,7 +18,7 @@ import os, sys, itertools, time#, umap
 import pandas as pd
 import seaborn as sns; sns.set(color_codes=True)
 from matplotlib import pyplot as plt
-from scipy.stats import zscore, kruskal#, f_oneway
+from scipy.stats import shapiro, kruskal, f_oneway, zscore
 from statsmodels.stats import multitest as smm#, AnovaRM
 from statsmodels.stats.multicomp import MultiComparison, pairwise_tukeyhsd
 #from statsmodels.multivariate.manova import MANOVA
@@ -27,7 +27,7 @@ from matplotlib.axes._axes import _log as mpl_axes_logger # Work-around for Axes
 from mpl_toolkits.mplot3d import Axes3D
 
 # Path to Github / local helper functions
-sys.path.insert(0, '/Users/sm5911/Documents/GitHub/PhD_Project/Python/PanGenome')
+sys.path.insert(0, '/Users/sm5911/Documents/GitHub/PhD_Project/Python/Psychobiotics_96WP')
 
 # Custom imports
 from helper import savefig, pcainfo
@@ -36,27 +36,26 @@ from helper import savefig, pcainfo
 
 #%% MAIN
 def control_variation(path_to_control_data, feature_column_names, grouping_variable="date_recording_yyyymmdd"):
-    """ A function written to analyse control data variation over time across
-        different experiment days. """
+    """ A function written to analyse control variation over time across with respect 
+        to a defined grouping variable (factor), eg. experiment day, run number, 
+        duration of L1 diapause, camera/rig ID, etc. """
 
-#%%    
-    DIRPATH = os.path.dirname(path_to_control_data)
+#%% GLOBAL PARAMETERS
                         
     # Statistics parameters
-    test = kruskal # f_oneway
     TukeyHSD = False
-    p_value_threshold = 0.05 # P-vlaue threshold for statistical analyses
+    is_normal_threshold = 0.95                                                 # Threshold to decide between parametric/non-parametric statistics
+    p_value_threshold = 0.05                                                   # P-value threshold for statistical analyses
     
     # Dimensionality reduction parameters
-    useTop256 = True                # Restrict dimensionality reduction inputs to Avelino's top 256 feature list?
-    n_top_feats_per_food = 10       # HCA - Number of top features to include in HCA (for union across foods HCA)
-    PCs_to_keep = 10                # PCA - Number of principal components to record
-    depthshade = False              # PCA - Shade colours on 3-D plots to show depth?
-#    perplexity = [10,15,20,25,30]   # tSNE - Parameter range for t-SNE mapping
-#    n_neighbours = [10,15,20,25,30] # UMAP - Number of neighbours parameter for UMAP projections
-#    min_dist = 0.3                  # UMAP - Minimum distance parameter for UMAP projections
+    useTop256 = True                                                           # Restrict dimensionality reduction inputs to Avelino's top 256 feature list?
+    n_top_feats_per_food = 10                                                  # HCA - Number of top features to include in HCA (for union across foods HCA)
+    PCs_to_keep = 10                                                           # PCA - Number of principal components to record
+#    perplexity = [10,15,20,25,30]                                              # tSNE - Parameter range for t-SNE mapping
+#    n_neighbours = [10,15,20,25,30]                                            # UMAP - Number of neighbours parameter for UMAP projections
+#    min_dist = 0.3                                                             # UMAP - Minimum distance parameter for UMAP projections
   
-    #%% READ + FILTER + CLEAN SUMMARY RESULTS
+#%% READ + FILTER + CLEAN SUMMARY RESULTS
     
     CONTROL_DF = pd.read_csv(path_to_control_data, index_col=0)
     print("Control data loaded.")
@@ -74,26 +73,62 @@ def control_variation(path_to_control_data, feature_column_names, grouping_varia
     
     # Record a list of feature column names
     feat_names = [col for col in CONTROL_DF.columns if col not in meta_colnames]
+
+#%% Check control data for normality - to decide whether to use parametric/non-parametric statistics
+
+    normality_results = pd.DataFrame(data=None, index=['stat','pval'], columns=feat_names)
+    for f, feature in enumerate(feat_names):
+        #if (f+1) % 100 == 0:
+        #    print("Progress: %d/%d (%.f%%)" % (f,len(feats2test),f/len(feats2test)*100))
+        try:
+            stat, pval = shapiro(CONTROL_DF[feature])
+            # TODO: Fix UserWarning: Input data for shapiro has range zero. The results may not be accurate. 
+            #       warnings.warn("Input data for shapiro has range zero. The results "
+            normality_results.loc['stat',feature] = stat
+            normality_results.loc['pval',feature] = pval
+        except Exception as EE:
+            print("WARNING: %s" % EE)
+            
+    prop_normal = (normality_results.loc['pval'] < p_value_threshold).sum()/len(feat_names)    
+    if prop_normal > is_normal_threshold:
+        print("""More than %d%% of control features (%.1f%%) were found to obey a normal (Gaussian) distribution, 
+        so parametric analyses will be preferred.""" % (is_normal_threshold*100, prop_normal*100))
+        TEST = f_oneway
+    else:
+        print("""Less than %d%% of control features (%.1f%%) were found to obey a normal (Gaussian) distribution, 
+        so non-parametric analyses will be preferred.""" % (is_normal_threshold*100, prop_normal*100))
+        TEST = kruskal
+        
+#%%
+    # Record name of statistical test used (kruskal/f_oneway)
+    test_name = str(TEST).split(' ')[1].split('.')[-1].split('(')[0].split('\'')[0]
+
+    # Ensure directory exists to save results in
+    DIRPATH = os.path.dirname(path_to_control_data)    
+    stats_outpath = os.path.join(DIRPATH, grouping_variable, 'Stats', 'control_variation_in_' +\
+                                 grouping_variable + '_' + test_name + '_results.csv')
+    directory = os.path.dirname(stats_outpath) 
+    if not os.path.exists(directory):
+        os.makedirs(directory)
     
-    #%% OP50 CONTROL DATA ACROSS DAYS: STATS (ANOVAs)
-    # - Does N2 worm behaviour on OP50 control vary across experiment days?
-    # - Perform ANOVA to see if features vary across imaging days for OP50 control
-    # - Perform Tukey HSD post-hoc analyses for pairwise differences between imaging days
-    # - Highlight outlier imaging days and investigate reasons why
-    # - Save list of top significant features for outlier days - are they size-related features?
-    #   (worms are larger? Shorter L1 diapuase? Camera focus/FOV adjusted? Skewed by non-worm tracked objects?
-    #   Did not record time when worms were refed! Could be this. If so, worms will be bigger across all foods on that day) 
-    
-    # Plot OP50 control top10 size-skewed features for each food - do they all differ for outlier date? If so, worms are likely just bigger.
-    # PCA: For just OP50 control - colour by imaging date - do they cluster visibly? If so, we have time-dependence = NOT GREAT 
-    # => Consider excluding that date on the basis of un-standardised development times since refeeding?
+#%% OP50 CONTROL DATA ACROSS DAYS: STATS (ANOVAs)
+# - Does N2 worm behaviour on OP50 control vary across experiment days? 
+#       (worms are larger? Shorter L1 diapuase? Camera focus/FOV adjusted? Skewed by non-worm tracked objects?
+#       Did not record time when worms were refed! Could be this. If so, worms will be bigger across all foods on that day) 
+# - Perform ANOVA to see if features vary across imaging days for OP50 control
+# - Perform Tukey HSD post-hoc analyses for pairwise differences between imaging days
+# - Highlight outlier imaging days and investigate reasons why
+# - Save list of top significant features for outlier days - are they size-related features?
+
+# Plot OP50 control top10 size-skewed features for each food - do they all differ for outlier date? If so, worms are likely just bigger.
+# PCA: For just OP50 control - colour by imaging date - do they cluster visibly? If so, we have time-dependence = NOT GREAT 
     
     # Kruskal-Wallis tests (ie. non-parametric one-way ANOVA) with Bonferroni correction for repeated measures
-    print("""Performing Kruskal-Wallis tests for each feature to investigate 
-             whether control OP50 results vary across imaging dates:""")
+    print("""Performing '%s' tests for each feature to investigate 
+    whether control results vary with respect to '%s':""" % (test_name, grouping_variable))
     TEST_RESULTS_DF = pd.DataFrame(index=['stat','pval'], columns=feat_names)
     for feature in feat_names:
-        test_stat, test_pvalue = test(*[CONTROL_DF[CONTROL_DF[grouping_variable]==g_var][feature]\
+        test_stat, test_pvalue = TEST(*[CONTROL_DF[CONTROL_DF[grouping_variable]==g_var][feature]\
                                             for g_var in CONTROL_DF[grouping_variable].unique()])
         TEST_RESULTS_DF.loc['stat',feature] = test_stat
         TEST_RESULTS_DF.loc['pval',feature] = test_pvalue
@@ -111,14 +146,11 @@ def control_variation(path_to_control_data, feature_column_names, grouping_varia
     
     n_sigfeats = sum(TEST_RESULTS_DF.loc['pval_corrected'] < p_value_threshold)
     
-    print("%d / %d (%.1f%%) of features show significant variation across imaging dates for OP50 control (ANOVA/Kruskal)" % \
-          (n_sigfeats, len(TEST_RESULTS_DF.columns), n_sigfeats/len(TEST_RESULTS_DF.columns)*100))
-    
-    # Record name of statistical test used (kruskal/f_oneway)
-    test_name = str(test).split(' ')[1].split('.')[-1].split('(')[0].split('\'')[0]
-    
+    print("%d / %d (%.1f%%) of features show significant variation in control (%s) with respect to '%s'" % \
+          (n_sigfeats, len(TEST_RESULTS_DF.columns), n_sigfeats/len(TEST_RESULTS_DF.columns)*100,\
+           test_name, grouping_variable))
+        
     # Save test statistics to file
-    stats_outpath = os.path.join(DIRPATH, 'OP50_control_across_days_' + test_name + '_stats.csv')
     TEST_RESULTS_DF.to_csv(stats_outpath)
     
     # Compile list to store names of significant features
@@ -127,7 +159,7 @@ def control_variation(path_to_control_data, feature_column_names, grouping_varia
     sigfeats_out.name = 'p_value_' + test_name
     
     # Save significant features list to CSV
-    sigfeats_outpath = os.path.join(DIRPATH, 'OP50_control_across_days_' + test_name + '_sigfeats.csv')
+    sigfeats_outpath = stats_outpath.replace("_results.csv", "_significant_features.csv")
     sigfeats_out.to_csv(sigfeats_outpath, header=False)
     
     if TukeyHSD:
@@ -148,9 +180,10 @@ def control_variation(path_to_control_data, feature_column_names, grouping_varia
         total_comparisons = len(feat_names) * 6
         reject_H0_percentage = n_sigdiff_pairwise_afterBF / total_comparisons * 100
         
-        print("""%d / %d (%.1f%%) of pairwise-comparisons of imaging dates (%d features) 
-        show significant variation for OP50 control (TukeyHSD)""" %\
-        (n_sigdiff_pairwise_afterBF, total_comparisons, reject_H0_percentage, len(feat_names)))
+        print("""%d / %d (%.1f%%) of pairwise-comparisons (%d features) 
+        show significant variation in control (TukeyHSD) with respect to '%s'""" %\
+        (n_sigdiff_pairwise_afterBF, total_comparisons, reject_H0_percentage,\
+         len(feat_names), grouping_variable))
         
         # TODO: Reverse-engineer p-values using mean/std?
         #from statsmodels.stats.libqsturng import psturng
@@ -158,14 +191,14 @@ def control_variation(path_to_control_data, feature_column_names, grouping_varia
         #rs = res2[1][2] / res2[1][3]
         #pvalues = psturng(np.abs(rs), 3, 27)
         
-    #%% MANOVA (date, temp, humid, etc)
+#%% MANOVA (date, temp, humid, etc)
 
 #    maov = MANOVA.from_formula('' + '' + '' ~ , data=CONTROL_DF)
 #    print(maov.mv_test())
     
-    #%% Boxplots for most important features across days
+    #%% Boxplots for most important features with repsect to grouping variable
     
-    plotroot = os.path.join(DIRPATH, "Plots")
+    plotroot = os.path.join(DIRPATH, grouping_variable, "Plots")
     if not os.path.exists(plotroot):
         os.makedirs(plotroot)
 
@@ -173,7 +206,7 @@ def control_variation(path_to_control_data, feature_column_names, grouping_varia
     n_sigfeats = sum(pvals_corrected < p_value_threshold)
     
     if pvals_corrected.isna().all():
-        print("No signficant features found across days for OP50 control!")
+        print("No signficant features found in control with respect to '%s'!" % grouping_variable)
     elif n_sigfeats > 0:
         # Rank p-values in ascending order
         ranked_pvals = pvals_corrected.sort_values(ascending=True)
@@ -188,9 +221,11 @@ def control_variation(path_to_control_data, feature_column_names, grouping_varia
         topfeats = ranked_pvals[:n_top_feats_per_food]
                 
         if n_sigfeats < n_top_feats_per_food:
-            print("WARNING: Only %d features found to vary significantly across days" % n_sigfeats)
+            print("WARNING: Only %d features found to vary significantly with respect to '%s'"\
+                  % (n_sigfeats, grouping_variable))
             
-        print("\nTop %d features for OP50 that differ significantly across days:\n" % len(topfeats))
+        print("\nTop %d features for control that differ significantly with respect to '%s':\n"\
+              % (len(topfeats), grouping_variable))
         print(*[feat + '\n' for feat in list(topfeats.index)])
     
         # for f, feature in enumerate(feat_names[0:25]):
@@ -203,22 +238,18 @@ def control_variation(path_to_control_data, feature_column_names, grouping_varia
             fig = plt.figure(figsize=[10,6])
             ax = fig.add_subplot(1,1,1)
             sns.boxplot(x=grouping_variable, y=feature, data=OP50_feat_df)
-            if grouping_variable == "date_recording_yyyymmdd":
-                ax.set_xlabel('Imaging Date (YYYYMMDD)', fontsize=15, labelpad=12)
+            ax.set_xlabel(grouping_variable, fontsize=15, labelpad=12)
             ax.set_title(feature, fontsize=20, pad=20)
             
             # TODO: Add reverse-engineered pvalues to plot?
             
             # Save plot
-            plots_outpath = os.path.join(plotroot, feature + '_across_days.eps')
+            plots_outpath = os.path.join(plotroot, feature + '_variation_in_'\
+                                         + grouping_variable + '.eps')
             savefig(plots_outpath, tellme=True, saveFormat='eps')            
     
     #%% PCA of OP50 CONTROL DATA ACROSS DAYS
-    
-    PCAplotroot = os.path.join(plotroot, 'PCA')
-    if not os.path.exists(PCAplotroot):
-        os.makedirs(PCAplotroot)
-    
+        
     # Read list of important features (highlighted by previous research - see Javer, 2018 paper)
     if useTop256:
         featroot = DIRPATH.split("/Results/")[0]
@@ -228,7 +259,7 @@ def control_variation(path_to_control_data, feature_column_names, grouping_varia
         # Take first set of 256 features (it does not matter which set is chosen)
         top256features = top256features[top256features.columns[0]]   
         top256features = [feat for feat in top256features if feat in CONTROL_DF.columns]
-        print("PCA: Using existing results for %d/256 features in Top256 list (Javer 2018)" % len(top256features))
+        print("PCA: Results exist for %d/256 features in Top256 list (Javer 2018)" % len(top256features))
     
         # Drop all but top256 columns for PCA
         data = CONTROL_DF[top256features]
@@ -257,7 +288,11 @@ def control_variation(path_to_control_data, feature_column_names, grouping_varia
     important_feats, fig = pcainfo(pca, zscores, PC=1, n_feats2print=10)
     
     # Save plot of PCA explained variance
-    PCAplotpath = os.path.join(PCAplotroot, 'PCA_explained.eps')
+    PCAplotroot = os.path.join(plotroot, 'PCA')
+    if not os.path.exists(PCAplotroot):
+        os.makedirs(PCAplotroot)
+    PCAplotpath = os.path.join(PCAplotroot, 'control_variation_in_'\
+                               + grouping_variable + '_PCA_explained.eps')
     savefig(PCAplotpath, tight_layout=True, tellme=True, saveFormat='eps')
     
     # Project data (zscores) onto PCs
@@ -273,6 +308,8 @@ def control_variation(path_to_control_data, feature_column_names, grouping_varia
     CONTROL_PROJECTED_DF = pd.concat([CONTROL_DF[meta_colnames], projected_df], axis=1)
     
     #%% 2D Plot - first 2 PCs - OP50 Control (coloured by imaging date)
+ 
+    # TODO: Change to use new plotPCA function!
     
     # Plot first 2 principal components
     plt.close('all'); plt.ion()
@@ -286,24 +323,25 @@ def control_variation(path_to_control_data, feature_column_names, grouping_varia
     palette = itertools.cycle(sns.color_palette("gist_rainbow", len(group_vars)))
     
     for g_var in group_vars:
-        group_projected_df = CONTROL_PROJECTED_DF[CONTROL_PROJECTED_DF[grouping_variable]==int(g_var)]
+        group_projected_df = CONTROL_PROJECTED_DF[CONTROL_PROJECTED_DF[grouping_variable]==g_var]
         sns.scatterplot(group_projected_df['PC1'], group_projected_df['PC2'], color=next(palette), s=100)
     ax.set_xlabel('Principal Component 1', fontsize=15, labelpad=12)
     ax.set_ylabel('Principal Component 2', fontsize=15, labelpad=12)
     if useTop256:
-        ax.set_title('Top256 features 2-Component PCA', fontsize=20)
+        ax.set_title("""Control variation with respect to {0}
+        2-Component PCA (Top256 features)""".format(grouping_variable), fontsize=20)
     else: 
-        ax.set_title('All features 2-Component PCA', fontsize=20)
+        ax.set_title("""Control variation with respect to {0}
+        2-Component PCA (all features)""".format(grouping_variable), fontsize=20)
     plt.tight_layout(rect=[0.04, 0, 0.84, 0.96])
     ax.legend(group_vars, frameon=False, loc=(1, 0.65), fontsize=15)
     ax.grid()
     
     # Save scatterplot of first 2 PCs
-    PCAplotpath = PCAplotpath.replace('PCA_explained', '2_component_PCA')
+    PCAplotpath = PCAplotpath.replace('_PCA_explained', '_PCA_2_components')
     savefig(PCAplotpath, tight_layout=True, tellme=True, saveFormat='eps')
     
     plt.show(); plt.pause(2)
-
 
     #%% Plot 3 PCs - OP50 across imaging dates
     rotate = True
@@ -320,30 +358,32 @@ def control_variation(path_to_control_data, feature_column_names, grouping_varia
     palette = itertools.cycle(sns.color_palette("gist_rainbow", len(group_vars)))
     
     for g_var in group_vars:
-        group_projected_df = CONTROL_PROJECTED_DF[CONTROL_PROJECTED_DF['date_recording_yyyymmdd']==int(g_var)]
+        group_projected_df = CONTROL_PROJECTED_DF[CONTROL_PROJECTED_DF[grouping_variable]==g_var]
         ax.scatter(xs=group_projected_df['PC1'], ys=group_projected_df['PC2'], zs=group_projected_df['PC3'],\
-                   zdir='z', color=next(palette), s=50, depthshade=depthshade)
+                   zdir='z', color=next(palette), s=50, depthshade=False)
     ax.set_xlabel('Principal Component 1', fontsize=15, labelpad=12)
     ax.set_ylabel('Principal Component 2', fontsize=15, labelpad=12)
     ax.set_zlabel('Principal Component 3', fontsize=15, labelpad=12)
     if useTop256:
-        ax.set_title('Top256 features 2-Component PCA', fontsize=20, pad=20)
+        ax.set_title("""Control variation with respect to {0}
+        3-Component PCA (Top256 features)""".format(grouping_variable), fontsize=20)
     else: 
-        ax.set_title('All features 2-Component PCA', fontsize=20, pad=20)
+        ax.set_title("""Control variation with respect to {0}
+        3-Component PCA (all features)""".format(grouping_variable), fontsize=20)
     ax.legend(group_vars, frameon=False, loc=(0.97, 0.65), fontsize=15)
     ax.grid()
     
     # Save scatterplot of first 3 PCs
-    PCAplotpath = PCAplotpath.replace('PCA_explained', '3_component_PCA')
+    PCAplotpath = PCAplotpath.replace('_PCA_2_components', '_PCA_3_components')
     savefig(PCAplotpath, tight_layout=False, tellme=True, saveFormat='eps')
     
     # Rotate the axes and update
     if rotate:
         for angle in range(0, 360):
             ax.view_init(30, angle)
-            plt.draw(); plt.pause(0.001)
+            plt.draw(); plt.pause(0.00001)
     else:
-        plt.show()
+        plt.show(); plt.pause(2)
 
 #%% INPUT HANDLING AND GLOBAL PARAMETERS
         
@@ -363,4 +403,4 @@ if __name__ == '__main__':
         of feature column names as inputs.""")
         
     toc = time.time()
-    print("OP50 control analysis complete.\n(Time taken: %d seconds)" % (toc-tic))
+    print("Control analysis complete.\n(Time taken: %d seconds)" % (toc-tic))

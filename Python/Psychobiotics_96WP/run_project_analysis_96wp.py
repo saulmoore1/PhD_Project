@@ -4,34 +4,38 @@
 @author: sm5911
 @date: 26/10/2019
 
-ANALYSIS OF PAN-GENOME LIBRARY (96WP ASSAY)
+PSYCHOBIOTICS: ANALYSIS OF WORM BEHAVIOUR ON BACTERIAL FOOD (96WP ASSAY)
+
+PAN-GENOME LIBRARY + C. elegans MICROBIOME STRAINS
 
 A script written to interpret and visualise results for the quantitative 
-behavioural analysis of N2 C. elegans raised monoxenically on 
-various strains of E. coli cultered from the gut microbiota of various animals.
-Results are compared to N2 performance on standard laboratory E. coli strain,
-OP50, as the control. 
+behavioural analysis of N2 C. elegans raised monoxenically on:
+    
+(1) >1100 strains of E. coli cultered from the gut microbiota of various animals.
+(2) >50 strains of natural bacteria isolated from the gut microbiome of C. elegans.
 
-Control variation is investigated across experiment runs 
+Results are compared to N2 performance on standard laboratory E. coli strain,
+OP50, as the control. Control variation is investigated across experiment runs 
 for time-dependence of various potential confounders: experiment date 
 (day-effects), imaging camera (rig effects), L1 diapause duration, temperature 
 and humidity. 
 
-Rank sum tests (with Bonferroni correction for multiple comparisons) were 
-performed, comparing each strain with the control, to look for any behavioural 
-features that are significantly different. For each food, box plots are saved 
-for the top features that most significantly differ from control observations.
+Depending on whether feature results are normally distributed, the following
+parametric tests (or non-parametric equivalents) were performed (with Bonferroni 
+correction for multiple comparisons):
 
-Kruskal-Wallis (ANOVA) tests were performed for each feature, to look for 'hit'
-strains that elicit significantly different N2 behaviour from all other strains.
-For significant features, post-hoc Tukey HSD tests were performed for pairwise 
-comparisons between strains.
+(1) T-tests/Wilcoxon ranksum tests to look for behavioural features that differ 
+between each strain and the control. For each food, box plots are saved for the 
+top features that most significantly differ from control observations.
+
+(2) One-way ANOVA/Kruskal-Wallis tests to look for 'hit' strains that elicit 
+different N2 behaviour. For significant features, post-hoc Tukey HSD tests are 
+performed for pairwise comparisons between strains.
 
 For each feature in a representative list of 256 features (Javer et al, 2018),
-N2 performance for all strains is plotted.
-
-Principal components analysis, tSNE and UMAP were performed to see if N2 
-behaviour exhibits visibly different performance on each strain.
+N2 performance is plotted for all strains. Principal components analysis, 
+tSNE and UMAP are also performed to see if N2 behaviour exhibits visibly 
+different performance on each strain.
 
 """
 
@@ -50,62 +54,67 @@ from sklearn.manifold import TSNE
 from matplotlib import pyplot as plt
 from matplotlib import patches as mpatches
 from matplotlib import transforms
-from matplotlib.axes._axes import _log as mpl_axes_logger # Work-around for Axes3D plot colour warnings
-from mpl_toolkits.mplot3d import Axes3D
 
-# Path to Github / local helper functions
-sys.path.insert(0, '/Users/sm5911/Documents/GitHub/PhD_Project/Python/PanGenome')
+# Path to Github/local helper functions (USER-DEFINED: Path to local copy of my Github repo)
+PATH = '/Users/sm5911/Documents/GitHub/PhD_Project/Python/Psychobiotics_96WP'
+sys.path.insert(0, PATH)
 
 # Custom imports
-from helper import ranksumtest, savefig, pcainfo
-from run_analysis_pangenome_control_96wp import control_variation
+from helper import ranksumtest, savefig, pcainfo, plotPCA
+from run_control_analysis_96wp import control_variation
 
 # Record script start time
 bigtic = time.time()
 
 #%% GLOBAL PARAMETERS (USER-DEFINED)
 
+# Project root directory
+PROJECT_ROOT_DIR = '/Volumes/hermes$/Recordings/PanGenome'                     
+#PROJECT_ROOT_DIR = '/Volumes/behavgenom$/Saul/MicrobiomeAssay96WP'
+
 # TODO: Process featsums for 20191031 and results + featsums for 20191018!
 
-PROJECT_ROOT_DIR = '/Volumes/hermes$/Recordings/PanGenome'                     # Project root directory
-IMAGING_DATES = ['20191017','20191024']
-#IMAGING_DATES = os.listdir(os.path.join(PROJECT_ROOT_DIR, "MaskedVideos"))    # Get list of experiment imaging dates
-#IMAGING_DATES = [date for date in IMAGING_DATES if date != '.DS_Store']          
+IMAGING_DATES = ['20191017','20191024','20191031']                             # List of experiment imaging dates (optional)
          
-PROCESS_METADATA = True                                                       # Process the metadata prior to analysis?
-PROCESS_FEATURE_SUMMARY_RESULTS = True                                        # Process feature summary files?
+PROCESS_METADATA = False                                                       # Process the metadata prior to analysis?
+PROCESS_FEATURE_SUMMARY_RESULTS = False                                        # Process feature summary files?
 ANALYSE_OP50_CONTROL_ACROSS_DAYS = True                                        # Perform analysis of variation in control data over time
 CONTROL_STRAIN = 'OP50'                                                        # Control strain of bacterial food, E. coli OP50
 
 # Statistics parameters
-CHECK_IF_NORMAL = False
+check_feature_normality = False                                                # Check for Gaussian normality of observed feature sample distributions
 nan_threshold = 0.5                                                            # Threshold proportion of NaN values to drop a feature column from analyses
 p_value_threshold = 0.05                                                       # Threshold p-value for statistical significance
-filter_size_related_feats = True                                               # Drop size-related features from analysis?
-is_normal_threshold = 0.5                                                      # Threshold to decide between parametric/non-parametric statistics
+filter_size_related_feats = False                                              # Drop size-related features from analysis (excluding analysis of control)?
+is_normal_threshold = 0.95                                                     # Threshold to decide between parametric/non-parametric statistics
 
 # Plotting parameters
 n_top_features = 5                                                             # Number of top-ranked features to plot (boxplot comparison between foods for each feature)
 show_plots = False                                                             # Display figures (for visualisation, but slows down plotting)?
-rotate = False                                                                 # PCA - Rotate 3-D plots?
-depthshade = True                                                              # PCA - Shade colours on 3-D plots to show depth?
+rotate = True                                                                  # PCA - Rotate 3-D plots?
+depthshade = False                                                             # PCA - Shade colours on 3-D plots to show depth?
 
 # Dimensionality reduction parameters
 PCs_to_keep = 10                                                               # Number of principle components to use for PCA
-perplexity = [5,10]                                                            # tSNE - Parameter range for t-SNE mapping (similar to number of nearest neighbours/expected cluster size)
+n_PC_feats2plot = 10                                                           # Number of top features influencing PC1 to plot
+perplexities = [5,10]                                                          # tSNE - Perplexity parameter for t-SNE mapping (similar to number of nearest neighbours/expected cluster size)
 n_neighbours = [5,10]                                                          # UMAP - Number of neighbours parameter for UMAP projections eg. expected cluster size
 min_dist = 0.3                                                                 # UMAP - Minimum distance parameter for UMAP projections
 
 #%% PROCESS / LOAD METADATA
 
-# Use subprocess to call 'process_metadata_96WP.py'
-# Optional: pass imaging dates as arguments to the script
 COMPILED_METADATA_FILEPATH = os.path.join(PROJECT_ROOT_DIR, "AuxiliaryFiles", "metadata.csv")
 
+if not IMAGING_DATES or len(IMAGING_DATES) == 0:
+    IMAGING_DATES = os.listdir(os.path.join(PROJECT_ROOT_DIR, "MaskedVideos"))     
+    IMAGING_DATES = sorted([date for date in IMAGING_DATES if date != '.DS_Store'])         
+
+# Use subprocess to call 'process_metadata_96WP.py'
 if PROCESS_METADATA:
     print("\nProcessing metadata file...")
-    SCRIPT_PATH = "/Users/sm5911/OneDrive - Imperial College London/Psychobiotics/Code/process_metadata_96wp.py"
-    process_metadata = sp.Popen([sys.executable, SCRIPT_PATH, COMPILED_METADATA_FILEPATH, *IMAGING_DATES])
+    # Optional: pass imaging dates as arguments to the script
+    process_metadata = sp.Popen([sys.executable, os.path.join(PATH, "process_metadata_96wp.py"),\
+                                 COMPILED_METADATA_FILEPATH, *IMAGING_DATES])
     process_metadata.communicate()
     print("Complete.")
 
@@ -126,20 +135,20 @@ if any(list(~np.array(is_filename))):
 
 if PROCESS_FEATURE_SUMMARY_RESULTS:
     print("\nProcessing feature summary results...")
-    SCRIPT_PATH = "/Users/sm5911/OneDrive - Imperial College London/Psychobiotics/Code/process_feature_summary_96wp.py"
-    process_feature_summary = sp.Popen([sys.executable, SCRIPT_PATH, COMPILED_METADATA_FILEPATH, *IMAGING_DATES])
+    process_feature_summary = sp.Popen([sys.executable, os.path.join(PATH, "process_feature_summary_96wp.py"),\
+                                        COMPILED_METADATA_FILEPATH, *IMAGING_DATES])
     process_feature_summary.communicate()
-
-# TODO: Compare missing results with 'No worm' comments in metadata
-#       Are there no results simply because there were no worms dispensed into those wells?
-
-#%% FILTER / CLEAN RESULTS
 
 # Read full results (metadata + feature summaries)
 # NB: pre-allocate 'comments' column as 'str' dtype for faster read (contains many empty lines)
 resultspath = os.path.join(PROJECT_ROOT_DIR, "Results", "fullresults.csv")
 fullresults = pd.read_csv(resultspath, dtype={"comments":str})
 print("Feature summary results loaded.")
+
+# TODO: Compare missing results with 'No worm' comments in metadata
+#       Are there no results simply because there were no worms dispensed into those wells?
+
+#%% FILTER / CLEAN RESULTS
 
 # Record strain names for which we have results
 BACTERIAL_STRAINS = list(fullresults['food_type'].unique())
@@ -186,20 +195,22 @@ print("Dropped %d feature columns with all zeros" % zero_cols)
 # Re-combine into full results dataframe
 fullresults = pd.concat([results_meta, results_feats], axis=1, sort=False)
 
-# Extract OP50 control data from clean feature summaries
+# Re-record feature column names after dropping some features
+feat_colnames = [featcol for featcol in fullresults.columns if featcol not in meta_colnames]
+
+#%% Extract OP50 control data from clean feature summaries
+
 OP50_control = fullresults[fullresults['food_type'] == CONTROL_STRAIN]
 
 # Save OP50 control data
-PATH_OP50 = os.path.join(PROJECT_ROOT_DIR, 'Results', 'Control', 'OP50_control_results.csv')
+PATH_OP50 = os.path.join(PROJECT_ROOT_DIR, 'Results', 'Control', 'control_results.csv')
 directory = os.path.dirname(PATH_OP50) # make folder if it does not exist
 if not os.path.exists(directory):
     os.makedirs(directory)
 OP50_control.to_csv(PATH_OP50)
 
-# Re-record feature column names after dropping some features
-feat_colnames = [featcol for featcol in fullresults.columns if featcol not in meta_colnames]
-
-# OPTIONAL: Filter out size-related features
+#%% Filter size-related features from analysis (OPTIONAL)
+# TODO
 if filter_size_related_feats:
     size_feat_keys = ['blob','box','width','length','area']
     size_features = []
@@ -213,8 +224,8 @@ if filter_size_related_feats:
     fullresults = fullresults[cols2keep]
 
 #%% # Analyse results for OP50 control across days 
-# NB: High behavioural variation across days may affect any conclusions about differences on food
-
+# NB: High behavioural variation across days may affect any conclusions about differences between foods
+    
 if ANALYSE_OP50_CONTROL_ACROSS_DAYS:
     control_variation(path_to_control_data=PATH_OP50, feature_column_names=feat_colnames,\
                       grouping_variable="date_recording_yyyymmdd")
@@ -224,15 +235,18 @@ if ANALYSE_OP50_CONTROL_ACROSS_DAYS:
 #    print("\nRunning script: '%s' to analyse OP50 control variation across days:" % SCRIPT_PATH)
 #    food_behaviour_control = sp.Popen([sys.executable, SCRIPT_PATH, PATH_OP50, *feat_colnames])
 #    food_behaviour_control.communicate()
-
+    
 #%% PERFORM TESTS FOR NORMALITY
 
 normtest_savepath = os.path.join(PROJECT_ROOT_DIR, "Results", "Stats", "shapiro_normality_test_results.csv")
-
+directory = os.path.dirname(normtest_savepath) # make folder if it does not exist
+if not os.path.exists(directory):
+    os.makedirs(directory)
+    
 # Look to see if response data are homoscedastic / normally distributed
-if CHECK_IF_NORMAL:
+if check_feature_normality:
     print("Checking for normality in feature summaries for each food..")
-    prop_features_normal = pd.Series(data=None, index=BACTERIAL_STRAINS, name="percent_normal")
+    prop_features_normal = pd.Series(data=None, index=BACTERIAL_STRAINS, name='prop_normal')
     for food in BACTERIAL_STRAINS:
         data = fullresults[fullresults['food_type']==food]
         if data.shape[0] >= 3:
@@ -244,6 +258,8 @@ if CHECK_IF_NORMAL:
                 #    print("Progress: %d/%d (%.f%%)" % (f,len(feats2test),f/len(feats2test)*100))
                 try:
                     stat, pval = shapiro(data[feature])
+                    # TODO: Fix UserWarning: Input data for shapiro has range zero. The results may not be accurate. 
+                    #       warnings.warn("Input data for shapiro has range zero. The results "
                     normality_results.loc['stat',feature] = stat
                     normality_results.loc['pval',feature] = pval
                 except Exception as EE:
@@ -265,30 +281,37 @@ prop_features_normal = pd.read_csv(normtest_savepath, index_col='food_type')
 
 # Determine whether to perform parametric or non-parametric statistics
 # NB: Null hypothesis - feature summary results for individual strains are normally distributed (Gaussian)
-is_normal = False
-if np.mean(prop_features_normal)[0] > is_normal_threshold:
-    p = True
+total_prop_normal = np.mean(prop_features_normal)[0]
+if total_prop_normal > is_normal_threshold:
+    print("""More than %d%% of features (%.1f%%) were found to obey a normal (Gaussian) distribution, 
+    so parametric analyses will be preferred.""" % (is_normal_threshold*100, total_prop_normal*100))
+    is_normal = True
+else:
+    print("""Less than %d%% of features (%.1f%%) were found to obey a normal (Gaussian) distribution, 
+    so non-parametric analyses will be preferred.""" % (is_normal_threshold*100, total_prop_normal*100))
+    is_normal = False
 
-#%% STATISTICS: Rank-sum tests - To look for behavioural features that differ significantly between worms on different foods
+#%% STATISTICS: t-tests/rank-sum tests - To look for behavioural features that differ significantly between worms on different foods
 
 if is_normal:
     TEST = ttest_ind
 else:
     TEST = ranksumtest 
 
+# Record name of statistical test used (kruskal/f_oneway)
+test_name = str(TEST).split(' ')[1].split('.')[-1].split('(')[0].split('\'')[0]
+
 # Record number of decimal places of threshold p-value, for print statements to std_out
 p_decims = abs(int(decimal.Decimal(str(p_value_threshold)).as_tuple().exponent))
-
-# Perform rank-sum test (aka. Wilcoxon / Mann-Whitney U)
 
 # Pre-allocate dataframes for storing test statistics and p-values
 test_stats_df = pd.DataFrame(index=list(TEST_STRAINS), columns=feat_colnames)
 test_pvalues_df = pd.DataFrame(index=list(TEST_STRAINS), columns=feat_colnames)
 sigdifffeats_df = pd.DataFrame(index=test_pvalues_df.index, columns=['N_sigdiff_beforeBF','N_sigdiff_afterBF'])
 
-# Compare each strain to OP50: compute t-test statistics for each feature
+# Compare each strain to OP50: compute test statistics for each feature
 for t, food in enumerate(TEST_STRAINS):
-    print("Computing rank-sum tests for %s vs %s..." % (CONTROL_STRAIN, food))
+    print("Computing %s tests for %s vs %s..." % (test_name, CONTROL_STRAIN, food))
         
     # Grab feature summary results for that food
     test_food_df = fullresults[fullresults['food_type'] == food]
@@ -296,7 +319,7 @@ for t, food in enumerate(TEST_STRAINS):
     # Drop non-data columns
     test_data = test_food_df.drop(columns=meta_colnames)
     control_data = OP50_control.drop(columns=meta_colnames)
-                
+               
     # Drop columns that contain only zeros
     n_cols = len(test_data.columns)
     test_data.drop(columns=test_data.columns[(test_data == 0).all()], inplace=True)
@@ -350,15 +373,13 @@ sigdifffeats_food_df = pd.concat(sigdifffeatslist, axis=1, ignore_index=True, so
 sigdifffeats_food_df.columns = test_pvalues_df.index
 
 # Save test statistics to file
-stats_outpath = os.path.join(PROJECT_ROOT_DIR, 'Results', 'Stats', 'ranksum_test_results.csv')
+stats_outpath = os.path.join(PROJECT_ROOT_DIR, 'Results', 'Stats', test_name + '_results.csv')
 sigfeats_outpath = stats_outpath.replace('_results.csv', '_significant_features.csv')
-directory = os.path.dirname(stats_outpath) # make folder if it does not exist
-if not os.path.exists(directory):
-    os.makedirs(directory)
+
 test_pvalues_df.to_csv(stats_outpath) # Save test results as CSV
 sigdifffeats_food_df.to_csv(sigfeats_outpath, index=False) # Save feature list as text file
     
-#%% STATISTICS: Kruskal-Wallis (ANOVA) + Tukey HSD post-hoc tests for pairwise differences 
+#%% STATISTICS: One-way ANOVA/Kruskal-Wallis + Tukey HSD post-hoc tests for pairwise differences 
 #   between foods for each feature
 
 if is_normal:
@@ -366,12 +387,15 @@ if is_normal:
 else:
     TEST = kruskal
     
-print("\nComputing Kruskal-Wallis tests between foods for each feature...")
+# Record name of statistical test used (kruskal/f_oneway)
+test_name = str(TEST).split(' ')[1].split('.')[-1].split('(')[0].split('\'')[0]
+
+print("\nComputing %s tests between foods for each feature..." % test_name)
 
 # Keep only necessary columns for 1-way ANOVAs
 stats_cols = copy.deepcopy(feat_colnames)
 stats_cols.insert(0, 'food_type')
-test_data = fullresults.loc[:,stats_cols]
+test_data = fullresults.reindex(columns=stats_cols)
 
 # Perform 1-way ANOVAs for each feature between test strains
 test_pvalues_df = pd.DataFrame(index=['stat','pval'], columns=feat_colnames)
@@ -398,15 +422,16 @@ test_pvalues_df.loc['pval_corrected', _corrArray[0]] = pvalues_corrected
 
 # Store names of features that show significant differences across the test bacteria
 sigdiff_feats = test_pvalues_df.columns[np.where(_corrArray[1] < p_value_threshold)]
-print("Complete!\n%d features exhibit significant differences between foods (Kruskal-Wallis test, Bonferroni)" % len(sigdiff_feats))
+print("Complete!\n%d features exhibit significant differences between foods (%s test, Bonferroni)"\
+      % (len(sigdiff_feats), test_name))
 
 # Compile list to store names of significant features
 sigfeats_out = pd.Series(test_pvalues_df.columns[np.where(test_pvalues_df.loc['pval_corrected'] < p_value_threshold)])
-sigfeats_out.name = 'significant_features_kruskal'
+sigfeats_out.name = 'significant_features_' + test_name
 sigfeats_out = pd.DataFrame(sigfeats_out)
 
 # Save test statistics to file
-stats_outpath = os.path.join(PROJECT_ROOT_DIR, 'Results', 'Stats', 'kruskal_test_results.csv')
+stats_outpath = os.path.join(PROJECT_ROOT_DIR, 'Results', 'Stats', test_name + '_results.csv')
 sigfeats_outpath = stats_outpath.replace('_results.csv', '_significant_features.csv')
 directory = os.path.dirname(stats_outpath) # make folder if it does not exist
 if not os.path.exists(directory):
@@ -423,7 +448,8 @@ results_feats = fullresults.reindex(columns=feat_colnames)
 results_meta = fullresults.reindex(columns=meta_colnames) 
 
 # Read list of important features (highlighted by previous research - see Javer, 2018 paper)
-featslistpath = os.path.join(PROJECT_ROOT_DIR, 'AuxiliaryFiles', 'top256_tierpsy_no_blob_no_eigen_only_abs_no_norm.csv')
+featslistpath = os.path.join(PROJECT_ROOT_DIR, 'AuxiliaryFiles',\
+                             'top256_tierpsy_no_blob_no_eigen_only_abs_no_norm.csv')
 top256features = pd.read_csv(featslistpath)
 
 # Take first set of 256 features (it does not matter which set is chosen)
@@ -433,17 +459,23 @@ n_feats = len(top256features)
 top256features = [feat for feat in top256features if feat in results_feats.columns]
 print("Dropping %d size-related features from Top256" % (n_feats - len(top256features)))
 
+# Load test results (pvalues) for plotting
+# NB: Non-parametric ranksum test preferred over t-test as many features may not be normally distributed
+if is_normal:
+    test_name = 'ttest_ind'
+else:
+    test_name = 'ranksumtest'
+    
+stats_inpath = os.path.join(PROJECT_ROOT_DIR, 'Results', 'Stats', test_name + '_results.csv')
+test_pvalues_df = pd.read_csv(stats_inpath, index_col=0)
+
 #%% BOX PLOTS - INDIVIDUAL PLOTS OF TOP RANKED FEATURES FOR EACH FOOD
 # - Rank features by pvalue significance (lowest first) and select the Top 10 features for each food
 # - Plot boxplots of the most important features for each food compared to OP50
 # - Plot features separately with feature as title and in separate folders for each food
 
-# Load test results (pvalues) for plotting
-# NB: Non-parametric ranksum test preferred over t-test as many features may not be normally distributed
-stats_inpath = os.path.join(PROJECT_ROOT_DIR, 'Results', 'Stats', 'ranksum_test_results.csv')
-test_pvalues_df = pd.read_csv(stats_inpath, index_col=0)
-
-print("\nPlotting box plots of top %d highest-ranked (rank-sum) features for each food:\n" % n_top_features)
+plt.ioff()
+print("\nPlotting box plots of top %d (%s) features for each food:\n" % (n_top_features, test_name))
 for i, food in enumerate(test_pvalues_df.index):
     pvals = test_pvalues_df.loc[food]
     n_sigfeats = sum(pvals < p_value_threshold)
@@ -514,6 +546,7 @@ for i, food in enumerate(test_pvalues_df.index):
             plt.savefig(plots_outpath, format='eps', dpi=300)
             if show_plots:
                 plt.show(); plt.pause(2)
+            plt.close(fig) # Close plot
 
 #%% PLOT FEATURE SUMMARIES -- ALL FOODS (for Avelino's Top 256)
 # - Investigate Avelino's top 256 features to look for any differences between foods (see paper: Javer et al, 2018)
@@ -573,7 +606,7 @@ for f, feature in enumerate(features2plot):
     if show_plots:
         plt.show(); plt.pause(2)
     plt.close(fig) # Close plot
-            
+
 toc = time.time()
 print("Time taken: %.1f seconds" % (toc - tic))
 
@@ -628,12 +661,13 @@ directory = os.path.dirname(cluster_outpath)
 if not os.path.exists(directory):
     os.makedirs(directory)
 plt.savefig(cluster_outpath, tight_layout=True, dpi=300, saveFormat='eps')
-plt.show(); plt.pause(1)
+if show_plots:
+    plt.show(); plt.pause(1)
+plt.close() # Close plot
 
 #%% PRINCIPAL COMPONENTS ANALYSIS (PCA) - ALL FOODS Top256
 
-# TODO: Plot features that have greatest influence on PCA (eg. PC1)
-
+plt.ion() 
 tic = time.time()
 plotroot = os.path.join(PROJECT_ROOT_DIR, 'Results', 'Plots', 'All', 'PCA')
 
@@ -645,7 +679,7 @@ pca = PCA()
 pca.fit(zscores)
 
 # Plot summary data from PCA: explained variance (most important features)
-important_feats, fig = pcainfo(pca, zscores, PC=1, n_feats2print=10)
+important_feats, fig = pcainfo(pca, zscores, PC=1, n_feats2print=n_PC_feats2plot)
 
 # Save plot of PCA explained variance
 plotpath = os.path.join(plotroot, 'PCA_explained.eps')
@@ -662,84 +696,38 @@ projected = pca.transform(zscores) # A matrix is produced
 projected_df = pd.DataFrame(projected[:,:PCs_to_keep],\
                             columns=['PC' + str(n+1) for n in range(PCs_to_keep)])
 
-# TODO: Store PCA important features list + plot for each feature
-
 # Add concatenate projected PC results to metadata
 projected_df.set_index(fullresults.index, inplace=True) # Do not lose index position
 projected_df = pd.concat([fullresults[meta_colnames], projected_df], axis=1)
 
-#%% 2D Plot - first 2 PCs - ALL FOODS
+# TODO: Store PCA important features list + plot for each feature
+#for feature in important_feats:
+#    print("Plotting %s" % feature)
 
-# Plot first 2 principal components
-plt.close('all'); plt.ion()
-plt.rc('xtick',labelsize=15)
-plt.rc('ytick',labelsize=15)
-sns.set_style("whitegrid")
-fig, ax = plt.subplots(figsize=[10,10])
+#%% Plot PCA - All bacterial strains (food)
 
-# Create colour palette for plot loop
-palette = itertools.cycle(sns.color_palette("gist_rainbow", len(BACTERIAL_STRAINS)))
-for food in BACTERIAL_STRAINS:
-    food_projected_df = projected_df[projected_df['food_type']==food]
-    sns.scatterplot(food_projected_df['PC1'], food_projected_df['PC2'], color=next(palette), s=100)
-ax.set_xlabel('Principal Component 1', fontsize=20, labelpad=12)
-ax.set_ylabel('Principal Component 2', fontsize=20, labelpad=12)
+# 2-PC
+plt.close()
+plotpath_2d = os.path.join(PROJECT_ROOT_DIR, 'Results', 'Plots', 'All', 'PCA', 'PCA_2PCs_byStrain.eps')
+title = """2-Component PCA - All Strains"""
 if useTop256:
-    ax.set_title('Top256 features 2-Component PCA', fontsize=20)
-else: 
-    ax.set_title('All features 2-Component PCA', fontsize=20)
-#plt.tight_layout(rect=[0.04, 0, 0.84, 0.96])
-#ax.legend(BACTERIAL_STRAINS, frameon=False, loc=(1, 0.1), fontsize=15)
-ax.grid()
+    title = title + ' (Top256 features)'
+plotPCA(projected_df, grouping_variable='food_type', var_subset=BACTERIAL_STRAINS,\
+        savepath=plotpath_2d, title=title, n_component_axes=2)
+plt.pause(2)
 
-# Save scatterplot of first 2 PCs
-plotpath = os.path.join(plotroot, 'PCA_2PCs.eps')
-savefig(plotpath, tight_layout=True, tellme=True, saveFormat='eps')
-
-plt.show(); plt.pause(2)
-
-#%% 3D Plot - first 3 PCs - ALL FOODS
-
-# Work-around for 3D plot colour warnings
-mpl_axes_logger.setLevel('ERROR')
-
-# Plot first 3 principal components
-plt.close('all')
-plt.rc('xtick',labelsize=12)
-plt.rc('ytick',labelsize=12)
-fig = plt.figure(figsize=[10,10])
-ax = Axes3D(fig) # ax = fig.add_subplot(111, projection='3d')
-
-# Create colour palette for plot loop
-palette = itertools.cycle(sns.color_palette("gist_rainbow", len(BACTERIAL_STRAINS)))
-
-for food in BACTERIAL_STRAINS:
-    food_projected_df = projected_df[projected_df['food_type']==food]
-    ax.scatter(xs=food_projected_df['PC1'], ys=food_projected_df['PC2'], zs=food_projected_df['PC3'],\
-               zdir='z', s=50, c=next(palette), depthshade=depthshade)
-ax.set_xlabel('Principal Component 1', fontsize=15, labelpad=12)
-ax.set_ylabel('Principal Component 2', fontsize=15, labelpad=12)
-ax.set_zlabel('Principal Component 3', fontsize=15, labelpad=12)
+# 3-PC
+plt.close()
+plotpath_3d = os.path.join(PROJECT_ROOT_DIR, 'Results', 'Plots', 'All', 'PCA', 'PCA_3PCs_byStrain.eps')
+title = """3-Component PCA - All Strains"""
 if useTop256:
-    ax.set_title('Top256 features 3-Component PCA', fontsize=20)
-else: 
-    ax.set_title('All features 3-Component PCA', fontsize=20)
-#ax.legend(BACTERIAL_STRAINS, frameon=False, fontsize=12)
-#ax.set_rasterized(True)
-ax.grid()
+    title = title + ' (Top256 features)'
+plotPCA(projected_df, grouping_variable='food_type', var_subset=BACTERIAL_STRAINS,\
+        savepath=None, title=title, n_component_axes=3, rotate=False)
+plt.pause(2)
 
-# Save scatterplot of first 2 PCs
-plotpath = os.path.join(plotroot, 'PCA_3PCs.eps')
-savefig(plotpath, tight_layout=False, tellme=True, saveFormat='eps') # rasterized=True
+# TODO: Plot features that have greatest influence on PCA (eg. PC1)
 
-# Rotate the axes and update
-if rotate:
-    for angle in range(0, 360):
-        ax.view_init(30, angle)
-        plt.draw(); plt.pause(0.001)
-else:
-    plt.show(); plt.pause(1)
-    
 #%% t-distributed Stochastic Neighbour Embedding (t-SNE)
 
 plotroot = os.path.join(PROJECT_ROOT_DIR, 'Results', 'Plots', 'All', 'tSNE')
@@ -747,7 +735,7 @@ plotroot = os.path.join(PROJECT_ROOT_DIR, 'Results', 'Plots', 'All', 'tSNE')
 # Perform tSNE on extracted features
 print("\nPerforming t-distributed stochastic neighbour embedding (t-SNE)...")
 
-for perplex in perplexity:
+for perplex in perplexities:
     # 2-COMPONENT t-SNE
     tSNE_embedded = TSNE(n_components=2, init='random', random_state=42,\
                          perplexity=perplex, n_iter=3000).fit_transform(zscores)
@@ -840,7 +828,139 @@ for n in n_neighbours:
     savefig(plotpath, tight_layout=True, tellme=True, saveFormat='eps')
     
     plt.show(); plt.pause(2)
- 
+
+#%% Plot PCA - Variation across experiment days
+
+# 2-PC
+plt.close()
+plotpath_2d = os.path.join(PROJECT_ROOT_DIR, 'Results', 'Plots', 'All', 'PCA', 'PCA_2PCs_byDate.eps')
+title = """2-Component PCA - Experiment Dates"""
+if useTop256:
+    title = title + ' (Top256 features)'
+plotPCA(projected_df, grouping_variable='date_recording_yyyymmdd', var_subset=None,\
+        savepath=plotpath_2d, title=title, n_component_axes=2)
+plt.pause(2)
+
+# 3-PC
+plt.close()
+plotpath_3d = os.path.join(PROJECT_ROOT_DIR, 'Results', 'Plots', 'All', 'PCA', 'PCA_3PCs_byDate.eps')
+title = """3-Component PCA - Experiment Dates"""
+if useTop256:
+    title = title + ' (Top256 features)'
+plotPCA(projected_df, grouping_variable='date_recording_yyyymmdd', var_subset=None,\
+        savepath=None, title=title, n_component_axes=3, rotate=False)
+plt.pause(2)
+
+#%% Plot PCA - Variation across experiment runs
+
+# 2-PC
+plt.close()
+plotpath_2d = os.path.join(PROJECT_ROOT_DIR, 'Results', 'Plots', 'All', 'PCA', 'PCA_2PCs_byRunNumber.eps')
+title = """2-Component PCA - Variation across runs"""
+if useTop256:
+    title = title + ' (Top256 features)'
+plotPCA(projected_df, grouping_variable='run_number', var_subset=None,\
+        savepath=plotpath_2d, title=title, n_component_axes=2)
+plt.pause(2)
+
+# 3-PC
+plt.close()
+plotpath_3d = os.path.join(PROJECT_ROOT_DIR, 'Results', 'Plots', 'All', 'PCA', 'PCA_3PCs_byRunNumber.eps')
+title = """3-Component PCA - Variation across runs"""
+if useTop256:
+    title = title + ' (Top256 features)'
+plotPCA(projected_df, grouping_variable='run_number', var_subset=None,\
+        savepath=None, title=title, n_component_axes=3, rotate=False)
+plt.pause(2)
+
+#%% Plot PCA - Variation across plates
+
+# 2-PC
+plt.close()
+plotpath_2d = os.path.join(PROJECT_ROOT_DIR, 'Results', 'Plots', 'All', 'PCA', 'PCA_2PCs_byPlateNumber.eps')
+title = """2-Component PCA - Variation across plates"""
+if useTop256:
+    title = title + ' (Top256 features)'
+plotPCA(projected_df, grouping_variable='plate_number', var_subset=None,\
+        savepath=plotpath_2d, title=title, n_component_axes=2)
+plt.pause(2)
+
+# 3-PC
+plt.close()
+plotpath_3d = os.path.join(PROJECT_ROOT_DIR, 'Results', 'Plots', 'All', 'PCA', 'PCA_3PCs_byPlateNumber.eps')
+title = """3-Component PCA - Variation across plates"""
+if useTop256:
+    title = title + ' (Top256 features)'
+plotPCA(projected_df, grouping_variable='plate_number', var_subset=None,\
+        savepath=None, title=title, n_component_axes=3, rotate=False)
+plt.pause(2)
+
+#%% Plot PCA - Variation across imaging rigs
+
+# 2-PC
+plt.close()
+plotpath_2d = os.path.join(PROJECT_ROOT_DIR, 'Results', 'Plots', 'All', 'PCA', 'PCA_2PCs_byHydraRig.eps')
+title = """2-Component PCA - Variation across imaging rigs"""
+if useTop256:
+    title = title + ' (Top256 features)'
+plotPCA(projected_df, grouping_variable='instrument_name', var_subset=None,\
+        savepath=plotpath_2d, title=title, n_component_axes=2)
+plt.pause(2)
+
+# 3-PC
+plt.close()
+plotpath_3d = os.path.join(PROJECT_ROOT_DIR, 'Results', 'Plots', 'All', 'PCA', 'PCA_3PCs_byHydraRig.eps')
+title = """3-Component PCA - Variation across imaging rigs"""
+if useTop256:
+    title = title + ' (Top256 features)'
+plotPCA(projected_df, grouping_variable='instrument_name', var_subset=None,\
+        savepath=None, title=title, n_component_axes=3, rotate=False)
+plt.pause(2)
+
+#%% Plot PCA - Variation across imaging cameras
+
+# 2-PC
+plt.close()
+plotpath_2d = os.path.join(PROJECT_ROOT_DIR, 'Results', 'Plots', 'All', 'PCA', 'PCA_2PCs_byCameraSerial.eps')
+title = """2-Component PCA - Variation across imaging cameras"""
+if useTop256:
+    title = title + ' (Top256 features)'
+plotPCA(projected_df, grouping_variable='camera_number', var_subset=None,\
+        savepath=plotpath_2d, title=title, n_component_axes=2)
+plt.pause(2)
+
+# 3-PC
+plt.close()
+plotpath_3d = os.path.join(PROJECT_ROOT_DIR, 'Results', 'Plots', 'All', 'PCA', 'PCA_3PCs_byCameraSerial.eps')
+title = """3-Component PCA - Variation across imaging cameras"""
+if useTop256:
+    title = title + ' (Top256 features)'
+plotPCA(projected_df, grouping_variable='camera_number', var_subset=None,\
+        savepath=None, title=title, n_component_axes=3, rotate=False)
+plt.pause(2)
+
+#%% Plot PCA - Variation across wells
+
+# 2-PC
+plt.close()
+plotpath_2d = os.path.join(PROJECT_ROOT_DIR, 'Results', 'Plots', 'All', 'PCA', 'PCA_2PCs_byWellNumber.eps')
+title = """2-Component PCA - Variation across wells"""
+if useTop256:
+    title = title + ' (Top256 features)'
+plotPCA(projected_df, grouping_variable='well_number', var_subset=None,\
+        savepath=plotpath_2d, title=title, n_component_axes=2)
+plt.pause(2)
+
+# 3-PC
+plt.close()
+plotpath_3d = os.path.join(PROJECT_ROOT_DIR, 'Results', 'Plots', 'All', 'PCA', 'PCA_3PCs_byWellNumber.eps')
+title = """3-Component PCA - Variation across wells"""
+if useTop256:
+    title = title + ' (Top256 features)'
+plotPCA(projected_df, grouping_variable='well_number', var_subset=None,\
+        savepath=None, title=title, n_component_axes=3, rotate=False)
+plt.pause(2)
+
 #%%
     
 bigtoc = time.time()
