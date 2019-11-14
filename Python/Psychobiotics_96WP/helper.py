@@ -24,6 +24,9 @@ from mpl_toolkits.mplot3d import Axes3D
 #%% FUNCTIONS
 
 #%%
+
+# TODO:Replace with existing functions.... :(
+
 def lookforfiles(root_dir, regex, depth=None, exact=False):
     """ A function to looks for files in a given starting directory 
         that match the regular expression pattern provided. 
@@ -126,18 +129,20 @@ def pcainfo(pca, zscores, PC=1, n_feats2print=10):
     return important_feats, fig
 
 #%%
-def plotPCA(projected_df, grouping_variable, var_subset, savepath=None, title=None, n_component_axes=2, rotate=False):
+def plotPCA(projected_df, grouping_variable, var_subset=None, savepath=None, title=None, n_component_axes=2, rotate=False):
     """ A function to plot PCA projections and colour by a given categorical 
         variable (eg. grouping_variable = 'food type'). 
         Optionally, a subset of the data can be plotted for the grouping variable 
         (eg. var_subset=[list of foods]). """
+
+    # TODO: Plot features that have greatest influence on PCA (eg. PC1)
         
     if var_subset == None or len(var_subset) == 0:
         var_subset = list(projected_df[grouping_variable].unique())
 
     plt.close('all')
 
-    # OPTION: Plot PCA - 2 principal components
+    # OPTION 1: Plot PCA - 2 principal components
     if n_component_axes == 2:
         plt.rc('xtick',labelsize=15)
         plt.rc('ytick',labelsize=15)
@@ -159,15 +164,18 @@ def plotPCA(projected_df, grouping_variable, var_subset, savepath=None, title=No
             plt.tight_layout(rect=[0.04, 0, 0.84, 0.96])
             ax.legend(var_subset, frameon=False, loc=(1, 0.1), fontsize=15)
         ax.grid()
-                    
-    # TODO: Plot features that have greatest influence on PCA (eg. PC1)
-        
-    # OPTION: Plot PCA - 3 principal components
+
+        # Save PCA scatterplot of first 2 PCs
+        if savepath:
+            savefig(savepath, tight_layout=False, tellme=True, saveFormat='eps') # rasterized=True
+
+        plt.show(); plt.pause(2)
+                            
+    # OPTION 2: Plot PCA - 3 principal components
     elif n_component_axes == 3:
         # Work-around for 3D plot colour warnings
         mpl_axes_logger.setLevel('ERROR')
     
-        plt.close('all')
         plt.rc('xtick',labelsize=12)
         plt.rc('ytick',labelsize=12)
         fig = plt.figure(figsize=[10,10])
@@ -189,24 +197,19 @@ def plotPCA(projected_df, grouping_variable, var_subset, savepath=None, title=No
             ax.set_title("""2-Component PCA with respect to {0}""".format(grouping_variable), fontsize=20)
         if len(var_subset) <= 15:
             ax.legend(var_subset, frameon=False, fontsize=12)
-            ax.set_rasterized(True)
+            #ax.set_rasterized(True)
         ax.grid()
+        
+        # Save PCA scatterplot of first 3 PCs
+        if savepath:
+            savefig(savepath, tight_layout=False, tellme=True, saveFormat='eps') # rasterized=True
 
-    else:
-        print("Please select from n_component_axes = 2 or 3.")
-        
-    # Save scatterplot of first 2 PCs
-    if savepath:
-        savefig(savepath, tight_layout=False, tellme=True, saveFormat='eps') # rasterized=True
-        
-    if n_component_axes == 3:   
-        # Rotate the axes and update
+        # Rotate the axes and update plot        
         if rotate:
             for angle in range(0, 360):
-                ax.view_init(30, angle)
+                ax.view_init(270, angle)
                 plt.draw(); plt.pause(0.001)
         else:
             plt.show(); plt.pause(2)
-    elif n_component_axes == 2:
-        plt.show(); plt.pause(2)
-    
+    else:
+        print("Please select from n_component_axes = 2 or 3.")

@@ -24,74 +24,63 @@ import os, sys, time
 import numpy as np
 import pandas as pd
 
-# Path to Github / local helper functions
-sys.path.insert(0, '/Users/sm5911/Documents/GitHub/PhD_Project/Python/Psychobiotics_96WP')
-
+# Path to Github/local helper functions (USER-DEFINED: Path to local copy of my Github repo)
+PATH = '/Users/sm5911/Documents/GitHub/PhD_Project/Python/Psychobiotics_96WP'
+if PATH not in sys.path:
+    sys.path.insert(0, PATH)
+    
 # Custom imports
 from helper import lookforfiles, listdiff
 
-#%% MAIN
-
-if __name__ == '__main__':
-    # Record script start time
-    tic = time.time()
-        
-#%% INPUT HANDLING
-    
-    print("\nRunning script", sys.argv[0], "...")
-    if len(sys.argv) > 1:
-        COMPILED_METADATA_FILEPATH = sys.argv[1]  
-        
-    PROJECT_ROOT_DIR = COMPILED_METADATA_FILEPATH.split("/AuxiliaryFiles/")[0]
-        
-    IMAGING_DATES = None
-    if len(sys.argv) > 2:
-        IMAGING_DATES = list(sys.argv[2:])
-        print("Using %d imaging dates provided: %s" % (len(IMAGING_DATES), IMAGING_DATES))        
-
 #%% FUNCTIONS
-    def getfeatsums(directory):
-        """ A function to load feature summary data from a given directory and return
-            a dataframe of features along with a corresponding dataframe of file names.
-            A unique ID key is used to maintain file identity. """
-            
-        # Obtain all feature summaries and filename summaries in given directory
-        file_summary_list = lookforfiles(directory, '^filenames_summary*', depth=1)
-        feat_summary_list = lookforfiles(directory, '^features_summary*', depth=1)
-            
-        # CHECK: Match file and features summaries
-        matched_summaries = []
-        for file in file_summary_list:
-            feat = file.replace('filenames_summary', 'features_summary')
-            if feat in feat_summary_list:
-                matched_summaries.append([file,feat])
-            else:
-                print('No match found for: \n%s' % file)
-                
-        if len(matched_summaries) > 1:
-            print("ERROR: Multiple feature summary files found in directory: '%s'" % directory)
-        elif len(matched_summaries) < 1:
-            print("ERROR: No feature summary results found.")
-    
-        # Read matched feature summaries and filename summaries
-        file, feat = matched_summaries[0]
-        files_df = pd.read_csv(file)
-        feats_df = pd.read_csv(feat)
-            
-        # Remove entries from file summary data where corresponding feature summary data is missing
-        missing_featfiles = listdiff(files_df['file_id'], feats_df['file_id'])
-        files_df = files_df[np.logical_not(files_df['file_id'].isin(missing_featfiles))]
-            
-        files_df.reset_index(drop=True, inplace=True)
-        feats_df.reset_index(drop=True, inplace=True)
-                    
-        # Check that file_id column matches
-        if (files_df['file_id'] != feats_df['file_id'].unique()).any():
-            print("ERROR: Features summary and filenames summary do not match!")
+
+def getfeatsums(directory):
+    """ A function to load feature summary data from a given directory and return
+        a dataframe of features along with a corresponding dataframe of file names.
+        A unique ID key is used to maintain file identity. """
+        
+    # Obtain all feature summaries and filename summaries in given directory
+    file_summary_list = lookforfiles(directory, '^filenames_summary*', depth=1)
+    feat_summary_list = lookforfiles(directory, '^features_summary*', depth=1)
+        
+    # CHECK: Match file and features summaries
+    matched_summaries = []
+    for file in file_summary_list:
+        feat = file.replace('filenames_summary', 'features_summary')
+        if feat in feat_summary_list:
+            matched_summaries.append([file,feat])
         else:
-            return files_df, feats_df
-      
-#%% 
+            print('No match found for: \n%s' % file)
+            
+    if len(matched_summaries) > 1:
+        print("ERROR: Multiple feature summary files found in directory: '%s'" % directory)
+    elif len(matched_summaries) < 1:
+        print("ERROR: No feature summary results found.")
+
+    # Read matched feature summaries and filename summaries
+    file, feat = matched_summaries[0]
+    files_df = pd.read_csv(file)
+    feats_df = pd.read_csv(feat)
+        
+    # Remove entries from file summary data where corresponding feature summary data is missing
+    missing_featfiles = listdiff(files_df['file_id'], feats_df['file_id'])
+    files_df = files_df[np.logical_not(files_df['file_id'].isin(missing_featfiles))]
+        
+    files_df.reset_index(drop=True, inplace=True)
+    feats_df.reset_index(drop=True, inplace=True)
+                
+    # Check that file_id column matches
+    if (files_df['file_id'] != feats_df['file_id'].unique()).any():
+        print("ERROR: Features summary and filenames summary do not match!")
+    else:
+        return files_df, feats_df
+  
+#%% MAIN
+        
+def processfeatsums(COMPILED_METADATA_FILEPATH, IMAGING_DATES=None):
+    
+    PROJECT_ROOT_DIR = COMPILED_METADATA_FILEPATH.split("/AuxiliaryFiles/")[0]
+
     # Read metadata
     metadata = pd.read_csv(COMPILED_METADATA_FILEPATH)                                       # READ METADATA
     print("\nMetadata file loaded.")
@@ -184,6 +173,28 @@ if __name__ == '__main__':
         print("Overwriting existing results file: '%s'" % results_outpath)
     full_results_df.to_csv(results_outpath, index=False)
 
-    toc = time.time()
-    print("Complete!\nFull results saved to file: %s\n(Time taken: %.1f seconds)\n" % (results_outpath, toc - tic))
+    print("Complete!\nFull results saved to file: %s" % results_outpath)
+
+#%%    
+if __name__ == '__main__':
+    # START
+    tic = time.time()
     
+    # INPUT HANDLING
+    
+    print("\nRunning script", sys.argv[0], "...")
+    if len(sys.argv) > 1:
+        COMPILED_METADATA_FILEPATH = sys.argv[1]  
+                
+    IMAGING_DATES = None
+    if len(sys.argv) > 2:
+        IMAGING_DATES = list(sys.argv[2:])
+        print("Using %d imaging dates provided: %s" % (len(IMAGING_DATES), IMAGING_DATES))   
+        
+    # MAIN
+    processfeatsums(COMPILED_METADATA_FILEPATH, IMAGING_DATES)
+    
+    # END
+    toc = time.time()
+    print("\n(Time taken: %.1f seconds)\n" % (toc - tic))
+

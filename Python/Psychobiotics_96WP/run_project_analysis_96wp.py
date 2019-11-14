@@ -6,13 +6,15 @@
 
 PSYCHOBIOTICS: ANALYSIS OF WORM BEHAVIOUR ON BACTERIAL FOOD (96WP ASSAY)
 
-PAN-GENOME LIBRARY + C. elegans MICROBIOME STRAINS
+PAN-GENOME LIBRARY / C. elegans MICROBIOME STRAINS
 
-A script written to interpret and visualise results for the quantitative 
-behavioural analysis of N2 C. elegans raised monoxenically on:
+A script written to interpret and visualise results for behavioural analysis of 
+N2 C. elegans raised monoxenically on various bacrterial food:
     
-(1) >1100 strains of E. coli cultered from the gut microbiota of various animals.
-(2) >50 strains of natural bacteria isolated from the gut microbiome of C. elegans.
+(1) Pan-Genome Library: 1152 strains of E. coli cultered from the gut microbiota 
+                        of various animals
+(2) C.elegans Microbiome: 12 strains of natural bacteria isolated from the 
+                        gut microbiome of C. elegans (plus 2 BW and 1 OP50 strain)
 
 Results are compared to N2 performance on standard laboratory E. coli strain,
 OP50, as the control. Control variation is investigated across experiment runs 
@@ -44,7 +46,7 @@ different performance on each strain.
 import os, sys, time, copy, decimal, itertools, umap
 import numpy as np
 import pandas as pd
-import subprocess as sp
+#import subprocess as sp
 import seaborn as sns
 from scipy.stats import shapiro, kruskal, ttest_ind, f_oneway, zscore
 #from statsmodels.graphics.gofplots import qqplot
@@ -57,11 +59,14 @@ from matplotlib import transforms
 
 # Path to Github/local helper functions (USER-DEFINED: Path to local copy of my Github repo)
 PATH = '/Users/sm5911/Documents/GitHub/PhD_Project/Python/Psychobiotics_96WP'
-sys.path.insert(0, PATH)
+if PATH not in sys.path:
+    sys.path.insert(0, PATH)
 
 # Custom imports
 from helper import ranksumtest, savefig, pcainfo, plotPCA
 from run_control_analysis_96wp import control_variation
+from process_metadata_96wp import compile_from_day_metadata, find_metadata_filenames
+from process_feature_summary_96wp import processfeatsums
 
 # Record script start time
 bigtic = time.time()
@@ -69,15 +74,15 @@ bigtic = time.time()
 #%% GLOBAL PARAMETERS (USER-DEFINED)
 
 # Project root directory
-PROJECT_ROOT_DIR = '/Volumes/hermes$/Recordings/PanGenome'                     
-#PROJECT_ROOT_DIR = '/Volumes/behavgenom$/Saul/MicrobiomeAssay96WP'
+#PROJECT_ROOT_DIR = '/Volumes/hermes$/Recordings/PanGenome'                     
+PROJECT_ROOT_DIR = '/Volumes/behavgenom$/Saul/MicrobiomeAssay96WP'
 
 # TODO: Process featsums for 20191031 and results + featsums for 20191018!
 
-IMAGING_DATES = ['20191017','20191024','20191031']                             # List of experiment imaging dates (optional)
+IMAGING_DATES = None#['20191017','20191024','20191031']                             # List of experiment imaging dates (optional)
          
-PROCESS_METADATA = False                                                       # Process the metadata prior to analysis?
-PROCESS_FEATURE_SUMMARY_RESULTS = False                                        # Process feature summary files?
+PROCESS_METADATA = True                                                       # Process the metadata prior to analysis?
+PROCESS_FEATURE_SUMMARY_RESULTS = True                                        # Process feature summary files?
 ANALYSE_OP50_CONTROL_ACROSS_DAYS = True                                        # Perform analysis of variation in control data over time
 CONTROL_STRAIN = 'OP50'                                                        # Control strain of bacterial food, E. coli OP50
 
@@ -87,6 +92,7 @@ nan_threshold = 0.5                                                            #
 p_value_threshold = 0.05                                                       # Threshold p-value for statistical significance
 filter_size_related_feats = False                                              # Drop size-related features from analysis (excluding analysis of control)?
 is_normal_threshold = 0.95                                                     # Threshold to decide between parametric/non-parametric statistics
+is_normal = False                                                              # Default assumption prior to test for normality
 
 # Plotting parameters
 n_top_features = 5                                                             # Number of top-ranked features to plot (boxplot comparison between foods for each feature)
@@ -112,11 +118,20 @@ if not IMAGING_DATES or len(IMAGING_DATES) == 0:
 # Use subprocess to call 'process_metadata_96WP.py'
 if PROCESS_METADATA:
     print("\nProcessing metadata file...")
-    # Optional: pass imaging dates as arguments to the script
-    process_metadata = sp.Popen([sys.executable, os.path.join(PATH, "process_metadata_96wp.py"),\
-                                 COMPILED_METADATA_FILEPATH, *IMAGING_DATES])
-    process_metadata.communicate()
-    print("Complete.")
+    # COMPILE FULL METADATA FROM EXPERIMENT DAY METADATA
+    metadata = compile_from_day_metadata(COMPILED_METADATA_FILEPATH, IMAGING_DATES)
+    
+    # OBTAIN MASKED VIDEO FILEPATHS FOR METADATA
+    metadata = find_metadata_filenames(metadata, PROJECT_ROOT_DIR, IMAGING_DATES)
+
+    print("Saving updated metadata to: '%s'" % COMPILED_METADATA_FILEPATH)
+    metadata.to_csv(COMPILED_METADATA_FILEPATH, index=False)        
+
+#    # Optional: pass arguments to the script with subprocess
+#    process_metadata = sp.Popen([sys.executable, os.path.join(PATH, "process_metadata_96wp.py"),\
+#                                 COMPILED_METADATA_FILEPATH, *IMAGING_DATES])
+#    process_metadata.communicate()
+#    print("Complete.")
 
 # Read metadata
 metadata = pd.read_csv(COMPILED_METADATA_FILEPATH)
@@ -135,9 +150,12 @@ if any(list(~np.array(is_filename))):
 
 if PROCESS_FEATURE_SUMMARY_RESULTS:
     print("\nProcessing feature summary results...")
-    process_feature_summary = sp.Popen([sys.executable, os.path.join(PATH, "process_feature_summary_96wp.py"),\
-                                        COMPILED_METADATA_FILEPATH, *IMAGING_DATES])
-    process_feature_summary.communicate()
+    processfeatsums(COMPILED_METADATA_FILEPATH, IMAGING_DATES)
+    
+#    # Optional: pass arguments to the script with subprocess    
+#    process_feature_summary = sp.Popen([sys.executable, os.path.join(PATH, "process_feature_summary_96wp.py"),\
+#                                        COMPILED_METADATA_FILEPATH, *IMAGING_DATES])
+#    process_feature_summary.communicate()
 
 # Read full results (metadata + feature summaries)
 # NB: pre-allocate 'comments' column as 'str' dtype for faster read (contains many empty lines)
@@ -210,7 +228,9 @@ if not os.path.exists(directory):
 OP50_control.to_csv(PATH_OP50)
 
 #%% Filter size-related features from analysis (OPTIONAL)
-# TODO
+
+# TODO: Save filtered results separately
+
 if filter_size_related_feats:
     size_feat_keys = ['blob','box','width','length','area']
     size_features = []
@@ -218,17 +238,28 @@ if filter_size_related_feats:
         for key in size_feat_keys:
             if key in feature:
                 size_features.append(feature)  
-    feats2keep = [feat for feat in feat_colnames if feat not in size_features]
-    cols2keep = meta_colnames + feats2keep
+    feat_colnames = [feat for feat in feat_colnames if feat not in size_features]
+    cols2keep = meta_colnames + feat_colnames
     print("Dropped %d features that are size-related" % (len(fullresults.columns)-len(cols2keep)))
     fullresults = fullresults[cols2keep]
 
 #%% # Analyse results for OP50 control across days 
 # NB: High behavioural variation across days may affect any conclusions about differences between foods
     
+# Check for unexpected variation in the following potential confounders
+variables_list = ["date_recording_yyyymmdd", "run_number", "plate_number",\
+                  "instrument_name", "camera_number"]
+
+# Include L1 diapause duration (recorded in metadata for microbiome assay only)
+if os.path.basename(PROJECT_ROOT_DIR) == "MicrobiomeAssay96WP":
+    variables_list.insert(len(variables_list), "L1_diapause_seconds")
+
+# OPTIONAL: Analyse control variation with size-related features removed
+
 if ANALYSE_OP50_CONTROL_ACROSS_DAYS:
-    control_variation(path_to_control_data=PATH_OP50, feature_column_names=feat_colnames,\
-                      grouping_variable="date_recording_yyyymmdd")
+    control_variation(path_to_control_data = PATH_OP50,\
+                      feature_column_names = feat_colnames,\
+                      variables_to_analyse = variables_list)
 
 ## Use subprocess to call 'food_behaviour_control.py', passing imaging dates as arguments to the script
 #    SCRIPT_PATH = '/Users/sm5911/OneDrive - Imperial College London/Psychobiotics/Code/run_control_analysis_96wp.py'
@@ -289,7 +320,6 @@ if total_prop_normal > is_normal_threshold:
 else:
     print("""Less than %d%% of features (%.1f%%) were found to obey a normal (Gaussian) distribution, 
     so non-parametric analyses will be preferred.""" % (is_normal_threshold*100, total_prop_normal*100))
-    is_normal = False
 
 #%% STATISTICS: t-tests/rank-sum tests - To look for behavioural features that differ significantly between worms on different foods
 
@@ -441,7 +471,7 @@ sigfeats_out.to_csv(sigfeats_outpath, index=False) # Save feature list as text f
 
 # TODO: Perform post-hoc analyses (eg.Tukey HSD) for pairwise comparisons between foods for each feature
        
-#%% GLOBAL PLOTTING VARIABLES
+#%% PLOTTING VARIABLES
     
 # Divide results into: data (feature summaries) + non-data (metadata)
 results_feats = fullresults.reindex(columns=feat_colnames)
@@ -711,7 +741,8 @@ plt.close()
 plotpath_2d = os.path.join(PROJECT_ROOT_DIR, 'Results', 'Plots', 'All', 'PCA', 'PCA_2PCs_byStrain.eps')
 title = """2-Component PCA - All Strains"""
 if useTop256:
-    title = title + ' (Top256 features)'
+    title = title + """
+    (Top256 features)"""
 plotPCA(projected_df, grouping_variable='food_type', var_subset=BACTERIAL_STRAINS,\
         savepath=plotpath_2d, title=title, n_component_axes=2)
 plt.pause(2)
@@ -721,7 +752,8 @@ plt.close()
 plotpath_3d = os.path.join(PROJECT_ROOT_DIR, 'Results', 'Plots', 'All', 'PCA', 'PCA_3PCs_byStrain.eps')
 title = """3-Component PCA - All Strains"""
 if useTop256:
-    title = title + ' (Top256 features)'
+    title = title + """
+    (Top256 features)"""
 plotPCA(projected_df, grouping_variable='food_type', var_subset=BACTERIAL_STRAINS,\
         savepath=None, title=title, n_component_axes=3, rotate=False)
 plt.pause(2)
@@ -829,28 +861,36 @@ for n in n_neighbours:
     
     plt.show(); plt.pause(2)
 
-#%% Plot PCA - Variation across experiment days
+#%% Plot PCA - Variation in all strains with respect to various confounding variables
+    
+variables_list = ["date_recording_yyyymmdd", "run_number", "plate_number",\
+                  "instrument_name", "camera_number"]
 
-# 2-PC
-plt.close()
-plotpath_2d = os.path.join(PROJECT_ROOT_DIR, 'Results', 'Plots', 'All', 'PCA', 'PCA_2PCs_byDate.eps')
-title = """2-Component PCA - Experiment Dates"""
-if useTop256:
-    title = title + ' (Top256 features)'
-plotPCA(projected_df, grouping_variable='date_recording_yyyymmdd', var_subset=None,\
-        savepath=plotpath_2d, title=title, n_component_axes=2)
-plt.pause(2)
+for g, grouping_variable in enumerate(variables_list):
+    print("\n\n%d - PCA of variation across '%s':\n\n" % (g+1, grouping_variable))
 
-# 3-PC
-plt.close()
-plotpath_3d = os.path.join(PROJECT_ROOT_DIR, 'Results', 'Plots', 'All', 'PCA', 'PCA_3PCs_byDate.eps')
-title = """3-Component PCA - Experiment Dates"""
-if useTop256:
-    title = title + ' (Top256 features)'
-plotPCA(projected_df, grouping_variable='date_recording_yyyymmdd', var_subset=None,\
-        savepath=None, title=title, n_component_axes=3, rotate=False)
-plt.pause(2)
-
+    #%% Plot PCA - Variation across experiment days
+    
+    # 2-PC
+    plt.close()
+    plotpath_2d = os.path.join(PROJECT_ROOT_DIR, 'Results', 'Plots', 'All', 'PCA',\
+                               'PCA_2PCs_by_{0}.eps'.format(grouping_variable))
+    title = """2-Component PCA - {0}""".format(grouping_variable)
+    if useTop256:
+        title = title + """
+        (Top256 features)"""
+    plotPCA(projected_df, grouping_variable=grouping_variable, var_subset=None,\
+            savepath=plotpath_2d, title=title, n_component_axes=2)
+    plt.pause(2)
+    
+    # 3-PC
+    plt.close()
+    plotpath_3d = plotpath_2d.replace("_2PCs_", "_3PCs_")
+    title = title.replace("2-Component", "3-Component")
+    plotPCA(projected_df, grouping_variable=grouping_variable, var_subset=None,\
+            savepath=None, title=title, n_component_axes=3, rotate=False)
+    plt.pause(2)
+    
 #%% Plot PCA - Variation across experiment runs
 
 # 2-PC
@@ -858,7 +898,8 @@ plt.close()
 plotpath_2d = os.path.join(PROJECT_ROOT_DIR, 'Results', 'Plots', 'All', 'PCA', 'PCA_2PCs_byRunNumber.eps')
 title = """2-Component PCA - Variation across runs"""
 if useTop256:
-    title = title + ' (Top256 features)'
+    title = title + """
+    (Top256 features)"""
 plotPCA(projected_df, grouping_variable='run_number', var_subset=None,\
         savepath=plotpath_2d, title=title, n_component_axes=2)
 plt.pause(2)
@@ -868,7 +909,8 @@ plt.close()
 plotpath_3d = os.path.join(PROJECT_ROOT_DIR, 'Results', 'Plots', 'All', 'PCA', 'PCA_3PCs_byRunNumber.eps')
 title = """3-Component PCA - Variation across runs"""
 if useTop256:
-    title = title + ' (Top256 features)'
+    title = title + """
+    (Top256 features)"""
 plotPCA(projected_df, grouping_variable='run_number', var_subset=None,\
         savepath=None, title=title, n_component_axes=3, rotate=False)
 plt.pause(2)
@@ -880,7 +922,8 @@ plt.close()
 plotpath_2d = os.path.join(PROJECT_ROOT_DIR, 'Results', 'Plots', 'All', 'PCA', 'PCA_2PCs_byPlateNumber.eps')
 title = """2-Component PCA - Variation across plates"""
 if useTop256:
-    title = title + ' (Top256 features)'
+    title = title + """
+    (Top256 features)"""
 plotPCA(projected_df, grouping_variable='plate_number', var_subset=None,\
         savepath=plotpath_2d, title=title, n_component_axes=2)
 plt.pause(2)
@@ -890,7 +933,8 @@ plt.close()
 plotpath_3d = os.path.join(PROJECT_ROOT_DIR, 'Results', 'Plots', 'All', 'PCA', 'PCA_3PCs_byPlateNumber.eps')
 title = """3-Component PCA - Variation across plates"""
 if useTop256:
-    title = title + ' (Top256 features)'
+    title = title + """
+    (Top256 features)"""
 plotPCA(projected_df, grouping_variable='plate_number', var_subset=None,\
         savepath=None, title=title, n_component_axes=3, rotate=False)
 plt.pause(2)
@@ -902,7 +946,8 @@ plt.close()
 plotpath_2d = os.path.join(PROJECT_ROOT_DIR, 'Results', 'Plots', 'All', 'PCA', 'PCA_2PCs_byHydraRig.eps')
 title = """2-Component PCA - Variation across imaging rigs"""
 if useTop256:
-    title = title + ' (Top256 features)'
+    title = title + """
+    (Top256 features)"""
 plotPCA(projected_df, grouping_variable='instrument_name', var_subset=None,\
         savepath=plotpath_2d, title=title, n_component_axes=2)
 plt.pause(2)
@@ -912,7 +957,8 @@ plt.close()
 plotpath_3d = os.path.join(PROJECT_ROOT_DIR, 'Results', 'Plots', 'All', 'PCA', 'PCA_3PCs_byHydraRig.eps')
 title = """3-Component PCA - Variation across imaging rigs"""
 if useTop256:
-    title = title + ' (Top256 features)'
+    title = title + """
+    (Top256 features)"""
 plotPCA(projected_df, grouping_variable='instrument_name', var_subset=None,\
         savepath=None, title=title, n_component_axes=3, rotate=False)
 plt.pause(2)
@@ -924,7 +970,8 @@ plt.close()
 plotpath_2d = os.path.join(PROJECT_ROOT_DIR, 'Results', 'Plots', 'All', 'PCA', 'PCA_2PCs_byCameraSerial.eps')
 title = """2-Component PCA - Variation across imaging cameras"""
 if useTop256:
-    title = title + ' (Top256 features)'
+    title = title + """
+    (Top256 features)"""
 plotPCA(projected_df, grouping_variable='camera_number', var_subset=None,\
         savepath=plotpath_2d, title=title, n_component_axes=2)
 plt.pause(2)
@@ -934,7 +981,8 @@ plt.close()
 plotpath_3d = os.path.join(PROJECT_ROOT_DIR, 'Results', 'Plots', 'All', 'PCA', 'PCA_3PCs_byCameraSerial.eps')
 title = """3-Component PCA - Variation across imaging cameras"""
 if useTop256:
-    title = title + ' (Top256 features)'
+    title = title + """
+    (Top256 features)"""
 plotPCA(projected_df, grouping_variable='camera_number', var_subset=None,\
         savepath=None, title=title, n_component_axes=3, rotate=False)
 plt.pause(2)
@@ -946,7 +994,8 @@ plt.close()
 plotpath_2d = os.path.join(PROJECT_ROOT_DIR, 'Results', 'Plots', 'All', 'PCA', 'PCA_2PCs_byWellNumber.eps')
 title = """2-Component PCA - Variation across wells"""
 if useTop256:
-    title = title + ' (Top256 features)'
+    title = title + """
+    (Top256 features)"""
 plotPCA(projected_df, grouping_variable='well_number', var_subset=None,\
         savepath=plotpath_2d, title=title, n_component_axes=2)
 plt.pause(2)
@@ -956,7 +1005,8 @@ plt.close()
 plotpath_3d = os.path.join(PROJECT_ROOT_DIR, 'Results', 'Plots', 'All', 'PCA', 'PCA_3PCs_byWellNumber.eps')
 title = """3-Component PCA - Variation across wells"""
 if useTop256:
-    title = title + ' (Top256 features)'
+    title = title + """
+    (Top256 features)"""
 plotPCA(projected_df, grouping_variable='well_number', var_subset=None,\
         savepath=None, title=title, n_component_axes=3, rotate=False)
 plt.pause(2)
