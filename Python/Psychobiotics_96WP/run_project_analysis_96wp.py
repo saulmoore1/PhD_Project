@@ -34,10 +34,11 @@ top features that most significantly differ from control observations.
 different N2 behaviour. For significant features, post-hoc Tukey HSD tests are 
 performed for pairwise comparisons between strains.
 
-For each feature in a representative list of 256 features (Javer et al, 2018),
-N2 performance is plotted for all strains. Principal components analysis, 
-tSNE and UMAP are also performed to see if N2 behaviour exhibits visibly 
-different performance on each strain.
+For each significant feature in a representative list of Top256 features 
+(Javer et al, 2018), . 
+
+Principal components analysis, tSNE and UMAP are performed to see if N2 behaviour 
+exhibits visibly different performance on each strain.
 
 """
 
@@ -71,23 +72,27 @@ from process_feature_summary_96wp import processfeatsums
 # Record script start time
 bigtic = time.time()
 
+#%% 
+# TODO: Find out why pangenome results only for first 96 wells?
+
 #%% GLOBAL PARAMETERS (USER-DEFINED)
 
 # Project root directory
-#PROJECT_ROOT_DIR = '/Volumes/hermes$/Recordings/PanGenome'                     
-PROJECT_ROOT_DIR = '/Volumes/behavgenom$/Saul/MicrobiomeAssay96WP'
+PROJECT_ROOT_DIR = '/Volumes/hermes$/Recordings/PanGenome'                     
+#PROJECT_ROOT_DIR = '/Volumes/behavgenom$/Saul/MicrobiomeAssay96WP'
 
 # TODO: Process featsums for 20191031 and results + featsums for 20191018!
 
-IMAGING_DATES = None#['20191017','20191024','20191031']                             # List of experiment imaging dates (optional)
+#IMAGING_DATES = None
+IMAGING_DATES = ['20191017','20191024','20191031']                             # List of experiment imaging dates (optional)
          
-PROCESS_METADATA = True                                                       # Process the metadata prior to analysis?
-PROCESS_FEATURE_SUMMARY_RESULTS = True                                        # Process feature summary files?
+PROCESS_METADATA = False                                                       # Process the metadata prior to analysis?
+PROCESS_FEATURE_SUMMARY_RESULTS = False                                        # Process feature summary files?
 ANALYSE_OP50_CONTROL_ACROSS_DAYS = True                                        # Perform analysis of variation in control data over time
 CONTROL_STRAIN = 'OP50'                                                        # Control strain of bacterial food, E. coli OP50
 
 # Statistics parameters
-check_feature_normality = False                                                # Check for Gaussian normality of observed feature sample distributions
+check_feature_normality = True                                                 # Check for Gaussian normality of observed feature sample distributions
 nan_threshold = 0.5                                                            # Threshold proportion of NaN values to drop a feature column from analyses
 p_value_threshold = 0.05                                                       # Threshold p-value for statistical significance
 filter_size_related_feats = False                                              # Drop size-related features from analysis (excluding analysis of control)?
@@ -96,6 +101,7 @@ is_normal = False                                                              #
 
 # Plotting parameters
 n_top_features = 5                                                             # Number of top-ranked features to plot (boxplot comparison between foods for each feature)
+n_top_foods2plt = 10                                                           # Number of foods to include in boxplots of Avelino's Top256 features
 show_plots = False                                                             # Display figures (for visualisation, but slows down plotting)?
 rotate = True                                                                  # PCA - Rotate 3-D plots?
 depthshade = False                                                             # PCA - Shade colours on 3-D plots to show depth?
@@ -181,7 +187,7 @@ print("Filtering/cleaning results..")
 # Drop rows that have no results (empty wells?)
 n_rows = len(fullresults)
 fullresults = fullresults[fullresults[feat_colnames].sum(axis=1) != 0]
-print("Dropped %d row entries with no feature summary results (no worms in those wells?)" % (n_rows - len(fullresults)))
+print("Dropped %d row entries with no feature summary results" % (n_rows - len(fullresults))) # (no worms in those wells?)
 
 # Split results into metadata + feature results
 results_meta = fullresults[meta_colnames]
@@ -249,13 +255,14 @@ if filter_size_related_feats:
 # Check for unexpected variation in the following potential confounders
 variables_list = ["date_recording_yyyymmdd", "run_number", "plate_number",\
                   "instrument_name", "camera_number"]
+#variables_list = ['camera_number']
 
 # Include L1 diapause duration (recorded in metadata for microbiome assay only)
 if os.path.basename(PROJECT_ROOT_DIR) == "MicrobiomeAssay96WP":
     variables_list.insert(len(variables_list), "L1_diapause_seconds")
 
 # OPTIONAL: Analyse control variation with size-related features removed
-
+print("\nAnalysing control variation...\n")
 if ANALYSE_OP50_CONTROL_ACROSS_DAYS:
     control_variation(path_to_control_data = PATH_OP50,\
                       feature_column_names = feat_colnames,\
@@ -321,12 +328,13 @@ else:
     print("""Less than %d%% of features (%.1f%%) were found to obey a normal (Gaussian) distribution, 
     so non-parametric analyses will be preferred.""" % (is_normal_threshold*100, total_prop_normal*100))
 
-#%% STATISTICS: t-tests/rank-sum tests - To look for behavioural features that differ significantly between worms on different foods
+#%% STATISTICS: t-tests/rank-sum tests 
+#   - To look for behavioural features that differ significantly on test foods vs control 
 
 if is_normal:
     TEST = ttest_ind
 else:
-    TEST = ranksumtest 
+    TEST = ranksumtest
 
 # Record name of statistical test used (kruskal/f_oneway)
 test_name = str(TEST).split(' ')[1].split('.')[-1].split('(')[0].split('\'')[0]
@@ -409,6 +417,8 @@ sigfeats_outpath = stats_outpath.replace('_results.csv', '_significant_features.
 test_pvalues_df.to_csv(stats_outpath) # Save test results as CSV
 sigdifffeats_food_df.to_csv(sigfeats_outpath, index=False) # Save feature list as text file
     
+#test_pvalues_df = pd.read_csv(stats_outpath, index_col=0)
+
 #%% STATISTICS: One-way ANOVA/Kruskal-Wallis + Tukey HSD post-hoc tests for pairwise differences 
 #   between foods for each feature
 
@@ -452,8 +462,8 @@ test_pvalues_df.loc['pval_corrected', _corrArray[0]] = pvalues_corrected
 
 # Store names of features that show significant differences across the test bacteria
 sigdiff_feats = test_pvalues_df.columns[np.where(_corrArray[1] < p_value_threshold)]
-print("Complete!\n%d features exhibit significant differences between foods (%s test, Bonferroni)"\
-      % (len(sigdiff_feats), test_name))
+print("Complete!\n%d/%d (%.1f%%) features exhibit significant differences between foods (%s test, Bonferroni)"\
+      % (len(sigdiff_feats), len(test_pvalues_df.columns), len(sigdiff_feats)/len(test_pvalues_df.columns)*100, test_name))
 
 # Compile list to store names of significant features
 sigfeats_out = pd.Series(test_pvalues_df.columns[np.where(test_pvalues_df.loc['pval_corrected'] < p_value_threshold)])
@@ -498,6 +508,7 @@ else:
     
 stats_inpath = os.path.join(PROJECT_ROOT_DIR, 'Results', 'Stats', test_name + '_results.csv')
 test_pvalues_df = pd.read_csv(stats_inpath, index_col=0)
+print("Loaded %s results." % test_name)
 
 #%% BOX PLOTS - INDIVIDUAL PLOTS OF TOP RANKED FEATURES FOR EACH FOOD
 # - Rank features by pvalue significance (lowest first) and select the Top 10 features for each food
@@ -591,8 +602,6 @@ print("Dropped %d insignificant features from Top256." % (len(top256features) - 
 
 # OPTIONAL: Plot cherry-picked features
 #features2plot = ['speed_50th','curvature_neck_abs_50th','major_axis_50th','angular_velocity_neck_abs_50th']
-
-n_top_foods2plt = 10
 
 # Seaborn boxplots with swarmplot overlay for each feature - saved to file
 tic = time.time()

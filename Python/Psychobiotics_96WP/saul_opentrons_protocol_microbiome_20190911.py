@@ -143,8 +143,3 @@ for src_column, dst_plate in zip(source_active_columns, dst_plates):
 #                                blow_out=True)
 
 
-# LF: Since you're dispensing from the same source 12 times,
-# you could experiment (if you wanted to) with not changing tips between columns
-# of the destination plate, but only between plates.
-# May have bad effects like the droplet of bacteria not detaching
-# completely, but worth keeping in mind
