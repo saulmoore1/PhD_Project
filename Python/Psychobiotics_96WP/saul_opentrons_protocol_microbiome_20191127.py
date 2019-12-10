@@ -8,10 +8,12 @@
 ## OpenTrons Protocol - Microbiome Assay
 -  96-well, multichannel
 -  Randomisation, column-wise 
--  1 source plate  ->  5 destination plates
--  1 tip rack required (each column of tips is re-used 5 times for each destination plate)
--  Dispense 5ul bacterial culture (solution in LB broth, overnight growth from single colony),
-   using multichannel pipette (shuffling columns)
+-  1 source plate  ->  5 destination plates 
+    (shuffling columns)
+-  1 tip rack required 
+    (each column of tips is re-used 5 times -> 5 destination plates)
+-  Dispense 5ul bacterial culture using multichannel pipette
+    (solution in LB broth, overnight growth from single colony)
    
 Tip rack position:            8
 Source plate position:        2
@@ -49,9 +51,18 @@ multi_pipette_type = 'p10-Multi'
 multi_pipette_mount = 'left'
 
 # Tip rack parameters
-tiprack_slots = ['8']
 tiprack_type = 'opentrons-tiprack-10ul'
-tiprack_startfrom = '1'
+
+# Option to conserve tip use, since we are dispensing from the same source     # NB: Sticky droplet of bacteria may not detach from tip when dispensing
+# column multiple times                                                        # Changing tips is advised for dispensing accuracy/reliability
+eco_friendly_tip_use = False
+
+if eco_friendly_tip_use:
+    tiprack_slots = ['8']
+    tiprack_startfrom = '8'
+else:
+    tiprack_slots = ['7','8','9','10','11']
+    tiprack_startfrom = '7'
 
 # Source plate (bacterial solution) parameters
 source_slot = '2'
@@ -66,17 +77,25 @@ destination_type = '96-well-plate-sqfb-whatman'
 # - (Normal NGM / No Peptone agar) # TODO: 150ul-200ul ?
 agar_thickness = +3.7 # mm from the bottom of the well (for 200ul agar per well)
 
+# Air gap params
+aspirating_volume = 5                                                          # Bacterial volume to pick up
+dispensing_volume = 10                                                         # Bacterial volume to dispense (greater to ensure all contents are dispensed)
+air_gap = dispensing_volume - aspirating_volume                                # Resulting air gap
+
+
 #%% LABWARE
+
+assert '96-flat' in labware.list()
 
 # Define custom labware
 if '48-well-plate-sarsted' not in labware.list():
     custom_plate = labware.create(
-        '48-well-plate-sarsted',        # name of you labware
-        grid=(8, 6),                    # specify amount of (columns, rows)
-        spacing=(12.4, 12.4),           # distances (mm) between each (column, row)
-        diameter=10,                    # diameter (mm) of each well on the plate
-        depth=17.05,                    # depth (mm) of each well on the plate
-        volume=500)                     # Sarsted had a "volume of work"
+        '48-well-plate-sarsted',                                               # name of labware
+        grid=(8, 6),                                                           # specify layout (columns, rows)
+        spacing=(12.4, 12.4),                                                  # distances (mm) between each (column, row)
+        diameter=10,                                                           # diameter (mm) of each well on the plate
+        depth=17.05,                                                           # depth (mm) of each well on the plate
+        volume=500)                                                            # Sarsted had a "volume of work"
 
     print('Wells in 48WP Sarsted:')
     for well in custom_plate.wells():
@@ -84,12 +103,12 @@ if '48-well-plate-sarsted' not in labware.list():
 
 if '96-well-plate-sqfb-whatman' not in labware.list():
     custom_plate = labware.create(
-        '96-well-plate-sqfb-whatman',   # name of you labware
-        grid=(12, 8),              # specify amount of (columns, rows)
-        spacing=(8.99, 8.99),      # distances (mm) between each (column, row)
-        diameter=7.57,             # diameter (mm) of each well on the plate (here width at bottom)
-        depth=10.35,               # depth (mm) of each well on the plate
-        volume=650)                # this is the actual volume as per specs, not a "volume of work"
+        '96-well-plate-sqfb-whatman',                                          # name of labware
+        grid=(12, 8),                                                          # specify layout (columns, rows)
+        spacing=(8.99, 8.99),                                                  # distances (mm) between each (column, row)
+        diameter=7.57,                                                         # diameter (mm) of each well on the plate (here width at bottom)
+        depth=10.35,                                                           # depth (mm) of each well on the plate
+        volume=650)                                                            # this is the actual volume as per specs, not a "volume of work"
 
     print('Wells in 96WP Whatman:')
     for well in custom_plate.wells():
@@ -97,12 +116,12 @@ if '96-well-plate-sqfb-whatman' not in labware.list():
 
 if '96-well-plate-pcr-thermofisher' not in labware.list():
     custom_plate = labware.create(
-        '96-well-plate-pcr-thermofisher',   # name of you labware
-        grid=(12, 8),              # specify amount of (columns, rows)
-        spacing=(9.00, 9.00),      # distances (mm) between each (column, row)
-        diameter=5.50,             # diameter (mm) of each well on the plate (here width at top!!)
-        depth=15.00,               # depth (mm) of each well on the plate
-        volume=200)                # as per manufacturer's website
+        '96-well-plate-pcr-thermofisher',                                      # name of labware
+        grid=(12, 8),                                                          # specify layout (columns, rows)
+        spacing=(9.00, 9.00),                                                  # distances (mm) between each (column, row)
+        diameter=5.50,                                                         # diameter (mm) of each well on the plate (here width at top!!)
+        depth=15.00,                                                           # depth (mm) of each well on the plate
+        volume=200)                                                            # actual specs, as per manufacturer's website
 
     print('Wells in 96WP PCR Thermo Fisher:')
     for well in custom_plate.wells():
@@ -122,50 +141,47 @@ pipette_multi.plunger_positions['drop_tip'] = -6
 
 #%% TRANSLATE MAPPINGS TO ROBOT LABWARE INSTRUCTIONS
 
-# Mapping from source plate to destination plate:
-mapping_dict = {}
 src_cols = np.arange(n_columns) # Array of column numbers
 
+# Shuffling of source plate columns for destination plate mappings
+dst_shuffled_mapping_dict = {}
 for ds in destination_slots:
     dst_cols = src_cols.copy() # array of column numbers to be shuffled
     np.random.shuffle(dst_cols) # shuffle columns in destination. This acts in place!!
-    mapping_dict[(source_slot,ds)] = (src_cols,dst_cols)
+    dst_shuffled_mapping_dict[ds] = dst_cols
 
+# Mapping from source plate to destination plate:
+mapping_dict = {}
+for sc in src_cols:
+    for ds in destination_slots:
+        dst_col = dst_shuffled_mapping_dict[ds][sc]
+        mapping_dict[(source_slot, sc, ds)] = dst_col
+   
 for key, value in mapping_dict.items():
-    _src_slot, _dst_slot = key
-    _src_cols, _dst_cols = value
-    for _src_col, _dst_col in zip(_src_cols, _dst_cols):
-        print('slot {0} col {1} --> slot {2} col {3}'.format(_src_slot, _src_col, _dst_slot, _dst_col))
+    _src_slot, _src_col, _dst_slot = key
+    _dst_col = value
+    print('Source: slot {0} col {1} --> Destination: slot {2} col {3}'.format(_src_slot, _src_col, _dst_slot, _dst_col))
         
-#print(mapping_dict)
-
 src_plate = labware.load(source_type, source_slot)
 dst_plates = [labware.load(destination_type, dst_slot) for dst_slot in destination_slots]
-
-# Translate well mappings to robot instructions for given labware
+   
 wells_mapping = {}
 for i,(k,v) in enumerate(mapping_dict.items()):
-    print(i,k,v)            
-
-    # Unpack slots
-    _src_slot, _dst_slot = k
-    _src_cols, _dst_cols = v
-        
-    # Load labware for src and dst
-    #src_plate = labware.load(source_type, _src_slot) # NOT REQUIRED: Single source plate needed
-    dst_plate = dst_plates[i]
-    print("Destination plate: %s\nSource plate: %s" % (dst_plate, src_plate))
+    source_slot, src_col, dst_slot = k
+    dst_col = v       
+    
+    # Load labware for dst plate 
+    dst_plate = dst_plates[int(np.where(np.array(destination_slots)==dst_slot)[0])]
     
     # Create list of wells with the right offset
     src_wells = [well.bottom(frombottom_off) for well in src_plate.rows('A')]
     dst_wells = [well.bottom(agar_thickness) for well in dst_plate.rows('A')]
     
-    # Normal lists, so should be re-shuffleable
-    src_wells = [src_wells[wi] for wi in _src_cols]
-    dst_wells = [dst_wells[wi] for wi in _dst_cols]
-    
+    src_wells = src_wells[src_col]
+    dst_wells = dst_wells[dst_col]
+        
     # Store wells_mapping
-    wells_mapping[(src_plate, dst_plate)] = (src_wells, dst_wells)
+    wells_mapping[(src_plate, src_col, dst_plate)] = (src_wells, dst_wells)
     
 #print(wells_mapping)
 
@@ -173,27 +189,60 @@ for i,(k,v) in enumerate(mapping_dict.items()):
 
 # Safety command to make sure the robot starts with no previous tips attached
 pipette_multi.drop_tip()
-count_used_tips() # this should be 0 to start with
+count_used_tips()
 
 # Dispense solution from source plate into destination plates
-for plates_tuple, wells_tuple in wells_mapping.items():
-    # Unpack well mappings
-    src_plate, dst_plate = plates_tuple
-    src_wells, dst_wells = wells_tuple
+sc = 0
+for src_col in src_cols:
+    for i, dst_slot in enumerate(destination_slots):
+        #print(src_col, i, dst_slot)
+        
+        assert int(np.where(np.array(destination_slots)==dst_slot)[0]) == i
+        
+        dst_plate = dst_plates[int(np.where(np.array(destination_slots)==dst_slot)[0])]
 
-    # Transfer solution
-    pipette_multi.transfer(dispense_volume,
-                           src_wells,
-                           dst_wells,
-                           new_tip='always',
-                           blow_out=True)
+        dst_col = mapping_dict[(source_slot, src_col, dst_slot)]
+        #print(dst_col)
+                
+        src_wells, dst_wells = wells_mapping[(src_plate, src_col, dst_plate)]
+        
+        # Transfer solution
+        if eco_friendly_tip_use:
+            
+            # Pick up tips (8-channel)
+            pipette_multi.pick_up_tip()
+    
+            # Aspirate (suck up) bacteria in source plate + saturate the tips to remove air bubbles
+            pipette_multi.aspirate(air_gap, src_wells, rate=4.0) # src_wells.bottom(30)?
+            pipette_multi.aspirate(aspirating_volume, src_wells, rate=4.0)
+            pipette_multi.dispense(dispensing_volume, src_wells, rate=4.0)
+            pipette_multi.blow_out()
+            
+            # Only drop tips if switching source plate columns
+            # TODO: Fix drop tips - eco option
+            if src_col != sc:
+                print("Dropping tips")
+                pipette_multi.drop_tip()
+                sc = src_col
+                count_used_tips()
+        else:
+            # Aspirate (suck up) bacteria in source plate + saturate the tips to remove air bubbles
+            pipette_multi.aspirate(air_gap, src_wells, rate=4.0) # src_wells.bottom(30)?
+            pipette_multi.aspirate(aspirating_volume, src_wells, rate=4.0)
+            pipette_multi.dispense(dispensing_volume, src_wells, rate=4.0)
+            pipette_multi.blow_out()
+            
+            # Always drop tips
+            print("Dropping tips")
+            pipette_multi.drop_tip()
+            count_used_tips()
+        
+        print('{} {} -> {} {}'.format(src_plate.parent, src_wells, dst_plate.parent, dst_wells))
 
-    for s,d in zip(src_wells, dst_wells):
-        print('{} {} -> {} {}'.format(src_plate.parent, s[0], dst_plate.parent, d[0]))
-
-    count_used_tips()
-    robot.pause(60)
-    pipette_multi.reset_tip_tracking()
+        #robot.pause(60)
+        #pipette_multi.reset_tip_tracking() # What does this do?
+        
+    sc += 1
 
 # Save robot commands to file
 if not robot.is_simulating():
@@ -204,6 +253,5 @@ if not robot.is_simulating():
         for command in robot.commands():
             print(command,file=fid)
             
-# TODO: Since dispensing from the same source column 5 times,
-# could experiment with only changing tips when changing source columns
-# NB: May have bad effects like the droplet of bacteria not detaching completely
+print(robot.commands())
+            
