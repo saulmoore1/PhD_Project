@@ -9,13 +9,13 @@
 -  96-well, multichannel
 -  Randomisation, column-wise 
 -  1 source plate  ->  5 destination plates 
-    (shuffling columns)
--  1 tip rack required 
-    (each column of tips is re-used 5 times -> 5 destination plates)
+                       (shuffling columns)
+-  OPTIOINAL: Eco friendly - only 1 tip rack required
+               (each column of tips is re-used 5 times -> 5 destination plates)
 -  Dispense 5ul bacterial culture using multichannel pipette
     (solution in LB broth, overnight growth from single colony)
    
-Tip rack position:            8
+Tip rack position(s):         8  /  7,8,9,10,11
 Source plate position:        2
 Destination plate positions:  1,3,4,5,6 
 
@@ -55,7 +55,7 @@ tiprack_type = 'opentrons-tiprack-10ul'
 
 # Option to conserve tip use, since we are dispensing from the same source     # NB: Sticky droplet of bacteria may not detach from tip when dispensing
 # column multiple times                                                        # Changing tips is advised for dispensing accuracy/reliability
-eco_friendly_tip_use = False
+eco_friendly_tip_use = True
 
 if eco_friendly_tip_use:
     tiprack_slots = ['8']
@@ -139,7 +139,7 @@ if multi_pipette_type == 'p10-Multi': # safety check
 pipette_multi.start_at_tip(tipracks[0].well(tiprack_startfrom))
 pipette_multi.plunger_positions['drop_tip'] = -6
 
-#%% TRANSLATE MAPPINGS TO ROBOT LABWARE INSTRUCTIONS
+#%% SORRCE-DESTINATION PLATE MAPPINGS
 
 src_cols = np.arange(n_columns) # Array of column numbers
 
@@ -161,6 +161,8 @@ for key, value in mapping_dict.items():
     _src_slot, _src_col, _dst_slot = key
     _dst_col = value
     print('Source: slot {0} col {1} --> Destination: slot {2} col {3}'.format(_src_slot, _src_col, _dst_slot, _dst_col))
+
+#%% TRANSLATE MAPPINGS TO ROBOT LABWARE INSTRUCTIONS
         
 src_plate = labware.load(source_type, source_slot)
 dst_plates = [labware.load(destination_type, dst_slot) for dst_slot in destination_slots]
