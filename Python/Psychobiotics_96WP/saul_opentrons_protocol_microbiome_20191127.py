@@ -51,35 +51,32 @@ multi_pipette_type = 'p10-Multi'
 multi_pipette_mount = 'left'
 
 # Tip rack parameters
+eco_friendly_tip_use = True
 tiprack_type = 'opentrons-tiprack-10ul'
-
+tiprack_startfrom = '1'
 # Option to conserve tip use, since we are dispensing from the same source     # NB: Sticky droplet of bacteria may not detach from tip when dispensing
 # column multiple times                                                        # Changing tips is advised for dispensing accuracy/reliability
-eco_friendly_tip_use = True
-
 if eco_friendly_tip_use:
     tiprack_slots = ['8']
-    tiprack_startfrom = '8'
 else:
     tiprack_slots = ['7','8','9','10','11']
-    tiprack_startfrom = '7'
-
+    
 # Source plate (bacterial solution) parameters
 source_slot = '2'
 source_type = '96-flat' # TODO: not '96-well-plate-sqfb-whatman'/'96-well-plate-pcr-thermofisher' ??
 frombottom_off = +0.3 # distance of bottom of source wells from bottom of source plate (in millimetres, mm)
-dispense_volume = 5 # volume of solution to dispense from src plate into dst plates (in microlitres, ul)
+dispense_volume = 5 # volume of solution to dispense 
 n_columns = 12
 
 # Destination plate parameters
 destination_slots = ['1','3','4','5','6']
 destination_type = '96-well-plate-sqfb-whatman'
 # - (Normal NGM / No Peptone agar) # TODO: 150ul-200ul ?
-agar_thickness = +3.7 # mm from the bottom of the well (for 200ul agar per well)
+agar_thickness = +3.5 # mm from the bottom of the well (for 200ul agar per well)
 
 # Air gap params
 aspirating_volume = 5                                                          # Bacterial volume to pick up
-dispensing_volume = 10                                                         # Bacterial volume to dispense (greater to ensure all contents are dispensed)
+dispensing_volume = 10                                                         # Bacterial volume to dispense (in microlitres, ul, and greater to ensure all contents are dispensed)
 air_gap = dispensing_volume - aspirating_volume                                # Resulting air gap
 
 
@@ -176,11 +173,13 @@ for i,(k,v) in enumerate(mapping_dict.items()):
     dst_plate = dst_plates[int(np.where(np.array(destination_slots)==dst_slot)[0])]
     
     # Create list of wells with the right offset
-    src_wells = [well.bottom(frombottom_off) for well in src_plate.rows('A')]
-    dst_wells = [well.bottom(agar_thickness) for well in dst_plate.rows('A')]
+    src_wells = src_plate.rows('A')[int(src_col)]
+    dst_wells = dst_plate.rows('A')[int(dst_col)].bottom(agar_thickness)
     
-    src_wells = src_wells[src_col]
-    dst_wells = dst_wells[dst_col]
+#    src_wells = [well.bottom(frombottom_off) for well in src_plate.rows('A')]
+#    dst_wells = [well.bottom(agar_thickness) for well in dst_plate.rows('A')]   
+#    src_wells = src_wells[src_col]
+#    dst_wells = dst_wells[dst_col]
         
     # Store wells_mapping
     wells_mapping[(src_plate, src_col, dst_plate)] = (src_wells, dst_wells)
@@ -194,58 +193,43 @@ pipette_multi.drop_tip()
 count_used_tips()
 
 # Dispense solution from source plate into destination plates
-sc = 0
 for src_col in src_cols:
-    for i, dst_slot in enumerate(destination_slots):
-        #print(src_col, i, dst_slot)
+    for dst_plate in dst_plates:
         
-        assert int(np.where(np.array(destination_slots)==dst_slot)[0]) == i
-        
-        dst_plate = dst_plates[int(np.where(np.array(destination_slots)==dst_slot)[0])]
-
         dst_col = mapping_dict[(source_slot, src_col, dst_slot)]
         #print(dst_col)
                 
         src_wells, dst_wells = wells_mapping[(src_plate, src_col, dst_plate)]
         
-        # Transfer solution
-        if eco_friendly_tip_use:
-            
-            # Pick up tips (8-channel)
+        # Pick up wells
+        is_pick_up_tip_time = ((dst_plate == dst_plates[0]) or
+                               (eco_friendly_tip_use == False))
+        
+        if is_pick_up_tip_time:
             pipette_multi.pick_up_tip()
-    
-            # Aspirate (suck up) bacteria in source plate + saturate the tips to remove air bubbles
-            pipette_multi.aspirate(air_gap, src_wells, rate=4.0) # src_wells.bottom(30)?
-            pipette_multi.aspirate(aspirating_volume, src_wells, rate=4.0)
-            pipette_multi.dispense(dispensing_volume, src_wells, rate=4.0)
-            pipette_multi.blow_out()
-            
-            # Only drop tips if switching source plate columns
-            # TODO: Fix drop tips - eco option
-            if src_col != sc:
-                print("Dropping tips")
-                pipette_multi.drop_tip()
-                sc = src_col
-                count_used_tips()
-        else:
-            # Aspirate (suck up) bacteria in source plate + saturate the tips to remove air bubbles
-            pipette_multi.aspirate(air_gap, src_wells, rate=4.0) # src_wells.bottom(30)?
-            pipette_multi.aspirate(aspirating_volume, src_wells, rate=4.0)
-            pipette_multi.dispense(dispensing_volume, src_wells, rate=4.0)
-            pipette_multi.blow_out()
-            
-            # Always drop tips
+
+        # Aspirate (suck up) bacteria in source plate + saturate the tips to remove air bubbles
+        pipette_multi.aspirate(air_gap, src_wells.bottom(30), rate=4.0)
+        pipette_multi.aspirate(aspirating_volume, src_wells.bottom(frombottom_off), rate=4.0)
+        pipette_multi.dispense(dispensing_volume, dst_wells, rate=4.0)
+        pipette_multi.blow_out()
+        
+        # Drop tips (eco-friendly option)
+        is_drop_tip_time = ((dst_plate == dst_plates[-1]) or
+                            (eco_friendly_tip_use == False))
+        
+        if is_drop_tip_time:
             print("Dropping tips")
             pipette_multi.drop_tip()
-            count_used_tips()
-        
+                    
         print('{} {} -> {} {}'.format(src_plate.parent, src_wells, dst_plate.parent, dst_wells))
+        count_used_tips()
 
         #robot.pause(60)
-        #pipette_multi.reset_tip_tracking() # What does this do?
+        #pipette_multi.reset_tip_tracking() # This tells the robot to restart 
+        # the tip counter if you're going to change tipracks manually. 
+        # The robot otherwise thinks you've run out of tips.
         
-    sc += 1
-
 # Save robot commands to file
 if not robot.is_simulating():
     import datetime
