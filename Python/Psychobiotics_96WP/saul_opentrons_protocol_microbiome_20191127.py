@@ -51,7 +51,7 @@ multi_pipette_type = 'p10-Multi'
 multi_pipette_mount = 'left'
 
 # Tip rack parameters
-eco_friendly_tip_use = True
+eco_friendly_tip_use = False
 tiprack_type = 'opentrons-tiprack-10ul'
 tiprack_startfrom = '1'
 # Option to conserve tip use, since we are dispensing from the same source     # NB: Sticky droplet of bacteria may not detach from tip when dispensing
