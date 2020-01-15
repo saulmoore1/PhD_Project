@@ -17,7 +17,6 @@ at least once.
 import os
 import pandas as pd
 import numpy as np
-from matplotlib import pyplot as plt
 
 #%%
 seed = 20191212
@@ -87,6 +86,8 @@ shuffled_wells_mapping_df.to_csv(save_path, index=True)
 
 #%% # Plot of strain representations across shuffled frozen stock plates
 
+#from matplotlib import pyplot as plt
+#
 #tally_strain_representation = [np.array([(shuffled_wells_mapping_df[plate]==i).sum(axis=0)\
 #                                for i in Schulenburg_strain_well_list])\
 #                                    for plate in shuffled_wells_mapping_df.columns]

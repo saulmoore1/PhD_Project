@@ -93,7 +93,7 @@ CONTROL_STRAIN = 'OP50'                                                        #
 
 # Statistics parameters
 check_feature_normality = True                                                 # Check for Gaussian normality of observed feature sample distributions
-nan_threshold = 0.5                                                            # Threshold proportion of NaN values to drop a feature column from analyses
+nan_threshold = 0.8                                                            # Threshold proportion of NaN values to drop a feature column from analyses
 p_value_threshold = 0.05                                                       # Threshold p-value for statistical significance
 filter_size_related_feats = False                                              # Drop size-related features from analysis (excluding analysis of control)?
 is_normal_threshold = 0.95                                                     # Threshold to decide between parametric/non-parametric statistics
