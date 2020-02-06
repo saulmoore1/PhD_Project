@@ -336,7 +336,7 @@ if is_normal:
 else:
     TEST = ranksumtest
 
-# Record name of statistical test used (kruskal/f_oneway)
+# Record name of statistical test used (ttest/ranksumtest)
 test_name = str(TEST).split(' ')[1].split('.')[-1].split('(')[0].split('\'')[0]
 
 # Record number of decimal places of threshold p-value, for print statements to std_out
