@@ -215,7 +215,8 @@ colour_dictionary = dict(zip(strainsToAnalyse, sns.color_palette("gist_rainbow",
 plt.close('all')
 row_colours = featureTableStrains['food_type'].map(colour_dictionary)
 sns.set(font_scale=0.6)
-g = sns.clustermap(featMatNorm, row_colors=row_colours, figsize=[18,15], xticklabels=3)
+g = sns.clustermap(featMatNorm, row_colors=row_colours, standard_scale=1,\
+                   metric='correlation', figsize=[18,15], xticklabels=3)
 plt.setp(g.ax_heatmap.xaxis.get_majorticklabels(), rotation=90)
 
 # Save clustermap
@@ -304,14 +305,14 @@ for strain in testPvals.index:
     # Locate pvalue results (row) for strain
     pvals = testPvals.loc[strain]
     
-    # Perform Bonferroni correction for multiple comparisons on test p-values
+    # Perform Benjamini/Hochberg correction for multiple comparisons on test p-values
     _corrArray = smm.multipletests(pvals.values, alpha=pvalThresh, method='fdr_bh',\
                                    is_sorted=False, returnsorted=False)
     
     # Get pvalues for features that passed the Benjamini/Hochberg (non-negative) correlation test
     pvalsCorrected = _corrArray[1][_corrArray[0]]
     
-    # Add pvalues to dataframe of corrected ttest pvalues
+    # Add pvalues to dataframe of corrected test pvalues
     testPvalsBF.loc[strain, _corrArray[0]] = pvalsCorrected
     
     # Record the names and number of significant features (after Bonferroni correction)
@@ -379,9 +380,10 @@ for i, strain in enumerate(testPvalsBF.index):
                     pval = testPvalsBF.loc[key, feature]
                     if isinstance(pval, float) and pval < pvalThresh:
                         trans = transforms.blended_transform_factory(ax.transData, ax.transAxes)
-                        ax.text(l - 0.1, 1, 'p={:g}'.format(float('{:.2g}'.format(pval))),\
+                        pval2plt = testPvals.loc[key, feature]
+                        ax.text(l - 0.1, 1, 'p={:g}'.format(float('{:.2g}'.format(pval2plt))),\
                         fontsize=13, color='k', verticalalignment='bottom', transform=trans)
-            plt.tight_layout(rect=[0.04, 0, 0.84, 0.96])
+            plt.tight_layout(rect=[0.04, 0, 0.8, 0.96])
             plt.legend(handles=patches, labels=colour_dict.keys(), loc=(1.02, 0.8),\
                       borderaxespad=0.4, frameon=False, fontsize=15)
 
