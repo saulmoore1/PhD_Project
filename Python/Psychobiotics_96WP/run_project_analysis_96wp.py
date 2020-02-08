@@ -769,6 +769,23 @@ plt.pause(2)
 
 # TODO: Plot features that have greatest influence on PCA (eg. PC1)
 
+
+## TODO: Use Mahalanobis distance to exclude outliers from PCA
+## NB: Euclidean distance puts more weight than it should on correlated variables
+#
+#from sklearn.covariance import MinCovDet
+#
+## Fit a Minimum Covariance Determinant (MCD) robust estimator to data 
+#robust_cov = MinCovDet().fit(featMatProjected[:,:10])
+#
+## Get the Mahalanobis distance
+#m = robust_cov.mahalanobis(featMatProjected[:,:10])
+#
+## Plot PCA points coloured by Mahalanobis distance
+#fig, ax = plt.subplots(figsize=[10,10])
+#plt.scatter(np.array(projectedTable['PC1']), np.array(projectedTable['PC2']), c=m)
+#
+#
 #%% t-distributed Stochastic Neighbour Embedding (t-SNE)
 
 plotroot = os.path.join(PROJECT_ROOT_DIR, 'Results', 'Plots', 'All', 'tSNE')

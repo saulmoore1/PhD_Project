@@ -19,7 +19,7 @@ a) Reads in: (1) a metadata file, (2) Tierpsy feature summary files (features
 b) Matches strain names with results and combines metadata with feature summary results
 c) Cleans data by dropping features with too many NaN values and replacing 
    remaining NaNs with global means
-d) PCA on normalised feature summary matrix + graphical visualisation
+d) PCA on normalised feature summary matrix before and after removing outliers
 e) Performs a test to find significantly different features from performance on
    the control strain
 f) Saves PCA + box plots showing all significant differences
@@ -37,6 +37,7 @@ from matplotlib import patches as mpatches
 from matplotlib import transforms
 from scipy.stats import ttest_ind, ranksums, zscore
 from sklearn.decomposition import PCA
+from sklearn.covariance import MinCovDet
 from statsmodels.stats import multitest as smm
 
 
@@ -57,11 +58,11 @@ PATH_top256 = '/Volumes/behavgenom$/Saul/MicrobiomeAssay96WP/AuxiliaryFiles/top2
 
 nanThresh = 0.8                                                                # Threshold proportion of NaN values above which features are dropped from analysis
 pvalThresh = 0.05
-strainsToAnalyse = ['MYB71','JUB19','CENZENT1']                                # List of bacterial strains to compare N2 performance on
+strainsToCompare = ['MYB71','JUB19','CENZENT1']                                # List of bacterial strains to compare N2 performance on
 controlStrain = 'OP50'                                                         # Control bacterial strain
 testType = 't-test'                                                            # Choice of statistical test: 't-test' or 'ranksum'
 
-strainsToAnalyse.insert(0, controlStrain)
+strainsToCompare.insert(0, controlStrain)
 
 
 #%% Functions
@@ -97,6 +98,45 @@ def pcainfo(pca, zscores, PC=1, n_feats2print=10):
         print(feat)
 
     return important_feats, fig
+
+def MahalanobisOutliers(featMatProjected, extremeness=2., showplot=True):
+    """ A function to determine to return a list of outlier indices using the
+        Mahalanobis distance. 
+        Outlier threshold = std(Mahalanobis distance) * extremeness degree 
+        [extreme_values=2, very_extreme_values=3 --> according to 68-95-99.7 rule]
+    """
+    # NB: Euclidean distance puts more weight than it should on correlated variables
+    # Chicken and egg situation, we can’t know they are outliers until we calculate 
+    # the stats of the distribution, but the stats of the distribution are skewed outliers!
+    # Mahalanobis gets around this by weighting by robust estimation of covariance matrix
+    
+    # Fit a Minimum Covariance Determinant (MCD) robust estimator to data 
+    robust_cov = MinCovDet().fit(featMatProjected[:,:10]) # Use the first 10 principal components
+    
+    # Get the Mahalanobis distance
+    MahalanobisDist = robust_cov.mahalanobis(featMatProjected[:,:10])
+    
+    # Colour PCA by Mahalanobis distance
+    if showplot:
+        plt.close('all')
+        plt.rc('xtick',labelsize=15)
+        plt.rc('ytick',labelsize=15)
+        fig, ax = plt.subplots(figsize=[10,10])
+        ax.set_facecolor('white')
+        plt.scatter(np.array(projectedTable['PC1']), np.array(projectedTable['PC2']), c=MahalanobisDist)
+        plt.title('Mahalanobis Distance for Outlier Detection', fontsize=20)
+        plt.colorbar()
+
+    k = np.std(MahalanobisDist) * extremeness
+    upper_t = np.mean(MahalanobisDist) + k
+    lower_t = np.mean(MahalanobisDist) - k
+    outliers = []
+    for i in range(len(MahalanobisDist)):
+        if (MahalanobisDist[i] >= upper_t) or (MahalanobisDist[i] <= lower_t):
+            outliers.append(i)
+    print("Outliers found: %d" % len(outliers))
+            
+    return np.array(outliers)
 
 def ranksumtest(test_data, control_data):
     """ A function to perform a series of Wilcoxon rank sum tests 
@@ -194,22 +234,22 @@ if n_nans > 0:
 cols2keep = metadataTable.columns
 featureTableClean = pd.concat([featureTable[rows2keep][cols2keep], featMat], axis=1, sort=False)
 
-# Normalise the feature matrix (z-scores)
-featMatNorm = featMat.apply(zscore, axis=0)
-
 # Get names/indices of bacterial strains to analyse
 bacteriaNames = featureTableClean['food_type']
 uniqueNames = bacteriaNames.unique()
-inds = featureTableClean['food_type'].isin(strainsToAnalyse)
+inds = featureTableClean['food_type'].isin(strainsToCompare)
 
 featureTableStrains = featureTableClean[inds]
-featMatNorm = featMatNorm[inds]
+featMat = featMat[inds]
+
+# Normalise the feature matrix (z-scores)
+featMatNorm = featMat.apply(zscore, axis=0)
 
 
 #%% Visualise strain differences using clustering and PCA
 
 # Make a heatmap to check inter vs. intra strain phenotypic differences
-colour_dictionary = dict(zip(strainsToAnalyse, sns.color_palette("gist_rainbow", len(strainsToAnalyse))))
+colour_dictionary = dict(zip(strainsToCompare, sns.color_palette("bright", len(strainsToCompare))))
 
 # Heatmap (clustergram) of Top256 features coloured by strain
 plt.close('all')
@@ -245,18 +285,69 @@ plt.rc('ytick',labelsize=15)
 sns.set_style("whitegrid")
 fig, ax = plt.subplots(figsize=[10,10])
 
-for strain in strainsToAnalyse:
+# Colour PCA by strain
+for strain in strainsToCompare:
     strainProjected = projectedTable[projectedTable['food_type']==strain]
     sns.scatterplot(strainProjected['PC1'], strainProjected['PC2'], color=colour_dictionary[strain], s=50)
 ax.set_xlabel('Principal Component 1', fontsize=20, labelpad=12)
 ax.set_ylabel('Principal Component 2', fontsize=20, labelpad=12)
 ax.set_title(title, fontsize=20)
 plt.tight_layout(rect=[0.04, 0, 0.84, 0.96])
-ax.legend(strainsToAnalyse, frameon=False, loc=(1, 0.1), fontsize=15)
+ax.legend(strainsToCompare, frameon=False, loc=(1, 0.1), fontsize=15)
 ax.grid()
 
 # Save 2-component PCA
 plt.savefig('/Volumes/behavgenom$/Saul/MicrobiomeAssay96WP/Results/20191003/2-Component_PCA', dpi=300, format='eps')
+plt.show(); plt.pause(5)
+
+
+#%% Remove outliers: Use Mahalanobis distance to exclude outliers from PCA
+indsOutliers = MahalanobisOutliers(featMatProjected)
+plt.pause(5); plt.close()
+
+# Drop outlier observation(s) and re-normalise data
+print("Dropping %d outliers from analysis" % len(indsOutliers))
+indsOutliers = featMat.index[indsOutliers]
+featMat = featMat.drop(index=indsOutliers)
+featureTableStrains = featureTableStrains.drop(index=indsOutliers)
+
+featMatNorm = featMat.apply(zscore, axis=0)
+
+# Project data on PCA axes again
+pca = PCA()
+pca.fit(featMatNorm)
+featMatProjected = pca.transform(featMatNorm) # project data (zscores) onto PCs
+important_feats, fig = pcainfo(pca=pca, zscores=featMatNorm, PC=1, n_feats2print=10)
+plt.pause(5); plt.close()
+
+# Store the results for first few PCs
+projectedTable = pd.DataFrame(featMatProjected[:,:10],\
+                              columns=['PC' + str(n+1) for n in range(10)])
+projectedTable.set_index(featureTableStrains.index, inplace=True) # Do not lose index position
+projectedTable = pd.concat([featureTableStrains[metadataTable.columns], projectedTable], axis=1)
+
+# Plot data along first two principal components
+title = """2-Component PCA (Top256 features)
+        (No outliers)"""
+
+plt.rc('xtick',labelsize=15)
+plt.rc('ytick',labelsize=15)
+sns.set_style("whitegrid")
+fig, ax = plt.subplots(figsize=[10,10])
+
+# Colour PCA by strain
+for strain in strainsToCompare:
+    strainProjected = projectedTable[projectedTable['food_type']==strain]
+    sns.scatterplot(strainProjected['PC1'], strainProjected['PC2'], color=colour_dictionary[strain], s=50)
+ax.set_xlabel('Principal Component 1', fontsize=20, labelpad=12)
+ax.set_ylabel('Principal Component 2', fontsize=20, labelpad=12)
+ax.set_title(title, fontsize=20)
+plt.tight_layout(rect=[0.04, 0, 0.84, 0.96])
+ax.legend(strainsToCompare, frameon=False, loc=(1, 0.1), fontsize=15)
+ax.grid()
+
+# Save 2-component PCA
+plt.savefig('/Volumes/behavgenom$/Saul/MicrobiomeAssay96WP/Results/20191003/2-Component_PCA_No_Outliers', dpi=300, format='eps')
 plt.show(); plt.pause(5)
 
 
@@ -269,13 +360,13 @@ elif testType == 'ranksum':
     
 # Compare each of the test strains to N2 for each feature
 # Pre-allocate dataframes for storing test statistics and p-values
-testStrains = [strain for strain in strainsToAnalyse if strain != 'OP50']
+testStrains = [strain for strain in strainsToCompare if strain != 'OP50']
 testStats = pd.DataFrame(index=testStrains, columns=featNames)
 testPvals = pd.DataFrame(index=testStrains, columns=featNames)
 sigFeats = pd.DataFrame(index=testPvals.index, columns=['N_sigdiff_beforeBF','N_sigdiff_afterBF'])
 
 # Compare each strain to OP50: compute test statistics for each feature
-for t, strain in enumerate(strainsToAnalyse):
+for t, strain in enumerate(strainsToCompare):
     if strain == controlStrain:
         continue
     print("Computing %s tests for %s vs %s..." % (testType, controlStrain, strain))
@@ -351,10 +442,10 @@ for i, strain in enumerate(testPvalsBF.index):
         plot_df = featureTableStrains[np.logical_or(featureTableStrains['food_type']==controlStrain,\
                                                     featureTableStrains['food_type']==strain)] 
     
-        # Colour dictionary
+        # Colour dictionary subset for strains of interest
         labels = list(plot_df['food_type'].unique())
-        colour_dict = {strain:'#C2FDBE', controlStrain:'#0C9518'}
-                                              
+        colour_dict = {k: colour_dictionary[k] for k in (controlStrain, strain)}
+        
         # Boxplots of control vs test strain for each significant feature
         for f, feature in enumerate(topfeats.index):
             plt.close()
