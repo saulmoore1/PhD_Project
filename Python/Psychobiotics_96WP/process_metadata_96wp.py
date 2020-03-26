@@ -26,7 +26,7 @@ import pandas as pd
 
 # Path to Github/local helper functions (USER-DEFINED: Path to local copy of my Github repo)
 PATHS = ['/Users/sm5911/Documents/GitHub/PhD_Project/Python/Psychobiotics_96WP/',\
-         '/Users/sm5911/OneDrive - Imperial College London/Tierpsy/tierpsy-tracker-loopbioFOVsplitter_traj/tierpsy/analysis/']
+         '/Users/sm5911/Tierpsy_Versions/tierpsy-tracker/tierpsy/analysis']
 for PATH in PATHS:
     if PATH not in sys.path:
         sys.path.append(PATH)
@@ -35,13 +35,12 @@ for PATH in PATHS:
 from helper import lookforfiles
 from split_fov.helper import CAM2CH_list, UPRIGHT_96WP # Dictionaries camera-channel-hydra mappings + camera-well mappings
 
-#%% 
-def compile_from_day_metadata(COMPILED_METADATA_FILEPATH, IMAGING_DATES):
+#%% FUNCTIONS
+
+def compile_from_day_metadata(METADATA_DIR, IMAGING_DATES):
     """ COMPILE FULL METADATA FROM EXPERIMENT DAY METADATA """
-    
-    METADATA_DIR = os.path.dirname(COMPILED_METADATA_FILEPATH)
-    
-    print("Compiling full metadata from day-metadata files in: '%s'" % METADATA_DIR)
+        
+    print("Compiling full metadata from Day-metadata files in: '%s'" % METADATA_DIR)
     AuxFileList = os.listdir(METADATA_DIR)
     ExperimentDates = sorted([expdate for expdate in AuxFileList if re.match(r'\d{8}', expdate)])
     if IMAGING_DATES:
@@ -86,7 +85,7 @@ def find_metadata_filenames(metadata, PROJECT_ROOT_DIR, IMAGING_DATES):
     print("%d/%d filename entries found in metadata" % (n_filepaths, n_entries))
     
     if not n_entries == n_filepaths:
-        print("Attempting to fetch filenames for %d entries..." % (n_entries - n_filepaths))    
+        print("Fetching filenames for %d entries..." % (n_entries - n_filepaths))    
         
         # Return list of pathnames for masked videos in the data directory under given imaging dates
         maskedfilelist = []
@@ -96,11 +95,11 @@ def find_metadata_filenames(metadata, PROJECT_ROOT_DIR, IMAGING_DATES):
             tmplist = lookforfiles(os.path.join(maskedvideo_dir, expDate), ".*.hdf5$")
             date_total.append(len(tmplist))
             maskedfilelist.extend(tmplist)
-        print("%d masked video snippets found for imaging dates provided:\n%s" % \
+        print("%d masked videos found for imaging dates provided:\n%s" % \
               (len(maskedfilelist), [*zip(IMAGING_DATES, date_total)]))    
     
     
-    #%% # Parse over metadata entries and use well number/run number/date/hydra rig 
+    # Parse over metadata entries and use well number/run number/date/hydra rig 
     # information to locate and fill in missing filename entries
         
         for i, filepath in enumerate(metadata.filename):            
@@ -144,7 +143,7 @@ def find_metadata_filenames(metadata, PROJECT_ROOT_DIR, IMAGING_DATES):
         matches = sum([isinstance(path, str) for path in metadata.filename]) - n_filepaths
         print("Complete!\n%d/%d filenames added.\n" % (matches, n_entries - n_filepaths))
     
-    #%% OBTAIN RAW VIDEO FILEPATHS FOR COUNTING SNIPPETS
+    # OBTAIN RAW VIDEO FILEPATHS FOR COUNTING SNIPPETS
         
         # Return list of pathnames for raw videos in the data directory for given imaging dates
         rawvideolist = []
@@ -183,17 +182,27 @@ def find_metadata_filenames(metadata, PROJECT_ROOT_DIR, IMAGING_DATES):
                 metadata.loc[i, 'featuresN_exists'] = (n_featuresN * n_snippets == n_snippets)
                 
         print("(Metadata updated: Checked for featuresN files and tallied number of RawVideo snippets found.)")            
-        
-#%% OPTIONAL EXTRAS
-         
-    # Ensure 'food_type' entries are grouped correctly by converting to uppercase
-    metadata['food_type'] = metadata['food_type'].str.upper()   
- 
-    # Calculate L1 diapause duration (if possible) and append to results
+
+    return metadata
+
+#%%
+def foodUppercase(metadata):
+    """ Ensure 'food_type' entries are grouped correctly by converting to 
+        uppercase """
+    if metadata['food_type'].any():
+        metadata['food_type_upper'] = metadata['food_type'].str.upper()  
+    
+    return metadata
+
+#%%   
+def calculate_L1_diapause(metadata):
+    """ Calculate L1 diapause duration (if possible) and append to results """
+    
     diapause_required_columns = ['date_bleaching_yyyymmdd','time_bleaching',\
                                  'date_L1_refed_yyyymmdd','time_L1_refed_OP50']
     
-    if all(x in metadata.columns for x in diapause_required_columns):
+    if all(x in metadata.columns for x in diapause_required_columns) and \
+       all(metadata[x].any() for x in diapause_required_columns):
         # Extract bleaching dates and times
         bleaching_datetime = [datetime.datetime.strptime(date_str + ' ' +\
                               time_str, '%Y%m%d %H:%M:%S') for date_str, time_str\
@@ -211,8 +220,21 @@ def find_metadata_filenames(metadata, PROJECT_ROOT_DIR, IMAGING_DATES):
         # Add duration of L1 diapause to metadata
         metadata['L1_diapause_seconds'] = [int(timedelta.total_seconds()) \
                                            for timedelta in L1_diapause_duration]
-
+    else:
+        noInfo = [x for x in diapause_required_columns if x in metadata.columns\
+                  and not metadata[x].any()]
+        print("WARNING: Could not calculate diapause duration.\n\
+        Required column info: %s" % noInfo)
+        
     return metadata
+
+#%%
+def add_timepoints(df):
+    run_to_repl = pd.DataFrame({'run_number': list(df['run_number'].unique()),
+                                'time_point': np.ceil(df['run_number'].unique()/2).astype(int)})
+    df = pd.merge(df, run_to_repl, how='left', on='run_number')
+    
+    return df
 
 #%% # TODO: Read JSON files, extract hydra imaging rig temperature and humidity info,
 #       and append to metadata
@@ -231,7 +253,9 @@ def find_metadata_filenames(metadata, PROJECT_ROOT_DIR, IMAGING_DATES):
 #                    rig_data_snippet.loc[d, rig_data_colnames] = json_snippet, dictionary['frame_index'], dictionary['humidity'], dictionary['tempo']
 #                    rig_data_full = pd.concat([rig_data_full, rig_data_snippet], axis=0, sort=False).reset_index(drop=True)
 
-#%% 
+
+#%% MAIN
+
 if __name__ == '__main__':
     # Record script start time
     tic = time.time()  

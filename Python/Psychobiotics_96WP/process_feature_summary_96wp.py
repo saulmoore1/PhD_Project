@@ -30,10 +30,19 @@ if PATH not in sys.path:
     sys.path.insert(0, PATH)
     
 # Custom imports
-from helper import lookforfiles, listdiff
+from helper import lookforfiles
+
 
 #%% FUNCTIONS
+    
+def listdiff(list1, list2):
+    """  A function to return elements of 2 lists that are different """
+    c = set(list1).union(set(list2))  # or c = set(list1) | set(list2)
+    d = set(list1).intersection(set(list2))  # or d = set(list1) & set(list2)
+    return list(c - d)
 
+
+#%%  
 def getfeatsums(directory):
     """ A function to load feature summary data from a given directory and return
         a dataframe of features along with a corresponding dataframe of file names.
@@ -59,8 +68,8 @@ def getfeatsums(directory):
 
     # Read matched feature summaries and filename summaries
     file, feat = matched_summaries[0]
-    files_df = pd.read_csv(file)
-    feats_df = pd.read_csv(feat)
+    files_df = pd.read_csv(file, comment='#')
+    feats_df = pd.read_csv(feat, comment='#')
         
     # Remove entries from file summary data where corresponding feature summary data is missing
     missing_featfiles = listdiff(files_df['file_id'], feats_df['file_id'])
@@ -75,14 +84,14 @@ def getfeatsums(directory):
     else:
         return files_df, feats_df
   
-#%% MAIN
-        
-def processfeatsums(COMPILED_METADATA_FILEPATH, IMAGING_DATES=None):
     
-    PROJECT_ROOT_DIR = COMPILED_METADATA_FILEPATH.split("/AuxiliaryFiles/")[0]
+#%%        
+def processfeatsums(COMPILED_METADATA_FILEPATH, IMAGING_DATES=None, save=True):
+    
+    PROJECT_ROOT_DIR = os.path.dirname(os.path.dirname(COMPILED_METADATA_FILEPATH))
 
     # Read metadata
-    metadata = pd.read_csv(COMPILED_METADATA_FILEPATH)                                       # READ METADATA
+    metadata = pd.read_csv(COMPILED_METADATA_FILEPATH)
     print("\nMetadata file loaded.")
 
     # Subset metadata to remove remaining entries with missing filepaths
@@ -103,15 +112,14 @@ def processfeatsums(COMPILED_METADATA_FILEPATH, IMAGING_DATES=None):
             Please provide them when calling this script, or include them
             in metadata under the column name: 'date_recording_yyyymmdd'""")
             print(EE)
-        
-#%%     
+           
     # Pre-allocate full dataframe combining results and metadata
-    print("\nGetting features summaries...\n")    
+    print("Getting features summaries...")    
     full_feats_list = []
     
     index_offset = 0
     for date in IMAGING_DATES:
-        print("Fetching results for date: %d" % int(date))
+        print("Fetching results for experiment date: %d" % int(date))
         results_dir = os.path.join(PROJECT_ROOT_DIR, "Results/{0}".format(int(date)))
 
         # Get file names summaries (files_df) + featuresN summaries (feats_df)
@@ -127,20 +135,22 @@ def processfeatsums(COMPILED_METADATA_FILEPATH, IMAGING_DATES=None):
         full_feats_list.append(feats_df)
     
     full_feats_df = pd.concat(full_feats_list, axis=0, ignore_index=True, sort=False)
-    
-#%%
+
     # Convert results file path to maskedvideo path to match with metadata
     full_feats_df['file_name'] = [file.split("/metadata_featuresN.hdf5")[0].replace("Results","MaskedVideos")\
                                   for file in full_feats_df['file_name']]
-        
-    # Merge metadata and results dataframes using uniqueID column (created using filename and well number)
-    out_columns = list(metadata.columns)
     
-    metadata['uniqueID'] = metadata['filename'] + '__' + metadata['well_number']
+    # TODO: Update to PanGenome screen and delete tmp fix
+    full_feats_df['file_name'] = [file.replace("/Recordings/PanGenome/","/PanGenomeTest_96WP/")\
+                                  for file in full_feats_df['file_name']]
+        
+    # Merge metadata and results dataframes using uniqueID column (created using filename and well number)  
+    out_columns = list(metadata.columns)
+    metadata['uniqueID'] = metadata['filename'] + '__' + metadata['well_number']   
     full_feats_df['uniqueID'] = full_feats_df['file_name'] + '__' + full_feats_df['well_name']
     
-    non_data_cols = ['file_name', 'date', 'file_id', 'well_name', 'uniqueID']
-    feature_colnames = [feat for feat in full_feats_df.columns if feat not in non_data_cols]    
+    cols2drop = ['file_name', 'date', 'file_id', 'well_name', 'uniqueID']    
+    feature_colnames = [feat for feat in full_feats_df.columns if feat not in cols2drop]    
     out_columns.extend(feature_colnames)
     
     # Sort filename column for both metadata and results and merge together
@@ -150,38 +160,39 @@ def processfeatsums(COMPILED_METADATA_FILEPATH, IMAGING_DATES=None):
     
     # Drop rows and record uniqueIDs for entries with missing results    
     no_results_indices = np.where(full_results_df[feature_colnames].isna().all(axis=1))[0]
-    errorlog_no_results_uniqueIDs = list(full_results_df.loc[no_results_indices, 'uniqueID'])
-    print("Dropped %d entries with missing results (empty wells)." % len(errorlog_no_results_uniqueIDs))
+    print("Dropping %d entries with missing results (empty wells?)." % len(no_results_indices))
    
     # Save error log of entries (wells) with no tracking results (likely no worms were dispensed into those wells)
-    n_missing_results = len(errorlog_no_results_uniqueIDs)
-    if n_missing_results > 0:
+    errorlog_no_results_uniqueIDs = list(full_results_df.loc[no_results_indices, 'uniqueID'])
+    if len(no_results_indices) > 0:
         errlog_outpath = os.path.join(PROJECT_ROOT_DIR, "Results/errorlog_empty_wells.txt")
         with open(errlog_outpath, 'w') as fid:
             print(errorlog_no_results_uniqueIDs, file=fid)
-            print("No feature summary results were found for %d/%d entries in metadata"\
-                  % (n_missing_results, len(~np.array(is_filename))))
+            print("WARNING: Feature summary results not found for %d/%d entries in metadata"\
+                  % (len(no_results_indices), len(~np.array(is_filename))))
     else:
         print("WOOHOO! Worm behaviour successfully tracked in all wells!")
     
     # Use reindex to obtain full results dataframe (only necessary columns)
     full_results_df = full_results_df.reindex(columns=out_columns)
-        
+
     # Save full feature summary results to CSV
-    results_outpath = os.path.join(PROJECT_ROOT_DIR, "Results/fullresults.csv")
-    if os.path.exists(results_outpath):
-        print("Overwriting existing results file: '%s'" % results_outpath)
-    full_results_df.to_csv(results_outpath, index=False)
+    if save:
+        results_outpath = os.path.join(PROJECT_ROOT_DIR, "Results", "fullresults.csv")
+        if os.path.exists(results_outpath):
+            print("Overwriting existing results file: '%s'" % results_outpath)
+        full_results_df.to_csv(results_outpath, index=False)
+    
+        print("Complete!\nFull results saved to file: %s" % results_outpath)
+    
+    return full_results_df
 
-    print("Complete!\nFull results saved to file: %s" % results_outpath)
 
-#%%    
+#%% MAIN
+
 if __name__ == '__main__':
-    # START
     tic = time.time()
-    
-    # INPUT HANDLING
-    
+        
     print("\nRunning script", sys.argv[0], "...")
     if len(sys.argv) > 1:
         COMPILED_METADATA_FILEPATH = sys.argv[1]  
@@ -191,10 +202,8 @@ if __name__ == '__main__':
         IMAGING_DATES = list(sys.argv[2:])
         print("Using %d imaging dates provided: %s" % (len(IMAGING_DATES), IMAGING_DATES))   
         
-    # MAIN
-    processfeatsums(COMPILED_METADATA_FILEPATH, IMAGING_DATES)
+    full_results_df = processfeatsums(COMPILED_METADATA_FILEPATH, IMAGING_DATES, save=True)
     
-    # END
     toc = time.time()
     print("\n(Time taken: %.1f seconds)\n" % (toc - tic))
 
