@@ -21,11 +21,15 @@ if __name__ == "__main__":
     
     #%% Params
     
-    image_root_dir = "/Users/sm5911/Documents/fluorescence_data_local_copy_focussed/"
-    train_outdir = "/Users/sm5911/Documents/CellProfiler/WormToolBox/data/fluorescence_data_training_images/"
-    test_outdir = "/Users/sm5911/Documents/CellProfiler/WormToolBox/data/fluorescence_data_test_images/"
+    image_root_dir = "/Users/sm5911/Documents/PanGenomeGFP/data/fluorescence_data_local_copy_focussed"
+    train_outdir = "/Users/sm5911/Documents/PanGenomeGFP/data/fluorescence_data_training_images"
+    test_outdir = "/Users/sm5911/Documents/PanGenomeGFP/data/fluorescence_data_test_images"
     
     fileregex = "*/*/*.tif"
+    
+    maintain_directory_structure = False 
+    # If True, images are copied with respect to their enclosing sub-directories
+    # If False, all images aree saved together in the output directory defined above
 
     #%% Sample images
     
@@ -35,9 +39,9 @@ if __name__ == "__main__":
     images.name = 'filename'
 
     training_images, test_images = train_test_split(images,\
-                                                    train_size=200,\
-                                                    test_size=800,\
-                                                    random_state=42,\
+                                                    train_size=100,\
+                                                    test_size=500,\
+                                                    random_state=30042020,\
                                                     shuffle=True,\
                                                     stratify=None)
     
@@ -47,9 +51,12 @@ if __name__ == "__main__":
     for i, imPath in enumerate(sorted(training_images)):
         if (i+1) % 10 == 0:
             print("%d/%d (%.1f%%)" % (i+1, n, ((i+1)/n)*100))
-        outPath = imPath.replace(image_root_dir, train_outdir)
-        if not os.path.exists(os.path.dirname(outPath)):
-            os.makedirs(os.path.dirname(outPath))
+        if maintain_directory_structure:
+            outPath = imPath.replace(image_root_dir, train_outdir)
+            if not os.path.exists(os.path.dirname(outPath)):
+                os.makedirs(os.path.dirname(outPath))
+        else:
+            outPath = os.path.join(train_outdir, os.path.basename(imPath))
         copyfile(imPath, outPath)
         
     # Save filenames of training images
@@ -63,10 +70,13 @@ if __name__ == "__main__":
     for i, imPath in enumerate(sorted(test_images)):
         if (i+1) % 10 == 0:
             print("%d/%d (%.1f%%)" % (i+1, n, ((i+1)/n)*100))
-        outPath = imPath.replace(image_root_dir, test_outdir)
-        if not os.path.exists(os.path.dirname(outPath)):
-            os.makedirs(os.path.dirname(outPath))
-        copyfile(imPath, outPath)        
+        if maintain_directory_structure:
+            outPath = imPath.replace(image_root_dir, test_outdir)
+            if not os.path.exists(os.path.dirname(outPath)):
+                os.makedirs(os.path.dirname(outPath))
+        else:
+            outPath = os.path.join(test_outdir, os.path.basename(imPath))
+        copyfile(imPath, outPath)
 
     # Save filenames of test images
     outPath = os.path.join(test_outdir, "test_image_filenames.csv")

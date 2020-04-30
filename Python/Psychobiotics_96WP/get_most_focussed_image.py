@@ -228,9 +228,7 @@ def findFocussedCZI(df, output_dir, method='BREN', imageSizeThreshXY=None, show=
             # Filter small images
             if imageSizeThreshXY:
                 x, y = rdr.rdr.getSizeX(), rdr.rdr.getSizeY()
-                #print('\nx:', x, '\ny:', y)            
                 if (x <= imageSizeThreshXY[0] and y <= imageSizeThreshXY[1]):
-                    #print("WARNING: Omitting image series %d (image is too small)" % sc)
                     too_small_log.append(sc)
                 else:
                     # get number of z-slices
@@ -248,13 +246,13 @@ def findFocussedCZI(df, output_dir, method='BREN', imageSizeThreshXY=None, show=
                         file_info.append([file, plateID, GFP_mM, sc, zc, fm])
 
         if len(too_small_log) > 0:
-            print("WARNING: %d image series were omitted (image size too large)"\
+            print("WARNING: %d image series were omitted (image size too small)"\
                   % len(too_small_log))
         
         # create dataframe from list of recorded data
         colnames = ['filepath','plateID','GFP_mM','seriesID','z_slice_number','focus_measure']
         file_df = pd.DataFrame.from_records(file_info, columns=colnames)
-
+        
         # store file info
         file_df_list.append(file_df)
         
@@ -428,6 +426,7 @@ if __name__ == "__main__":
     ######################
     
     # Start Java virtual machine (for parsing CZI files with bioformats)
+    # TODO: Sort python-bioformats/javabridge compatibility with macOS Catalina
     os.environ["JAVA_HOME"] = "/Library/Internet Plug-Ins/JavaAppletPlugin.plugin/Contents/Home"
     javabridge.start_vm(class_path=bioformats.JARS, max_heap_size='6G')
 

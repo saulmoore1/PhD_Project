@@ -10,9 +10,9 @@ Created on Thu Apr 16 18:09:26 2020
 import os
 from helper import lookforfiles
 
-path = ""
+dirpath = "/Users/sm5911/Documents/PanGenomeGFP/ilastik/ilastik_training_images/object_h5"
 
-files2delete = lookforfiles(path, "")
+files2delete = lookforfiles(dirpath, "_table.csv")
 
 for file in files2delete:
     os.remove(file)
