@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-PROCESS METADATA (96-well plate)
+PROCESS METADATA ---- OLD FUNCTIONS!
 
 A script written to process microbiome assay project metadata CSV file. It
 performs the following actions:
@@ -26,14 +26,16 @@ import pandas as pd
 
 # Path to Github/local helper functions (USER-DEFINED: Path to local copy of my Github repo)
 PATHS = ['/Users/sm5911/Documents/GitHub/PhD_Project/Python/Psychobiotics_96WP/',\
-         '/Users/sm5911/Tierpsy_Versions/tierpsy-tracker/tierpsy/analysis']
+         '/Users/sm5911/Tierpsy_Versions/tierpsy-tracker/tierpsy/analysis',\
+         '/Users/sm5911/Tierpsy_Versions/tierpsy-tools-python/']
 for PATH in PATHS:
     if PATH not in sys.path:
         sys.path.append(PATH)
     
 # Custom imports
-from helper import lookforfiles
+from my_helper import lookforfiles
 from split_fov.helper import CAM2CH_list, UPRIGHT_96WP # Dictionaries camera-channel-hydra mappings + camera-well mappings
+#from hydra_filenames_helper import raw_to_masked
 
 #%% FUNCTIONS
 
@@ -50,9 +52,13 @@ def compile_from_day_metadata(METADATA_DIR, IMAGING_DATES):
     
     day_metadata_df_list = []
     for expdate in IMAGING_DATES:
-        expdate_metadata_path = os.path.join(METADATA_DIR, expdate, 'metadata_' + expdate + '.csv')
+        expdate_metadata_path = os.path.join(METADATA_DIR, expdate, expdate + '_day_metadata.csv')        
         try:
             expdate_metadata = pd.read_csv(expdate_metadata_path)
+            expdate_metadata = expdate_metadata.rename(columns={'date_recording_yyyymmdd': 'date_yyyymmdd',
+                                                                'well_number': 'well_name',
+                                                                'plate_number': 'imaging_plate_id',
+                                                                'run_number': 'imaging_run_number'})
             day_metadata_df_list.append(expdate_metadata)   
         except Exception as EE:
             print("WARNING:", EE)
@@ -186,7 +192,7 @@ def find_metadata_filenames(metadata, PROJECT_ROOT_DIR, IMAGING_DATES):
     return metadata
 
 #%%
-def foodUppercase(metadata):
+def addFoodUppercase(metadata):
     """ Ensure 'food_type' entries are grouped correctly by converting to 
         uppercase """
     if metadata['food_type'].any():

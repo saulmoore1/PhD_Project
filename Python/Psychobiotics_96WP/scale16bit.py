@@ -11,7 +11,7 @@ import cv2 #os, glob
 import numpy as np
 #from matplotlib import pyplot as plt
 from PIL import Image
-from helper import lookforfiles
+from my_helper import lookforfiles
 
 #%% Variables
 

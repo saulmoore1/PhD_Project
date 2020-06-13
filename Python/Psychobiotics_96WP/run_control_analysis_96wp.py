@@ -30,7 +30,7 @@ if PATH not in sys.path:
     sys.path.insert(0, PATH)
     
 # Custom imports
-from helper import savefig, pcainfo, plotPCA, MahalanobisOutliers
+from my_helper import savefig, pcainfo, plotPCA, MahalanobisOutliers
 
 #%% FUNCTIONS
 

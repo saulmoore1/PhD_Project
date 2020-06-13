@@ -23,6 +23,7 @@ The script does the following:
 import os, sys, time
 import numpy as np
 import pandas as pd
+from pathlib import Path
 
 # Path to Github/local helper functions (USER-DEFINED: Path to local copy of my Github repo)
 PATH = '/Users/sm5911/Documents/GitHub/PhD_Project/Python/Psychobiotics_96WP'
@@ -30,7 +31,7 @@ if PATH not in sys.path:
     sys.path.insert(0, PATH)
     
 # Custom imports
-from helper import lookforfiles
+from my_helper import lookforfiles
 
 
 #%% FUNCTIONS
@@ -74,7 +75,7 @@ def getfeatsums(directory):
     # Remove entries from file summary data where corresponding feature summary data is missing
     missing_featfiles = listdiff(files_df['file_id'], feats_df['file_id'])
     files_df = files_df[np.logical_not(files_df['file_id'].isin(missing_featfiles))]
-        
+    
     files_df.reset_index(drop=True, inplace=True)
     feats_df.reset_index(drop=True, inplace=True)
                 
@@ -88,7 +89,7 @@ def getfeatsums(directory):
 #%%        
 def processfeatsums(COMPILED_METADATA_FILEPATH, IMAGING_DATES=None, save=True):
     
-    PROJECT_ROOT_DIR = os.path.dirname(os.path.dirname(COMPILED_METADATA_FILEPATH))
+    PROJECT_ROOT_DIR = COMPILED_METADATA_FILEPATH.parent.parent
 
     # Read metadata
     metadata = pd.read_csv(COMPILED_METADATA_FILEPATH)
@@ -146,7 +147,7 @@ def processfeatsums(COMPILED_METADATA_FILEPATH, IMAGING_DATES=None, save=True):
         
     # Merge metadata and results dataframes using uniqueID column (created using filename and well number)  
     out_columns = list(metadata.columns)
-    metadata['uniqueID'] = metadata['filename'] + '__' + metadata['well_number']   
+    metadata['uniqueID'] = metadata['filename'] + '__' + metadata['well_name']   
     full_feats_df['uniqueID'] = full_feats_df['file_name'] + '__' + full_feats_df['well_name']
     
     cols2drop = ['file_name', 'date', 'file_id', 'well_name', 'uniqueID']    
@@ -206,4 +207,3 @@ if __name__ == '__main__':
     
     toc = time.time()
     print("\n(Time taken: %.1f seconds)\n" % (toc - tic))
-

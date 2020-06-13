@@ -11,7 +11,7 @@ CellProfiler-compatible TIF images
 
 import os, sys, tables, cv2
 import numpy as np
-from helper import lookforfiles
+from my_helper import lookforfiles
 from tqdm import tqdm
 
 if __name__ == "__main__":
@@ -19,11 +19,12 @@ if __name__ == "__main__":
         dirpath_ilastik_h5 = sys.argv[1]
     else:
         # Default
-        dirpath_ilastik_h5 = "/Users/sm5911/Documents/PanGenomeGFP/ilastik/ilastik_training_images/probability_maps_h5"
+        dirpath_ilastik_h5 = "/Users/sm5911/Documents/PanGenomeGFP/results/probabilities/rep3"
     
     h5_list = lookforfiles(dirpath_ilastik_h5, "_Probabilities.h5")
         
     for h5 in tqdm(h5_list):
+        
         # Read file
         with tables.File(h5, mode='r') as fid:
             img = fid.get_node('/exported_data').read()
@@ -35,8 +36,9 @@ if __name__ == "__main__":
         img *= 65535.0
         img = img.astype(np.uint16)
         
-        # Save file
-        outpath = h5.replace("probability_maps_h5/", "probability_maps_tif/")
+        # Save files in new folder in within image directory(s)
+        fname = os.path.basename(h5)
+        outpath = h5.replace(fname, "probabilities_tif/" + fname)
         outpath = outpath.replace(".h5", ".tif")
         
         if not os.path.exists(os.path.dirname(outpath)):

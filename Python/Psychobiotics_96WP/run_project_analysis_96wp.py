@@ -2,7 +2,8 @@
 # -*- coding: utf-8 -*-
 """
 @author: sm5911
-@date: 26/10/2019
+@date created: 26/10/2019
+@date updated: 11/06/2020
 
 PHENOTYPIC SCREENING FOR PSYCHOBIOTIC BACTERIA: COMPUTATIONAL ANALYSIS OF WORM 
 BEHAVIOUR ON VARIOUS BACTERIAL FOODS (96WP ASSAY)
@@ -16,20 +17,20 @@ N2 C. elegans raised monoxenically on various bacterial food:
                           gut microbiota from various human + animal samples
 (3) Keio Library:         ~4000 E. coli (K-12) single-gene deletion mutants
 
-N2 performance on strains is compared to performance on standard laboratory 
-E. coli OP50 strain, as a control. Control variation is investigated across 
+N2 performance on each strain is compared to performance on standard laboratory 
+E. coli OP50 strain as a control. Control variation is investigated across 
 experiment runs for time-dependence of various potential confounders: 
-    experiment date (day-effects), 
-    imaging camera used (imaging-effects), 
+    Experiment date (day-effects), 
+    Imaging camera/rig (imaging-effects), 
     L1 diapause duration (age-effects), 
-    temperature and humidity (stochastic environmental effects)
+    Temperature/Humidity (stochastic environmental effects)
 
 Principal components analysis, tSNE and UMAP are performed to see if strains 
-can be clustered by behaviour.
+can be clustered into groups with different behaviours in phenotype space.
 
 Depending on whether feature results are normally distributed, the following
-parametric tests (or non-parametric equivalents) were performed (with Bonferroni 
-correction for multiple comparisons):
+parametric tests (or non-parametric equivalents) are performed (with the 
+Benjamini-Hochberg correction applied to correct for multiple comparisons):
 
 (1) T-tests/Wilcoxon ranksum tests to look for behavioural features that differ 
 between each strain and the control. For each food, box plots are saved for the 
@@ -46,10 +47,11 @@ Top256 features (Javer et al, 2018)
 
 #%% IMPORTS & DEPENDENCIES
 
-import os, sys, time, decimal, itertools, umap
+import os, sys, re, time, datetime, decimal, itertools, umap
 import numpy as np
 import pandas as pd
 import seaborn as sns
+from pathlib import Path, PosixPath
 from scipy.stats import kruskal, ttest_ind, f_oneway, zscore
 from statsmodels.stats import multitest as smm # AnovaRM
 from sklearn.decomposition import PCA
@@ -58,38 +60,37 @@ from matplotlib import pyplot as plt
 from matplotlib import patches as mpatches
 from matplotlib import transforms
 
-# Path to Github/local helper functions (USER-DEFINED: Path to local copy of my Github repo)
-PATH = '/Users/sm5911/Documents/GitHub/PhD_Project/Python/Psychobiotics_96WP'
-if PATH not in sys.path:
-    sys.path.insert(0, PATH)
-
 # Custom imports
-from helper import ranksumtest, savefig, pcainfo, plotPCA, MahalanobisOutliers,\
-                   check_normality
+# Path to Github helper functions (USER-DEFINED path to local copy of Github repo)
+PATH_LIST = ['/Users/sm5911/Tierpsy_Versions/tierpsy-tools-python/',
+             '/Users/sm5911/Documents/GitHub/PhD_Project/Python/Psychobiotics_96WP']
+for sysPath in PATH_LIST:
+    if sysPath not in sys.path:
+        sys.path.insert(0, sysPath)
+        
+from tierpsytools.hydra import compile_metadata as tt_cm
+from tierpsytools.read_data import compile_features_summaries as tt_cf
+from tierpsytools.read_data import hydra_metadata as tt_hm
+
+from my_helper import ranksumtest, savefig, pcainfo, plotPCA, MahalanobisOutliers, check_normality
 from run_control_analysis_96wp import control_variation
-from process_metadata_96wp import compile_from_day_metadata, \
-     find_metadata_filenames, add_timepoints, foodUppercase, \
-     calculate_L1_diapause
-from process_feature_summary_96wp import processfeatsums
 
-# Record script start time
-bigtic = time.time()
+bigtic = time.time() # record script start time
 
-#%% CHOOSE ANALYSIS
+#%% LIBRARY TO ANALYSE
 
-# Choose from:
+# Libraries to choose from:
 analyses = ['microbiome','keio','pangenome']
 
-ANALYSIS = 'keio'
+# Library to analyse:
+ANALYSIS = 'microbiome'
 
 assert ANALYSIS in analyses
 print("Analysing %s phenotypic screen:" % ANALYSIS.upper())
 
-#%% LIBRARY TO ANALYSE
-
 # NATIVE MICROBIOME
 if ANALYSIS.lower() == 'microbiome':
-    PROJECT_ROOT_DIR = '/Volumes/behavgenom$/Saul/MicrobiomeScreen96WP'
+    PROJECT_ROOT_DIR = Path('/Volumes/behavgenom$/Saul/MicrobiomeScreen96WP')
     
     # List of experiment imaging dates (optional)
     IMAGING_DATES = ['20200213','20200214','20200221', '20200222']
@@ -98,13 +99,13 @@ if ANALYSIS.lower() == 'microbiome':
     CONTROL_STRAIN = "OP50" # Control bacterial strain                                                 
     
     variables_list = ["date_recording_yyyymmdd", "run_number", "plate_number",\
-                      "master_stock_plate_ID", "instrument_name", "well_number"]
+                      "master_stock_plate_ID", "instrument_name", "well_name"]
 
     TIMEPOINTS = [3] # Timepoint to analyse
 
 # KEIO
 elif ANALYSIS.lower() == 'keio':
-    PROJECT_ROOT_DIR = '/Volumes/hermes$/KeioScreen_96WP'
+    PROJECT_ROOT_DIR = Path('/Volumes/hermes$/KeioScreen_96WP')
     
     IMAGING_DATES = ['20200303']
 
@@ -112,14 +113,14 @@ elif ANALYSIS.lower() == 'keio':
     CONTROL_STRAIN = "WT"
 
     variables_list = ["run_number", "plate_number",\
-                      "master_stock_plate_ID", "instrument_name", "well_number",\
+                      "master_stock_plate_ID", "instrument_name", "well_name",\
                       "dispense_method"]
     
     TIMEPOINTS = None
 
 # PAN-GENOME
 elif ANALYSIS.lower() == 'pangenome':
-    PROJECT_ROOT_DIR = '/Volumes/hermes$/PanGenomeTest_96WP'
+    PROJECT_ROOT_DIR = Path('/Volumes/hermes$/PanGenomeTest_96WP')
     
     IMAGING_DATES = ['20191017','20191024','20191031']
     
@@ -127,19 +128,22 @@ elif ANALYSIS.lower() == 'pangenome':
     CONTROL_STRAIN = "OP50"
     
     variables_list = ["date_recording_yyyymmdd", "run_number", "plate_number",\
-                      "instrument_name", "well_number"]
+                      "instrument_name", "well_name"]
     
     TIMEPOINTS = None
+
     
+#%% GLOBAL PARAMETERS
 
-#%% GLOBAL PARAMETERS (USER-DEFINED)
+RESULTS_DIR = PROJECT_ROOT_DIR / "Results"
+RESULTS_PATH = RESULTS_DIR / "fullresults.csv"
+PROCESS_FEATURE_SUMMARIES = True # Compile feature summary files?
 
-METADATA_DIR = os.path.join(PROJECT_ROOT_DIR, "AuxiliaryFiles")
-COMPILED_METADATA_FILEPATH = os.path.join(PROJECT_ROOT_DIR, "AuxiliaryFiles", "metadata.csv")
-PATH_CONTROL = os.path.join(PROJECT_ROOT_DIR, 'Results', 'Control', 'control_results.csv')
 
-PROCESS_METADATA = True # Process metadata prior to analysis? 
-PROCESS_FEATURE_SUMMARY_RESULTS = True # Process feature summary files?
+METADATA_DIR = PROJECT_ROOT_DIR / "AuxiliaryFiles"
+METADATA_PATH = METADATA_DIR / 'metadata.csv'
+PROCESS_METADATA = True # Compile metadata? 
+
 ANALYSE_CONTROL_VARIATION = True # Analyse variation in control data?
 
 useTop256 = True # Use representative set of 256 features for analysis?
@@ -154,7 +158,7 @@ is_normal_threshold = 0.95 # Threshold normal features for parametric stats
 max_sigdiff_strains_plot_cap = 60
 n_top_features = 5 # Number of top-ranked features to plot
 show_plots = False # Display figures?                                                         
-                                                            
+
 PCs_to_keep = 10 # Number of principle components to use for PCA 
 n_PC_feats2plot = 10 # Number of top features influencing PC to plot
   
@@ -165,22 +169,176 @@ n_neighbours = [5,10,20,30] # N-neighbours parameter for UMAP projections
 min_dist = 0.3 # Minimum distance parameter for UMAP projections                                                                                                            
 
 
+#%% FUNCTIONS
+
+def concatenate_metadata(METADATA_DIR, IMAGING_DATES, SAVETO=False):
+    """ COMPILE FULL METADATA FROM EXPERIMENT DAY METADATA 
+        (OBTAIN MASKED VIDEO FILEPATHS + CAMERA SERIAL)
+    """   
+    print("Compiling from day-metadata in '%s'" % METADATA_DIR)
+    
+    AuxFileList = os.listdir(METADATA_DIR)
+    ExperimentDates = sorted([expdate for expdate in AuxFileList if re.match(r'\d{8}', expdate)])
+    
+    if IMAGING_DATES:
+        ExperimentDates = [expdate for expdate in ExperimentDates if expdate in IMAGING_DATES]
+    else:
+        IMAGING_DATES = ExperimentDates
+    
+    day_meta_list = []
+    for expdate in IMAGING_DATES:
+        day_meta_path = os.path.join(METADATA_DIR, expdate, expdate + '_day_metadata.csv')
+                
+        day_meta = pd.read_csv(day_meta_path, dtype={"comments":str})
+        
+        # Rename metadata columns for compatibility with TierpsyTools functions 
+        day_meta = day_meta.rename(columns={'date_recording_yyyymmdd': 'date_yyyymmdd',
+                                            'well_number': 'well_name',
+                                            'plate_number': 'imaging_plate_id',
+                                            'run_number': 'imaging_run_number'})
+        day_meta = day_meta.drop(columns='camera_number')
+        
+        # Get path to RawVideo directory for day metadata
+        rawDir = Path(day_meta_path.replace("AuxiliaryFiles","RawVideos")).parent
+        
+        # Get imgstore name and camera serial for metadata entries
+        day_meta = tt_cm.add_imgstore_name(day_meta, rawDir)
+        day_meta['filename'] = [rawDir.parent / day_meta.loc[i,'imgstore_name']\
+                                for i in range(len(day_meta['filename']))]
+
+        day_meta_list.append(day_meta)
+    
+    # Concatenate list of day metadata into full metadata
+    metadata = pd.concat(day_meta_list, axis=0, ignore_index=True, sort=False)
+
+    return metadata 
+
+def add_timepoints(df, analysis='microbiome'):
+    """ Add timepoint to analyse """
+    
+    if analysis == 'microbiome':
+        run_to_repl = pd.DataFrame({'imaging_run_number': list(df['imaging_run_number'].unique()),
+                                    'time_point': np.ceil(df['imaging_run_number'].unique()/2).astype(int)})
+        df = pd.merge(df, run_to_repl, how='left', on='imaging_run_number')  
+        
+        return df
+
+def calculate_L1_diapause(df):
+    """ Calculate L1 diapause duration (if possible) and append to results """
+    
+    diapause_required_columns = ['date_bleaching_yyyymmdd','time_bleaching',\
+                                 'date_L1_refed_yyyymmdd','time_L1_refed_OP50']
+    
+    if all(x in df.columns for x in diapause_required_columns) and \
+       all(df[x].any() for x in diapause_required_columns):
+        # Extract bleaching dates and times
+        bleaching_datetime = [datetime.datetime.strptime(date_str + ' ' +\
+                              time_str, '%Y%m%d %H:%M:%S') for date_str, time_str\
+                              in zip(df['date_bleaching_yyyymmdd'].astype(str),\
+                              df['time_bleaching'])]
+        # Extract dispensing dates and times
+        dispense_L1_datetime = [datetime.datetime.strptime(date_str + ' ' +\
+                                time_str, '%Y%m%d %H:%M:%S') for date_str, time_str\
+                                in zip(df['date_L1_refed_yyyymmdd'].astype(str),\
+                                df['time_L1_refed_OP50'])]
+        # Estimate duration of L1 diapause
+        L1_diapause_duration = [dispense - bleach for bleach, dispense in \
+                                zip(bleaching_datetime, dispense_L1_datetime)]
+        
+        # Add duration of L1 diapause to df
+        df['L1_diapause_seconds'] = [int(timedelta.total_seconds()) \
+                                           for timedelta in L1_diapause_duration]
+    else:
+        missingInfo = [x for x in diapause_required_columns if x in df.columns\
+                       and not df[x].any()]
+        print("""WARNING: Could not calculate diapause duration.\n\t\
+         Required column info: %s""" % missingInfo)
+
+    return df
+
+def cleanFeatureSummaries(features, metadata, featurelist=None, imputeNaN=True,
+                          nan_threshold=0.2, filter_size_related_feats=False):
+    """ Omit features with many NaN values, and impute remaining NaN values, """
+    assert set(features.index) == set(metadata.index)
+
+    if featurelist:
+        features = features[featurelist]
+    else:
+        featurelist = features.columns
+        
+    assert all([feat in features.columns for feat in featurelist])
+    
+    print("Cleaning feature summary results..")
+
+    # Drop rows from features that have no results (empty wells?)
+    n_rows = len(features)
+    features = features[features[featurelist].sum(axis=1) != 0]
+    
+    # Drop corresponding metadata
+    metadata = metadata.iloc[features.index] 
+    
+    print("Dropped %d entries with missing feature summaries." % (n_rows - features.shape[0]))
+    # NB: (no worms in those wells?)
+    # Compare missing results with 'No worm' comments in metadata
+    # Are there no results simply because there were no worms dispensed into those wells?
+    
+    # Drop feature columns with too many NaN values
+    features = features.dropna(axis=1, thresh=nan_threshold)
+    featurelist_noNaN = features.columns
+    nan_cols = len(featurelist) - len(featurelist_noNaN)
+    
+    print("Dropped %d feature columns with too many NaNs" % nan_cols)
+    # NB: All dropped features here have to do with the 'food_edge' 
+    #     (which is undefined, so NaNs are expected)
+    
+    # Impute remaining NaN values (using global mean feature value for each food)
+    if imputeNaN:
+        n_nans = features.isna().sum(axis=0).sum()
+        if n_nans > 0:
+            print("Imputing %d missing values (%.2f%% data), using global mean value for each feature."\
+                  % (n_nans, n_nans/features.count().sum()*100)) 
+            features = features.fillna(features.mean(axis=0))
+        else:
+            print("No need to impute! No remaining NaN values found in feature summary results.")
+    
+    # Drop feature columns that contain only zeros
+    features = features.drop(columns=features.columns[(features == 0).all()])
+    featurelist_noNaNorAllZero = features.columns
+    zero_cols = len(featurelist_noNaN) - len(featurelist_noNaNorAllZero)
+    
+    print("Dropped %d feature columns with all zeros" % zero_cols)
+            
+    # Filter size-related features from analysis (OPTIONAL)
+    if filter_size_related_feats:
+        size_feat_keys = ['blob','box','width','length','area']
+        size_features = []
+        for feature in featurelist:
+            for key in size_feat_keys:
+                if key in feature:
+                    size_features.append(feature)  
+        featurelist = [feat for feat in featurelist if feat not in size_features]
+
+        print("Dropped %d features that are size-related" % len(size_features))
+        features = features[featurelist]
+
+    return features, metadata
+
+
 #%% PROCESS METADATA
 
 if not IMAGING_DATES or len(IMAGING_DATES) == 0:
     IMAGING_DATES = os.listdir(os.path.join(PROJECT_ROOT_DIR, "MaskedVideos"))     
     IMAGING_DATES = sorted([date for date in IMAGING_DATES if date != '.DS_Store'])
-    assert IMAGING_DATES     
+    assert IMAGING_DATES
 
 # Process metadata
 if PROCESS_METADATA:
+    tic = time.time()
     print("\nProcessing metadata...")
+    
     # COMPILE FULL METADATA FROM EXPERIMENT DAY METADATA
-    metadata = compile_from_day_metadata(METADATA_DIR, IMAGING_DATES)
-    
-    # OBTAIN MASKED VIDEO FILEPATHS FOR METADATA
-    metadata = find_metadata_filenames(metadata, PROJECT_ROOT_DIR, IMAGING_DATES)
-    
+    metadata = concatenate_metadata(METADATA_DIR, IMAGING_DATES)
+       
     # Calculate timepoints
     if TIMEPOINTS:
         metadata = add_timepoints(metadata)
@@ -188,150 +346,125 @@ if PROCESS_METADATA:
     # Calculate L1 diapause duration
     metadata = calculate_L1_diapause(metadata)
     
-    # Add columns of uppercase strain names
-    metadata = foodUppercase(metadata)
+    # # Add columns of uppercase strain names
+    # metadata['food_type_upper'] = metadata['food_type'].str.upper()
+    # fullresults.drop(columns='food_type_upper', inplace=True)
 
-    # Save metadata    
-    COMPILED_METADATA_FILEPATH = os.path.join(METADATA_DIR, 'metadata.csv')
-    print("Saving updated metadata to: '%s'" % COMPILED_METADATA_FILEPATH)
-    metadata.to_csv(COMPILED_METADATA_FILEPATH, index=False)        
-
-# Read metadata
-metadata = pd.read_csv(COMPILED_METADATA_FILEPATH)
-print("\nMetadata file loaded.")
+    # Save metadata   
+    metadata.to_csv(METADATA_PATH, index=False)        
+    print("Saved compiled metadata to: '%s'\n(Time taken: %.1f seconds)"\
+          % (METADATA_PATH, time.time() - tic))   
+else:
+    # Read metadata
+    metadata = pd.read_csv(METADATA_PATH)
+    print("\nMetadata file loaded.")
 
 # Subset metadata to remove remaining entries with missing filepaths
-is_filename = [isinstance(path, str) for path in metadata['filename']]
+is_filename = [isinstance(path, PosixPath) or isinstance(path, str) for path in metadata['filename']]
 if any(list(~np.array(is_filename))):
-    print("WARNING: Could not find filepaths for %d entries in metadata.\n\t Omitting these files from analysis..." \
-          % sum(list(~np.array(is_filename))))
+    print("""WARNING: Could not find filepaths for %d entries in metadata.\n\t\
+     Omitting these files from the analysis.""" % sum(list(~np.array(is_filename))))
+     
     metadata = metadata[list(np.array(is_filename))]
-    # Reset index
-    metadata.reset_index(drop=True, inplace=True)
+    metadata.reset_index(drop=True, inplace=True) # reset index
+    
+# Record metadata column names
+metadata_colnames = list(metadata.columns)
 
-meta_colnames = list(metadata.columns)
-   
+
 #%% PROCESS FEATURE SUMMARIES
 
-if PROCESS_FEATURE_SUMMARY_RESULTS:
+tic = time.time()
+
+combined_feats_path = RESULTS_DIR / "full_features.csv"
+combined_fnames_path = RESULTS_DIR / "full_filenames.csv"
+
+if not np.logical_and(combined_feats_path.is_file(), combined_fnames_path.is_file()):   
     print("\nProcessing feature summary results...")
-    fullresults = processfeatsums(COMPILED_METADATA_FILEPATH, IMAGING_DATES, save=True)
+
+    feat_files = [file for file in Path(RESULTS_DIR).rglob('features_summary*.csv')]
+    fname_files = tt_cf.find_fname_summaries(feat_files)
+    
+    tt_cf.compile_tierpsy_summaries(feat_files, fname_files,
+                                    combined_feats_path, combined_fnames_path)
+    
+    feature_summaries = pd.read_csv(combined_feats_path, comment='#')
+    filename_summaries = pd.read_csv(combined_fnames_path, comment='#')
+    
+    features, metadata = tt_hm.read_hydra_metadata(feature_summaries, 
+                                                   filename_summaries,
+                                                   metadata,
+                                                   add_bluelight=False)
+    
+    features, metadata = cleanFeatureSummaries(features, 
+                                               metadata,
+                                               featurelist=None,
+                                               imputeNaN=True,
+                                               nan_threshold=nan_threshold,
+                                               filter_size_related_feats=False)  
+    # Save full results to file
+    fullresults = metadata.join(features, on="file_id")
+    fullresults.to_csv(RESULTS_PATH, index=False)
+    print("Saved feature summary results to: '%s'\n(Time taken: %.1f seconds)"\
+          % (RESULTS_PATH, time.time() - tic))     
 else:
     try:
-        # Load full results
-        resultspath = os.path.join(PROJECT_ROOT_DIR, "Results", "fullresults.csv")
-        fullresults = pd.read_csv(resultspath, dtype={"comments":str}) 
+        fullresults = pd.read_csv(RESULTS_PATH, dtype={"comments":str}) 
         print("Feature summary results loaded.")
     except Exception as EE:
         print("ERROR: %s" % EE)
-        print("Please extract feature summary statistics using Tierpsy and provide the correct path to results.")
+        print("Please process feature summaries and provide correct path to full results.")
+
+# Record new columns added to metadata
+newcols = ['featuresN_filename', 'file_id', 'is_good_well']
+for col in newcols:
+    if col not in metadata_colnames:
+        metadata_colnames.append(col)
 
 
 #%% LOAD TOP256 FEATURES
-
-# Read list of important features (highlighted by previous research - see Javer, 2018 paper)
-featslistpath = os.path.join(PROJECT_ROOT_DIR, 'AuxiliaryFiles',\
-                'top256_tierpsy_no_blob_no_eigen_only_abs_no_norm.csv')
-top256features = pd.read_csv(featslistpath)
-
-# Take first set of 256 features (it does not matter which set is chosen)
-top256features = list(top256features[top256features.columns[0]])
-
-# Remove features from Top256 that are path curvature related
-n_feats_before = len(top256features)
-top256features = [feat for feat in top256features if "path_curvature" not in feat]
-n_feats_after = len(top256features)
-print("Dropped %d features from Top256 that are related to path curvature" %\
-      (n_feats_before - n_feats_after)) 
-
-if 'is_good_well' in fullresults.columns:
-    meta_colnames.insert(len(meta_colnames),'is_good_well')
-
-# Record fullresults feature summary column names + strain names
+        
 if useTop256:
-    featurelist = [feat for feat in top256features if feat in fullresults.columns]
+    # Read list of important features (as shown previously by Javer, 2018) and 
+    # take first set of 256 features (it does not matter which set is chosen)
+    featslistpath = PROJECT_ROOT_DIR / 'AuxiliaryFiles' /\
+                    'top256_tierpsy_no_blob_no_eigen_only_abs_no_norm.csv'
+    top256_df = pd.read_csv(featslistpath)
+    featurelist = list(top256_df[top256_df.columns[0]])
+
+    # Remove features from Top256 that are path curvature related
+    n_feats_before = len(featurelist)
+    featurelist = [feat for feat in featurelist if "path_curvature" not in feat]
+    n_feats_after = len(featurelist)
+    print("Dropped %d features from Top256 that are related to path curvature" %\
+          (n_feats_before - n_feats_after)) 
+
+    # Record fullresults feature summary column names + strain names
+    featurelist = [feat for feat in featurelist if feat in fullresults.columns]
 else:
-    featurelist = [feat for feat in fullresults.columns if feat not in meta_colnames]
+    featurelist = [feat for feat in fullresults.columns if feat not in metadata_colnames]
+
+
+#%% SUBSET RESULTS
+
+# Analysis is case-sensitive. Ensure that there is no confusion in strain names
+assert len(fullresults['food_type'].unique()) == len(fullresults['food_type'].str.upper().unique())
 
 # Record strain names for which we have results
-CONTROL_STRAIN = CONTROL_STRAIN.upper()
+BACTERIAL_STRAINS = [strain for strain in list(fullresults['food_type'].unique())]
 if STRAINS_TO_EXCLUDE:
-    STRAINS_TO_EXCLUDE = [strain.upper() for strain in STRAINS_TO_EXCLUDE]
-    BACTERIAL_STRAINS = [strain for strain in list(fullresults['food_type_upper'].unique())\
-                     if strain not in STRAINS_TO_EXCLUDE]
-else:
-    BACTERIAL_STRAINS = [strain for strain in list(fullresults['food_type_upper'].unique())]
-
-TEST_STRAINS = [strain for strain in BACTERIAL_STRAINS if strain != CONTROL_STRAIN]
-
-
-#%% CLEAN RESULTS
-
-print("Filtering/cleaning results..")
+    BACTERIAL_STRAINS = [strain for strain in BACTERIAL_STRAINS if strain not in STRAINS_TO_EXCLUDE]
 
 # Subset data for strains to investigate
-fullresults = fullresults[fullresults['food_type_upper'].isin(BACTERIAL_STRAINS)]
-fullresults = fullresults[fullresults['date_recording_yyyymmdd'].isin(IMAGING_DATES)]
+fullresults = fullresults[fullresults['food_type'].isin(BACTERIAL_STRAINS)]
 
-# Drop rows that have no results (empty wells?)
-n_rows = len(fullresults)
-fullresults = fullresults[fullresults[featurelist].sum(axis=1) != 0]
-print("Dropped %d row entries with no feature summary results" % (n_rows - len(fullresults))) 
-# NB: (no worms in those wells?)
-# Compare missing results with 'No worm' comments in metadata
-# Are there no results simply because there were no worms dispensed into those wells?
+# Subset for imaging dates provided
+fullresults = fullresults[fullresults['date_yyyymmdd'].isin(IMAGING_DATES)]
 
-# Split into metadata + feature summary results
-results_meta = fullresults[meta_colnames]
-results_feats = fullresults[featurelist]
-
-# Drop feature columns with too many NaN values
-# NB: All dropped features here have to do with the 'food_edge' (which is undefined, so NaNs are expected)
-results_feats = results_feats.dropna(axis=1, thresh=nan_threshold)
-featurelist_noNaN = results_feats.columns
-nan_cols = len(featurelist) - len(featurelist_noNaN)
-droppedfeats_nan = [col for col in featurelist if col not in featurelist_noNaN]
-print("Dropped %d feature columns with too many NaNs" % nan_cols)
-
-# Impute remaining NaN values (using global mean feature value for each food)
-n_nans = results_feats.isna().sum(axis=0).sum()
-if n_nans > 0:
-    print("Imputing %d missing values using global mean value for each feature" % n_nans)  
-    results_feats = results_feats.fillna(results_feats.mean(axis=0))
-else:
-    print("No need to impute! No remaining NaN values found in feature summary results.")
-
-# Drop feature columns that contain only zeros
-results_feats = results_feats.drop(columns=results_feats.columns[(results_feats == 0).all()])
-featurelist_noNaNorAllZero = results_feats.columns
-zero_cols = len(featurelist_noNaN) - len(featurelist_noNaNorAllZero)
-droppedfeats_allzero = [col for col in featurelist_noNaN if col not in featurelist_noNaNorAllZero]
-print("Dropped %d feature columns with all zeros" % zero_cols)
-
-# Re-combine into full results dataframe
-fullresults = pd.concat([results_meta, results_feats], axis=1, sort=False)
-
-# Re-record feature column names after dropping some features
-featurelist = [feat for feat in fullresults.columns if feat not in meta_colnames]
-
-# Filter size-related features from analysis (OPTIONAL)
-if filter_size_related_feats:
-    size_feat_keys = ['blob','box','width','length','area']
-    size_features = []
-    for feature in featurelist:
-        for key in size_feat_keys:
-            if key in feature:
-                size_features.append(feature)  
-    featurelist = [feat for feat in featurelist if feat not in size_features]
-    cols2keep = meta_colnames + featurelist
-    print("Dropped %d features that are size-related" % (len(fullresults.columns)-len(cols2keep)))
-    fullresults = fullresults[cols2keep]
-
-
-#%% Investigate a single timepoint only
-
+# Subset for a single timepoint only
 if TIMEPOINTS:
     fullresults = fullresults[fullresults['time_point'].isin(TIMEPOINTS)]
+
 
 #%% Analyse results for OP50 control across days
 # High behavioural variation across days prevents conclusions about strain differences
@@ -340,7 +473,10 @@ if TIMEPOINTS:
 control_df = fullresults[fullresults['food_type'] == CONTROL_STRAIN]
 
 # Save control data (CSV)
-directory = os.path.dirname(PATH_CONTROL) # make folder if it does not exist
+PATH_CONTROL = PROJECT_ROOT_DIR / 'Results' / 'Control' / 'control_results.csv'
+
+# Make folder if it does not exist
+directory = os.path.dirname(PATH_CONTROL)
 if not os.path.exists(directory):
     os.makedirs(directory)
 control_df.to_csv(PATH_CONTROL, index=False)
@@ -372,7 +508,7 @@ if check_feature_normality:
         os.makedirs(directory)
 
     prop_features_normal, is_normal = check_normality(fullresults,\
-                                                      meta_colnames,\
+                                                      metadata_colnames,\
                                                       BACTERIAL_STRAINS,\
                                                       p_value_threshold,\
                                                       is_normal_threshold)                
@@ -384,6 +520,8 @@ else:
 
 #%% STATISTICS: t-tests/rank-sum tests
 #   - To look for behavioural features that differ significantly on test foods vs control 
+
+TEST_STRAINS = [strain for strain in BACTERIAL_STRAINS if strain != CONTROL_STRAIN]
 
 if is_normal:
     TEST = ttest_ind
@@ -409,8 +547,8 @@ for t, food in enumerate(TEST_STRAINS):
     test_food_df = fullresults[fullresults['food_type_upper'] == food]
     
     # Drop non-data columns
-    test_data = test_food_df.drop(columns=meta_colnames)
-    control_data = control_df.drop(columns=meta_colnames)
+    test_data = test_food_df.drop(columns=metadata_colnames)
+    control_data = control_df.drop(columns=metadata_colnames)
                
     # Drop columns that contain only zeros
     n_cols = len(test_data.columns)
@@ -473,7 +611,7 @@ sigdifffeats_food_df.to_csv(sigfeats_outpath, index=False) # Save feature list a
     
 # Proportion of features significantly different from OP50
 #plt.close()
-propfeatssigdiff = ((test_pvalues_corrected_df < p_value_threshold).sum(axis=1)/len(top256features))*100
+propfeatssigdiff = ((test_pvalues_corrected_df < p_value_threshold).sum(axis=1)/len(featurelist))*100
 propfeatssigdiff = propfeatssigdiff.sort_values(ascending=False)
 fig = plt.figure(figsize=[7,10])
 ax = fig.add_subplot(1,1,1)
@@ -665,11 +803,11 @@ for i, food in enumerate(test_pvalues_df.index):
 #print("Loaded %s results." % test_name)
 #    
 ## Only plot features in Top256 list
-#features2plot = [feature for feature in top256features if feature in test_pvalues_df.columns]
+#features2plot = [feature for feature in featurelist if feature in test_pvalues_df.columns]
 #   
 ## Only plot features displaying significant differences between any food and OP50 control
 #features2plot = [feature for feature in features2plot if (test_pvalues_df[feature] < p_value_threshold).any()]
-#print("Dropped %d insignificant features from Top256." % (len(top256features) - len(features2plot)))
+#print("Dropped %d insignificant features from Top256." % (len(featurelist) - len(features2plot)))
 #
 ## OPTIONAL: Plot cherry-picked features
 ##features2plot = ['speed_50th','curvature_neck_abs_50th','major_axis_50th','angular_velocity_neck_abs_50th']
@@ -737,11 +875,11 @@ print("Loaded %s results." % test_name)
 #test_pvalues_df = test_pvalues_df[features2plot].loc['pval_corrected'].sort_values(ascending=True) 
    
 # Only plot features in Top256 list
-features2plot = [feature for feature in top256features if feature in test_pvalues_df.columns]
+features2plot = [feature for feature in featurelist if feature in test_pvalues_df.columns]
 
 # Only plot features displaying significant differences between any food and OP50 control
 features2plot = [feature for feature in features2plot if (test_pvalues_df[feature] < p_value_threshold).any()]
-print("Dropped %d insignificant features from Top256." % (len(top256features) - len(features2plot)))
+print("Dropped %d insignificant features from Top256." % (len(featurelist) - len(features2plot)))
 
 # OPTIONAL: Plot cherry-picked features
 #features2plot = ['speed_50th','curvature_neck_abs_50th','major_axis_50th','angular_velocity_neck_abs_50th']
@@ -842,7 +980,7 @@ else:
 
 # Divide results dataframe into data + non-data
 results_feats = strainMean_df.reindex(columns=featurelist)
-results_meta = strainMean_df.reindex(columns=meta_colnames) 
+results_meta = strainMean_df.reindex(columns=metadata_colnames) 
 
 # Normalise the data (minus mean, divide by std)
 zscores = (results_feats-results_feats.mean())/results_feats.std()
@@ -885,7 +1023,7 @@ plt.show(); plt.pause(5)
 
 # Divide results into: data (feature summaries) + non-data (metadata)
 results_feats = fullresults.reindex(columns=featurelist)
-results_meta = fullresults.reindex(columns=meta_colnames) 
+results_meta = fullresults.reindex(columns=metadata_colnames) 
 
 # Normalise the data (z-scores)
 zscores = results_feats.apply(zscore, axis=0)
@@ -895,7 +1033,7 @@ zscores.dropna(axis=1, inplace=True)
 print("Dropped %d features after normalisation (NaN)" % (len(results_feats.columns)-len(zscores.columns)))
 
 print("Using Top256 feature list for dimensionality reduction...")
-top256featcols = [feat for feat in zscores.columns if feat in top256features]
+top256featcols = [feat for feat in zscores.columns if feat in featurelist]
 zscores = zscores[top256featcols]
 
 # NB: In general, for the curvature and angular velocity features we should only 
@@ -933,7 +1071,7 @@ projected_df = pd.DataFrame(projected[:,:PCs_to_keep],\
 
 # Add concatenate projected PC results to metadata
 projected_df.set_index(fullresults.index, inplace=True) # Do not lose index position
-projected_df = pd.concat([fullresults[meta_colnames], projected_df], axis=1)
+projected_df = pd.concat([fullresults[metadata_colnames], projected_df], axis=1)
 
 # TODO: Store PCA important features list + plot for each feature
 #for feature in important_feats:
@@ -969,7 +1107,7 @@ print("Dropped %d features after normalisation (NaN)" % (len(results_feats.colum
 
 # Use Top256 features
 print("Using Top256 feature list for dimensionality reduction...")
-top256featcols = [feat for feat in zscores.columns if feat in top256features]
+top256featcols = [feat for feat in zscores.columns if feat in featurelist]
 zscores = zscores[top256featcols]
 
 # Project data on PCA axes again
@@ -983,7 +1121,7 @@ plt.pause(5); plt.close()
 projected_df = pd.DataFrame(projected[:,:10],\
                               columns=['PC' + str(n+1) for n in range(10)])
 projected_df.set_index(fullresults.index, inplace=True) # Do not lose index position
-projected_df = pd.concat([fullresults[metadata.columns], projected_df], axis=1)
+projected_df = pd.concat([fullresults[metadata_colnames], projected_df], axis=1)
 
 
 #%% Plot PCA - All bacterial strains (food)
@@ -999,7 +1137,7 @@ stats_inpath = os.path.join(PROJECT_ROOT_DIR, 'Results', 'Stats', test_name + '_
 test_pvalues_df = pd.read_csv(stats_inpath, index_col=0)
 print("Loaded %s results." % test_name)
 
-propfeatssigdiff = ((test_pvalues_corrected_df < p_value_threshold).sum(axis=1)/len(top256features))*100
+propfeatssigdiff = ((test_pvalues_corrected_df < p_value_threshold).sum(axis=1)/len(featurelist))*100
 propfeatssigdiff = propfeatssigdiff.sort_values(ascending=False)
 
 topStrains = list(propfeatssigdiff[:topNstrains].index)
@@ -1083,7 +1221,7 @@ for perplex in perplexities:
     
     # Combine tSNE results with metadata
     tSNE_results_df.set_index(fullresults.index, inplace=True) # Do not lose video snippet index position
-    tSNE_results_df = pd.concat([fullresults[meta_colnames], tSNE_results_df], axis=1)
+    tSNE_results_df = pd.concat([fullresults[metadata_colnames], tSNE_results_df], axis=1)
     
     # Plot 2-D tSNE
     plt.close('all')
@@ -1131,7 +1269,7 @@ for n in n_neighbours:
     
     # Add UMAP results to metadata
     UMAP_projection_df.set_index(fullresults.index, inplace=True) # Do not lose video snippet index position
-    UMAP_projection_df = pd.concat([fullresults[meta_colnames], UMAP_projection_df], axis=1)
+    UMAP_projection_df = pd.concat([fullresults[metadata_colnames], UMAP_projection_df], axis=1)
     
     # Plot 2-D UMAP
     plt.close('all')

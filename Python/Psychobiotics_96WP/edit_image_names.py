@@ -11,7 +11,7 @@ PanGenomeGFP - Edit series names to convert to well names in image metadata
 
 import os, re
 import numpy as np
-from helper import lookforfiles
+from my_helper import lookforfiles
 
 image_dir = "/Users/sm5911/Documents/PanGenomeGFP/data/fluorescence_data_local_copy_focussed"
 
@@ -29,7 +29,8 @@ for file in file_list:
     
     if len(seriesID) == 1:
         seriesID = int(seriesID[0])
-        # Well A1 was imaged twice, so can delete TIF images where series ID == 1
+        
+        # Well A1 was imaged twice, so can omit TIF images where series ID == 0
         if seriesID == 0:
             os.remove(file)
             print("Removed initial duplicate image: %s" % os.path.basename(file))
