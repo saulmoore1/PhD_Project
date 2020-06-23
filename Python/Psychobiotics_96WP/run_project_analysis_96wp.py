@@ -8,14 +8,14 @@
 PHENOTYPIC SCREENING FOR PSYCHOBIOTIC BACTERIA: COMPUTATIONAL ANALYSIS OF WORM 
 BEHAVIOUR ON VARIOUS BACTERIAL FOODS (96WP ASSAY)
 
-A script written to interpret and visualise results for behavioural analysis of 
-N2 C. elegans raised monoxenically on various bacterial food:
-    
+A script written to interpret and visualise results for the behavioural 
+analysis of N2 C. elegans raised monoxenically on various bacterial food:
+
 (1) C.elegans Microbiome: 50 bacterial isolates from the native microbiome 
                           (gut + substrate samples) of C. elegans
 (2) Pan-Genome Library:   696 fully-sequenced strains of E. coli cultered from 
                           gut microbiota from various human + animal samples
-(3) Keio Library:         ~4000 E. coli (K-12) single-gene deletion mutants
+(3) Keio Library:         ~2000 E. coli (K-12) single-gene deletion mutants
 
 N2 performance on each strain is compared to performance on standard laboratory 
 E. coli OP50 strain as a control. Control variation is investigated across 
@@ -68,9 +68,9 @@ for sysPath in PATH_LIST:
     if sysPath not in sys.path:
         sys.path.insert(0, sysPath)
         
-from tierpsytools.hydra import compile_metadata as tt_cm
-from tierpsytools.read_data import compile_features_summaries as tt_cf
-from tierpsytools.read_data import hydra_metadata as tt_hm
+from tierpsytools.hydra import compile_metadata as tt_cm # add_imgstore_name
+from tierpsytools.read_data import compile_features_summaries as tt_cf # find_fname_summaries, compile_tierpsy_summaries
+from tierpsytools.read_data import hydra_metadata as tt_hm # read_hydra_metadata
 
 from my_helper import ranksumtest, savefig, pcainfo, plotPCA, MahalanobisOutliers, check_normality
 from run_control_analysis_96wp import control_variation
@@ -98,8 +98,9 @@ if ANALYSIS.lower() == 'microbiome':
     STRAINS_TO_EXCLUDE = None
     CONTROL_STRAIN = "OP50" # Control bacterial strain                                                 
     
-    variables_list = ["date_recording_yyyymmdd", "run_number", "plate_number",\
-                      "master_stock_plate_ID", "instrument_name", "well_name"]
+    variables_list = ["date_yyyymmdd", "imaging_run_number", "imaging_plate_id",\
+                      "master_stock_plate_ID", "instrument_name", "well_name",
+                      "L1_diapause_seconds"]
 
     TIMEPOINTS = [3] # Timepoint to analyse
 
@@ -112,7 +113,7 @@ elif ANALYSIS.lower() == 'keio':
     STRAINS_TO_EXCLUDE = ["0"]    
     CONTROL_STRAIN = "WT"
 
-    variables_list = ["run_number", "plate_number",\
+    variables_list = ["imaging_run_number", "imaging_plate_id",\
                       "master_stock_plate_ID", "instrument_name", "well_name",\
                       "dispense_method"]
     
@@ -127,7 +128,7 @@ elif ANALYSIS.lower() == 'pangenome':
     STRAINS_TO_EXCLUDE = None    
     CONTROL_STRAIN = "OP50"
     
-    variables_list = ["date_recording_yyyymmdd", "run_number", "plate_number",\
+    variables_list = ["date_yyyymmdd", "imaging_run_number", "imaging_plate_id",\
                       "instrument_name", "well_name"]
     
     TIMEPOINTS = None
@@ -139,16 +140,18 @@ RESULTS_DIR = PROJECT_ROOT_DIR / "Results"
 RESULTS_PATH = RESULTS_DIR / "fullresults.csv"
 PROCESS_FEATURE_SUMMARIES = True # Compile feature summary files?
 
-
 METADATA_DIR = PROJECT_ROOT_DIR / "AuxiliaryFiles"
 METADATA_PATH = METADATA_DIR / 'metadata.csv'
 PROCESS_METADATA = True # Compile metadata? 
 
-ANALYSE_CONTROL_VARIATION = True # Analyse variation in control data?
-
 useTop256 = True # Use representative set of 256 features for analysis?
+Top256_PATH = PROJECT_ROOT_DIR / 'AuxiliaryFiles' /\
+              'top256_tierpsy_no_blob_no_eigen_only_abs_no_norm.csv'
 filter_size_related_feats = False # Drop size-related features from analysis?                                                  
-                                    
+ 
+ANALYSE_CONTROL_VARIATION = True # Analyse variation in control data?
+PATH_CONTROL = PROJECT_ROOT_DIR / 'Results' / 'Control' / 'control_results.csv'
+                                   
 nan_threshold = 0.2 # Threshold NaN proportion to drop feature from analysis  
 p_value_threshold = 0.05 # Threshold p-value for statistical significance
 
@@ -385,6 +388,12 @@ if not np.logical_and(combined_feats_path.is_file(), combined_fnames_path.is_fil
     feat_files = [file for file in Path(RESULTS_DIR).rglob('features_summary*.csv')]
     fname_files = tt_cf.find_fname_summaries(feat_files)
     
+    # Keep only features files for which matching filenames_summaries exist
+    feat_files = [feat_fl for feat_fl,fname_fl in zip(feat_files, fname_files)
+                  if fname_fl is not None]
+    fname_files = [fname_fl for fname_fl in fname_files
+                   if fname_fl is not None]
+    
     tt_cf.compile_tierpsy_summaries(feat_files, fname_files,
                                     combined_feats_path, combined_fnames_path)
     
@@ -403,10 +412,10 @@ if not np.logical_and(combined_feats_path.is_file(), combined_fnames_path.is_fil
                                                nan_threshold=nan_threshold,
                                                filter_size_related_feats=False)  
     # Save full results to file
-    fullresults = metadata.join(features, on="file_id")
+    fullresults = metadata.join(features)
     fullresults.to_csv(RESULTS_PATH, index=False)
     print("Saved feature summary results to: '%s'\n(Time taken: %.1f seconds)"\
-          % (RESULTS_PATH, time.time() - tic))     
+          % (RESULTS_PATH, time.time() - tic)) 
 else:
     try:
         fullresults = pd.read_csv(RESULTS_PATH, dtype={"comments":str}) 
@@ -427,9 +436,7 @@ for col in newcols:
 if useTop256:
     # Read list of important features (as shown previously by Javer, 2018) and 
     # take first set of 256 features (it does not matter which set is chosen)
-    featslistpath = PROJECT_ROOT_DIR / 'AuxiliaryFiles' /\
-                    'top256_tierpsy_no_blob_no_eigen_only_abs_no_norm.csv'
-    top256_df = pd.read_csv(featslistpath)
+    top256_df = pd.read_csv(Top256_PATH)
     featurelist = list(top256_df[top256_df.columns[0]])
 
     # Remove features from Top256 that are path curvature related
@@ -439,7 +446,7 @@ if useTop256:
     print("Dropped %d features from Top256 that are related to path curvature" %\
           (n_feats_before - n_feats_after)) 
 
-    # Record fullresults feature summary column names + strain names
+    # Ensure results exist for features in featurelist
     featurelist = [feat for feat in featurelist if feat in fullresults.columns]
 else:
     featurelist = [feat for feat in fullresults.columns if feat not in metadata_colnames]
@@ -472,30 +479,20 @@ if TIMEPOINTS:
 # Extract control feature summary results
 control_df = fullresults[fullresults['food_type'] == CONTROL_STRAIN]
 
-# Save control data (CSV)
-PATH_CONTROL = PROJECT_ROOT_DIR / 'Results' / 'Control' / 'control_results.csv'
-
-# Make folder if it does not exist
-directory = os.path.dirname(PATH_CONTROL)
-if not os.path.exists(directory):
-    os.makedirs(directory)
+# Save control data - make folder if it does not exist
+PATH_CONTROL.parent.mkdir(exist_ok=True, parents=True)
 control_df.to_csv(PATH_CONTROL, index=False)
-
-# Check for unexpected variation in potential confounders (categorical variables)
-if TIMEPOINTS:
-    variables_list.insert(1, 'time_point')
-
-## Include L1 diapause duration (recorded in metadata for microbiome assay only)
-#if os.path.basename(PROJECT_ROOT_DIR) == "MicrobiomeAssay96WP":
-#    variables_list.insert(len(variables_list), "L1_diapause_seconds")
 
 #  Analyse control variation with respect to the defined variables
 if ANALYSE_CONTROL_VARIATION:
     print("\nAnalysing control variation...\n")
-    control_variation(path_to_control_data = PATH_CONTROL,\
-                      feature_column_names = featurelist,\
+    control_variation(df = control_df,
+                      outDir = PATH_CONTROL.parent,
+                      features_to_analyse = featurelist,
                       variables_to_analyse = variables_list,
-                      remove_outliers = True) # Remove outliers using Mahalanobis distance (performed once per dataset)
+                      remove_outliers = True,
+                      p_value_threshold = p_value_threshold,
+                      PCs_to_keep = PCs_to_keep) # Remove outliers using Mahalanobis distance (performed once per dataset)
     plt.pause(2); plt.close('all')
 
 #%% PERFORM TESTS FOR NORMALITY

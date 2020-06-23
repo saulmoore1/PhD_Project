@@ -12,43 +12,55 @@ Acknowledgements: Luigi Feriani (Github - lferiani) for the function: pcainfo()
 
 #%% IMPORTS
 
-import os, re, itertools
+import os, sys, re, itertools, datetime
 import numpy as np
 import pandas as pd
 import seaborn as sns
 from scipy import stats
+from pathlib import Path
 from scipy.stats import shapiro
 from sklearn.covariance import MinCovDet
 from matplotlib import pyplot as plt
 from matplotlib.axes._axes import _log as mpl_axes_logger # Work-around for Axes3D plot colour warnings
 from mpl_toolkits.mplot3d import Axes3D
 
-#%% FUNCTIONS
-# TODO: Replace with existing functions.... :(
+# Custom imports
+# Path to Github helper functions (USER-DEFINED path to local copy of Github repo)
+PATH_LIST = ['/Users/sm5911/Tierpsy_Versions/tierpsy-tools-python/',
+             '/Users/sm5911/Documents/GitHub/PhD_Project/Python/Psychobiotics_96WP']
+for sysPath in PATH_LIST:
+    if sysPath not in sys.path:
+        sys.path.insert(0, sysPath)
+        
+from tierpsytools.hydra import compile_metadata as tt_cm # add_imgstore_name
 
-def lookforfiles(root_dir, regex, depth=None, exact=False):
-    """ A function to find files in a given directory that match a given
-        regular expression pattern. Directory search depth may be specified
-        using the 'depth' and 'exact' optional arguments.
-    """
-    filelist = []
-    # Iterate over all files within sub-directories contained within the starting root directory
-    for root, subdir, files in os.walk(root_dir, topdown=True):
-        if depth:
-            start_depth = root_dir.count(os.sep)
-            if root.count(os.sep) - start_depth < depth:
-                for file in files:
-                    if re.search(pattern=regex, string=file):
-                        if exact:
-                            if os.path.join(root, file).count(os.sep) - start_depth == depth:
-                                filelist.append(os.path.join(root, file))
-                        else: # if exact depth is not specified, return all matches to specified depth
-                            filelist.append(os.path.join(root, file))
-        else: # if depth argument is not provided, return all matches
-            for file in files:
-                if re.search(pattern=regex, string=file):
-                    filelist.append(os.path.join(root, file))
-    return(filelist)
+#%% FUNCTIONS
+
+# NB: Replaced with existing TierpsyTools functions 
+
+# def lookforfiles(root_dir, regex, depth=None, exact=False):
+#     """ A function to find files in a given directory that match a given
+#         regular expression pattern. Directory search depth may be specified
+#         using the 'depth' and 'exact' optional arguments.
+#     """
+#     filelist = []
+#     # Iterate over all files within sub-directories contained within the starting root directory
+#     for root, subdir, files in os.walk(root_dir, topdown=True):
+#         if depth:
+#             start_depth = root_dir.count(os.sep)
+#             if root.count(os.sep) - start_depth < depth:
+#                 for file in files:
+#                     if re.search(pattern=regex, string=file):
+#                         if exact:
+#                             if os.path.join(root, file).count(os.sep) - start_depth == depth:
+#                                 filelist.append(os.path.join(root, file))
+#                         else: # if exact depth is not specified, return all matches to specified depth
+#                             filelist.append(os.path.join(root, file))
+#         else: # if depth argument is not provided, return all matches
+#             for file in files:
+#                 if re.search(pattern=regex, string=file):
+#                     filelist.append(os.path.join(root, file))
+#     return(filelist)
     
 #%%
 def ranksumtest(test_data, control_data):
@@ -71,16 +83,18 @@ def ranksumtest(test_data, control_data):
     return statistics, pvalues
 
 #%%
-def savefig(Path, tight_layout=True, tellme=True, saveFormat='eps', **kwargs):
+def savefig(savePath, tight_layout=True, tellme=True, saveFormat='eps', dpi=None, **kwargs):
     """ Helper function for easy plot saving. Simple wrapper for plt.savefig """
     if tellme:
-        print("Saving figure:", os.path.basename(Path))
+        print("Saving figure:", os.path.basename(savePath))
     if tight_layout:
         plt.tight_layout()
-    if saveFormat == 'eps':
-        plt.savefig(Path, format=saveFormat, dpi=300, **kwargs)
-    else:
-        plt.savefig(Path, format=saveFormat, dpi=600, **kwargs)
+    if not dpi:
+        if saveFormat == 'eps':
+            dpi = 300  
+        else:
+            dpi = 600
+    plt.savefig(savePath, format=saveFormat, dpi=dpi, **kwargs)
     if tellme:
         print("Done.")
         
@@ -212,7 +226,7 @@ def MahalanobisOutliers(featMatProjected, extremeness=2., showplot=False):
     """
     # NB: Euclidean distance puts more weight than it should on correlated variables
     # Chicken and egg situation, we can’t know they are outliers until we calculate 
-    # the stats of the distribution, but the stats of the distribution are skewed outliers!
+    # the stats of the distribution, but the stats of the distribution are skewed by outliers!
     # Mahalanobis gets around this by weighting by robust estimation of covariance matrix
     
     # Fit a Minimum Covariance Determinant (MCD) robust estimator to data 
