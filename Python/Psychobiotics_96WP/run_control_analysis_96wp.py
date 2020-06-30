@@ -360,7 +360,7 @@ def control_variation(df, outDir, features_to_analyse,
     if remove_outliers:
         df, indsOutliers = removeOutliersMahalanobis(df, features_to_analyse)
         remove_outliers = False 
-        # NB: Ensure Mahalanobis operation is performed only once!
+        # NB: Ensure Mahalanobis operation to remove outliers is performed only once!
 
     # Check for normality in features to analyse in order decide which 
     # statistical test to use: one-way ANOVA (parametric) or Kruskal-Wallis 
@@ -419,7 +419,46 @@ def control_variation(df, outDir, features_to_analyse,
                        features_to_analyse,
                        plot_save_dir = plotDir,
                        PCs_to_keep = PCs_to_keep)
+  
+#%% #TODO: Fix bug in doPCA plot colour mapping?
             
+# Traceback (most recent call last):
+
+# File "<ipython-input-1-39877c41b466>", line 446, in <module>
+#   PCs_to_keep = PCs_to_keep) # Remove outliers using Mahalanobis distance (performed once per dataset)
+
+# File "/Users/sm5911/Documents/GitHub/PhD_Project/Python/Psychobiotics_96WP/run_control_analysis_96wp.py", line 421, in control_variation
+#   PCs_to_keep = PCs_to_keep)
+
+# File "/Users/sm5911/Documents/GitHub/PhD_Project/Python/Psychobiotics_96WP/run_control_analysis_96wp.py", line 152, in doPCA
+#   title=title, n_component_axes=2)
+
+# File "/Users/sm5911/Documents/GitHub/PhD_Project/Python/Psychobiotics_96WP/my_helper.py", line 163, in plotPCA
+#   sns.scatterplot(g_var_projected_df['PC1'], g_var_projected_df['PC2'], color=next(palette), s=50)
+
+# File "/Users/sm5911/opt/anaconda3/lib/python3.7/site-packages/seaborn/relational.py", line 1402, in scatterplot
+#   alpha=alpha, x_jitter=x_jitter, y_jitter=y_jitter, legend=legend,
+
+# File "/Users/sm5911/opt/anaconda3/lib/python3.7/site-packages/seaborn/relational.py", line 891, in __init__
+#   x, y, hue, size, style, units, data
+
+# File "/Users/sm5911/opt/anaconda3/lib/python3.7/site-packages/seaborn/relational.py", line 157, in establish_variables
+#   plot_data = pd.DataFrame(plot_data)
+
+# File "/Users/sm5911/opt/anaconda3/lib/python3.7/site-packages/pandas/core/frame.py", line 435, in __init__
+#   mgr = init_dict(data, index, columns, dtype=dtype)
+
+# File "/Users/sm5911/opt/anaconda3/lib/python3.7/site-packages/pandas/core/internals/construction.py", line 254, in init_dict
+#   return arrays_to_mgr(arrays, data_names, index, columns, dtype=dtype)
+
+# File "/Users/sm5911/opt/anaconda3/lib/python3.7/site-packages/pandas/core/internals/construction.py", line 64, in arrays_to_mgr
+#   index = extract_index(arrays)
+
+# File "/Users/sm5911/opt/anaconda3/lib/python3.7/site-packages/pandas/core/internals/construction.py", line 355, in extract_index
+#   raise ValueError("If using all scalar values, you must pass an index")
+
+# ValueError: If using all scalar values, you must pass an index
+
 #%% MAIN
         
 if __name__ == '__main__':

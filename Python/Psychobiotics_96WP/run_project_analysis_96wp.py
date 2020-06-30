@@ -490,9 +490,10 @@ if ANALYSE_CONTROL_VARIATION:
                       outDir = PATH_CONTROL.parent,
                       features_to_analyse = featurelist,
                       variables_to_analyse = variables_list,
+                      # remove outliers using Mahalanobis distance (performed once only)
                       remove_outliers = True,
                       p_value_threshold = p_value_threshold,
-                      PCs_to_keep = PCs_to_keep) # Remove outliers using Mahalanobis distance (performed once per dataset)
+                      PCs_to_keep = PCs_to_keep)
     plt.pause(2); plt.close('all')
 
 #%% PERFORM TESTS FOR NORMALITY
