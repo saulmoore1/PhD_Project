@@ -18,20 +18,17 @@ trajectories throughout the video, for the entire 96-well plate (imaged under
 
 import sys
 import h5py
+import tqdm
 import argparse
 import pandas as pd
 from matplotlib import pyplot as plt
 from pathlib import Path
 
-PATH_LIST = ['/Users/sm5911/Tierpsy_Versions/tierpsy-tracker']
-for sysPath in PATH_LIST:
-    if not sysPath in sys.path:
-        sys.path.insert(0, sysPath)
-
 from tierpsy.analysis.split_fov.FOVMultiWellsSplitter import FOVMultiWellsSplitter
 from tierpsy.analysis.split_fov.helper import CAM2CH_df, serial2channel, parse_camera_serial
 
-#%% Global dictionary
+
+#%% Channel-to-plate mapping dictionary (global)
 
 # {'channel' : ((ax array location), rotate)}
 CH2PLATE_dict = {'Ch1':((0,0),True),
@@ -41,12 +38,14 @@ CH2PLATE_dict = {'Ch1':((0,0),True),
                  'Ch5':((0,2),True),
                  'Ch6':((1,2),False)}
   
+
 #%% Functions
         
-def gettrajdata(featuresfilepath):
+def get_trajectory_data(featuresfilepath):
     """ Read Tierpsy-generated featuresN file trajectories data and return 
         the following info as a dataframe:
-        ['coord_x', 'coord_y', 'frame_number', 'worm_index_joined'] """
+        ['x', 'y', 'frame_number', 'worm_id'] """
+        
     # Read HDF5 file + extract info
     with h5py.File(featuresfilepath, 'r') as f:
         df = pd.DataFrame({'x': f['trajectories_data']['coord_x'],\
@@ -57,48 +56,16 @@ def gettrajdata(featuresfilepath):
     return(df)
 
 
-# def plotbrightfield(maskedfilepath, 
-#                     frame, 
-#                     ax=None, 
-#                     rotate=False, 
-#                     **kwargs):
-#     """ Plot a brightfield image from a given masked HDF5 video. """
-    
-#     with h5py.File(maskedfilepath, 'r') as f:
-#         if frame == 'all':
-#             # Extract all frames and take the brightest pixels over time
-#             img = f['full_data'][:]
-#             img = img.max(axis=0)
-#         else:
-#             # Extract a given frame (index)
-#             img = f['full_data'][frame]
-    
-#     if rotate:
-#         import numpy as np
-#         img = np.rot90(img,2)            
-    
-#     if not ax:
-#         fig, ax = plt.subplots(**kwargs)
-#         plt.imshow(img, cmap='gray', vmin=0, vmax=255)
-#         return(fig, ax)
-#     else:
-#         ax.imshow(img, cmap='gray', vmin=0, vmax=255)
-#         ax.axes.get_xaxis().set_visible(False)
-#         ax.axes.get_yaxis().set_visible(False)
-#         return img
-
-
-def plottrajectory(featurefilepath, 
+def plot_trajectory(featurefilepath, 
                    ax=None, 
                    downsample=10, 
                    legend=True, 
                    rotate=False, 
                    img_shape=None, 
                    **kwargs):
-    """ Overlay feature file trajectory data onto existing figure. 
-        NB: Plot figure and axes objects must both be provided on function call. """
+    """ Overlay feature file trajectory data onto existing figure """
         
-    df = gettrajdata(featurefilepath)
+    df = get_trajectory_data(featurefilepath)
     
     if not ax:
         fig, ax = plt.subplots(**kwargs)
@@ -132,8 +99,10 @@ def plottrajectory(featurefilepath,
     ax.autoscale(enable=True, axis='y', tight=True)
  
 
-def getvideoset(featurefilepath):
-    """ """
+def get_video_set(featurefilepath):
+    """ Get the set of filenames of the featuresN results files that belong to
+        the same 96-well plate that was imaged under that rig """
+        
     dirpath = Path(featurefilepath).parent
     maskedfilepath = Path(str(dirpath).replace("Results/","MaskedVideos/"))
     
@@ -163,11 +132,11 @@ def getvideoset(featurefilepath):
     return file_dict
 
     
-def tile96well(featurefilepath, saveDir=None, downsample=10):
+def plot_plate_trajectories(featurefilepath, saveDir=None, downsample=10):
     """ Tile plots and merge into a single plot for the 
         entire 96-well plate, correcting for camera orientation. """
         
-    file_dict = getvideoset(featurefilepath)
+    file_dict = get_video_set(featurefilepath)
     
     # define multi-panel figure
     columns = 3
@@ -202,7 +171,7 @@ def tile96well(featurefilepath, saveDir=None, downsample=10):
         FOVsplitter.plot_wells(is_rotate180=rotate, ax=ax, line_thickness=10)
         
         # plot worm trajectories
-        plottrajectory(featurefilepath, 
+        plot_trajectory(featurefilepath, 
                        ax=ax, 
                        downsample=downsample,
                        legend=False, 
@@ -223,6 +192,31 @@ def tile96well(featurefilepath, saveDir=None, downsample=10):
                     transparent=True)            
     return(fig)
 
+
+def plot_plate_trajectories_from_filenames_summary(filenames_path, saveDir):
+    """ Plot plate trajectories for all files in Tierpsy filenames summaries
+        'filenames_path', and save results to 'saveDir' """
+
+    filenames_df = pd.read_csv(filenames_path, comment='#')
+    filenames_list = filenames_df[filenames_df['is_good']==True]['file_name']
+    
+    filestem_list = []
+    featurefile_list = []  
+    for fname in filenames_list:
+        # obtain file stem
+        filestem = Path(fname).parent.parent / Path(fname).parent.stem
+        
+        # only record featuresN filepaths with a different file stem as we only 
+        # need 1 camera's video per plate to find the others
+        if filestem not in filestem_list:
+            filestem_list.append(filestem)
+            featurefile_list.append(fname)
+    
+    # overlay trajectories and combine plots for each plate that was imaged
+    for featurefilepath in tqdm(featurefile_list):
+        plot_plate_trajectories(featurefilepath, saveDir)
+        
+        
 #%% Main
     
 if __name__ == "__main__":
@@ -232,15 +226,17 @@ if __name__ == "__main__":
     
     parser = argparse.ArgumentParser()
     parser.add_argument("--input", help="input file path (featuresN)", 
-                        default=example_featuresN) # default to example file if none given
+                        default=example_featuresN)
+    # default to example file if none given
     parser.add_argument("--output", help="output directory path (for saving)", 
-                        default=example_featuresN.parent.parent) # default output directory if none given
+                        default=example_featuresN.parent.parent) 
+    # default output directory if none given
     # parser.add_argument("--downsample", help="downsample trajectory data by plotting the worm centroid for every 'nth' frame",
     #                     default=10)
     args = parser.parse_args()
     print("Input file:", args.input)
     print("Output directory:", args.output)
     
-    tile96well(args.input, saveDir=args.output, downsample=10)
+    plot_plate_trajectories(args.input, saveDir=args.output, downsample=10)
 
     

@@ -79,16 +79,19 @@ bigtic = time.time() # record script start time
 
 #%% LIBRARY TO ANALYSE
 
-# Libraries to choose from:
-analyses = ['microbiome','keio','pangenome']
 
 # Library to analyse:
 ANALYSIS = 'microbiome'
 
+
+# Libraries to choose from:
+analyses = ['microbiome','keio','pangenome']
+
 assert ANALYSIS in analyses
 print("Analysing %s phenotypic screen:" % ANALYSIS.upper())
 
-# NATIVE MICROBIOME
+
+# NATIVE MICROBIOME STRAIN SET
 if ANALYSIS.lower() == 'microbiome':
     PROJECT_ROOT_DIR = Path('/Volumes/behavgenom$/Saul/MicrobiomeScreen96WP')
     
@@ -102,9 +105,10 @@ if ANALYSIS.lower() == 'microbiome':
                       "master_stock_plate_ID", "instrument_name", "well_name",
                       "L1_diapause_seconds"]
 
-    TIMEPOINTS = [3] # Timepoint to analyse
+    TIMEPOINT = 3 # Timepoint to analyse
 
-# KEIO
+
+# KEIO COLLECTION
 elif ANALYSIS.lower() == 'keio':
     PROJECT_ROOT_DIR = Path('/Volumes/hermes$/KeioScreen_96WP')
     
@@ -117,9 +121,10 @@ elif ANALYSIS.lower() == 'keio':
                       "master_stock_plate_ID", "instrument_name", "well_name",\
                       "dispense_method"]
     
-    TIMEPOINTS = None
+    TIMEPOINT = None
 
-# PAN-GENOME
+
+# PAN-GENOMIC LIBRARY
 elif ANALYSIS.lower() == 'pangenome':
     PROJECT_ROOT_DIR = Path('/Volumes/hermes$/PanGenomeTest_96WP')
     
@@ -131,18 +136,18 @@ elif ANALYSIS.lower() == 'pangenome':
     variables_list = ["date_yyyymmdd", "imaging_run_number", "imaging_plate_id",\
                       "instrument_name", "well_name"]
     
-    TIMEPOINTS = None
+    TIMEPOINT = None
 
     
 #%% GLOBAL PARAMETERS
 
 RESULTS_DIR = PROJECT_ROOT_DIR / "Results"
 RESULTS_PATH = RESULTS_DIR / "fullresults.csv"
-PROCESS_FEATURE_SUMMARIES = True # Compile feature summary files?
+PROCESS_FEATURE_SUMMARIES = False # Compile feature summary files?
 
 METADATA_DIR = PROJECT_ROOT_DIR / "AuxiliaryFiles"
 METADATA_PATH = METADATA_DIR / 'metadata.csv'
-PROCESS_METADATA = True # Compile metadata? 
+PROCESS_METADATA = False # Compile metadata? 
 
 useTop256 = True # Use representative set of 256 features for analysis?
 Top256_PATH = PROJECT_ROOT_DIR / 'AuxiliaryFiles' /\
@@ -343,7 +348,7 @@ if PROCESS_METADATA:
     metadata = concatenate_metadata(METADATA_DIR, IMAGING_DATES)
        
     # Calculate timepoints
-    if TIMEPOINTS:
+    if TIMEPOINT:
         metadata = add_timepoints(metadata)
 
     # Calculate L1 diapause duration
@@ -359,7 +364,7 @@ if PROCESS_METADATA:
           % (METADATA_PATH, time.time() - tic))   
 else:
     # Read metadata
-    metadata = pd.read_csv(METADATA_PATH)
+    metadata = pd.read_csv(METADATA_PATH, dtype={"comments":str})
     print("\nMetadata file loaded.")
 
 # Subset metadata to remove remaining entries with missing filepaths
@@ -422,37 +427,13 @@ else:
         print("Feature summary results loaded.")
     except Exception as EE:
         print("ERROR: %s" % EE)
-        print("Please process feature summaries and provide correct path to full results.")
+        print("Please process feature summaries and provide correct path to results.")
 
 # Record new columns added to metadata
 newcols = ['featuresN_filename', 'file_id', 'is_good_well']
 for col in newcols:
     if col not in metadata_colnames:
         metadata_colnames.append(col)
-
-
-#%% LOAD TOP256 FEATURES
-        
-if useTop256:
-    # Read list of important features (as shown previously by Javer, 2018) and 
-    # take first set of 256 features (it does not matter which set is chosen)
-    top256_df = pd.read_csv(Top256_PATH)
-    featurelist = list(top256_df[top256_df.columns[0]])
-
-    # Remove features from Top256 that are path curvature related
-    n_feats_before = len(featurelist)
-    featurelist = [feat for feat in featurelist if "path_curvature" not in feat]
-    n_feats_after = len(featurelist)
-    print("Dropped %d features from Top256 that are related to path curvature" %\
-          (n_feats_before - n_feats_after)) 
-
-    # Ensure results exist for features in featurelist
-    featurelist = [feat for feat in featurelist if feat in fullresults.columns]
-else:
-    featurelist = [feat for feat in fullresults.columns if feat not in metadata_colnames]
-
-
-#%% SUBSET RESULTS
 
 # Analysis is case-sensitive. Ensure that there is no confusion in strain names
 assert len(fullresults['food_type'].unique()) == len(fullresults['food_type'].str.upper().unique())
@@ -462,6 +443,9 @@ BACTERIAL_STRAINS = [strain for strain in list(fullresults['food_type'].unique()
 if STRAINS_TO_EXCLUDE:
     BACTERIAL_STRAINS = [strain for strain in BACTERIAL_STRAINS if strain not in STRAINS_TO_EXCLUDE]
 
+
+#%% SUBSET RESULTS
+    
 # Subset data for strains to investigate
 fullresults = fullresults[fullresults['food_type'].isin(BACTERIAL_STRAINS)]
 
@@ -469,8 +453,31 @@ fullresults = fullresults[fullresults['food_type'].isin(BACTERIAL_STRAINS)]
 fullresults = fullresults[fullresults['date_yyyymmdd'].isin(IMAGING_DATES)]
 
 # Subset for a single timepoint only
-if TIMEPOINTS:
-    fullresults = fullresults[fullresults['time_point'].isin(TIMEPOINTS)]
+if TIMEPOINT:
+    fullresults = fullresults[fullresults['time_point'].isin(TIMEPOINT)]
+
+
+#%% LOAD TOP256 FEATURES
+        
+if useTop256:
+    # Read list of important features (as shown previously by Javer, 2018) and 
+    # take first set of 256 features (it does not matter which set is chosen)
+    top256_df = pd.read_csv(Top256_PATH)
+    featurelist = list(top256_df[top256_df.columns[0]])
+    n = len(featurelist)
+    print("Feature list loaded (n=%d features)" % n)
+
+    # Remove features from Top256 that are path curvature related
+    featurelist = [feat for feat in featurelist if "path_curvature" not in feat]
+    n_feats_after = len(featurelist)
+    print("Dropped %d features from Top%d that are related to path curvature" %\
+          ((n - n_feats_after), n)) 
+
+    # Ensure results exist for features in featurelist
+    featurelist = [feat for feat in featurelist if feat in fullresults.columns]
+    assert len(featurelist) == n_feats_after
+else:
+    featurelist = [feat for feat in fullresults.columns if feat not in metadata_colnames]
 
 
 #%% Analyse results for OP50 control across days
@@ -479,6 +486,8 @@ if TIMEPOINTS:
 # Extract control feature summary results
 control_df = fullresults[fullresults['food_type'] == CONTROL_STRAIN]
 
+if TIMEPOINT:
+    PATH_CONTROL = Path(str(PATH_CONTROL).replace(".csv", "_timepoint{0}.csv".format(TIMEPOINT)))
 # Save control data - make folder if it does not exist
 PATH_CONTROL.parent.mkdir(exist_ok=True, parents=True)
 control_df.to_csv(PATH_CONTROL, index=False)
@@ -1303,7 +1312,7 @@ for n in n_neighbours:
     
 #
 # Include L1 diapause duration (recorded in metadata for microbiome assay only)
-if TIMEPOINTS:
+if TIMEPOINT:
     variables_list.insert(len(variables_list), "time_point")
 if ANALYSIS == 'microbiome':
     variables_list.insert(len(variables_list), "L1_diapause_seconds")
