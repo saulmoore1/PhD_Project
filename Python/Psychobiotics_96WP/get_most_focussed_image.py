@@ -20,12 +20,14 @@ BREN: Brenner's (Santos, 97)
 
 """
 
+# TODO: Fix python-bioformats/javabridge 32-bit compatibility issue with macOS Catalina
+
 #%% Imports
 
 import os, sys, glob, time
 import numpy as np
 import pandas as pd
-import bioformats, javabridge, unicodedata #czifile
+import czifile #tifffile, bioformats, javabridge, unicodedata
 from PIL import Image
 from matplotlib import pyplot as plt
 from shutil import copyfile
@@ -93,75 +95,93 @@ def findImageFiles(image_root_dir, imageFormat):
             return pd.DataFrame(images, columns=["filepath"])
    
      
-def getMetadata(filePath):
-    """ Get metadata associated with image file as xml.
+# =============================================================================
+# def getMetadata(filePath):
+#     """ Get metadata associated with image file as xml.
+# 
+#     Input: filePath: name and path to image
+#     
+#     Output: omeXMLObject: xml object based on OME standard ready to be parsed
+#     
+#     """
+#     xml=bioformats.get_omexml_metadata(filePath)
+#     # xml is in unicode and may contain characters like 'mu'
+#     # these characters will fail the xml parsing, thus recode the information
+#     xml_normalized = unicodedata.normalize('NFKD',xml).encode('ascii','ignore')
+#     
+#     omeXMLObject = bioformats.OMEXML(xml_normalized)
+#     
+# #    # Parse XML with beautiful soup
+# #    from bs4 import BeautifulSoup as bs    
+# #    soup = bs(xml_normalized)
+# #    prettysoup = bs.prettify(soup)
+# #            
+# #    # Extract metadata from XML
+# #    import re
+# #    image_series = re.findall(r'Image:[0-9]+', prettysoup)
+# #    image_series = [im.split(':')[-1] for im in image_series]
+# 
+#     return omeXMLObject
+# =============================================================================
 
-    Input: filePath: name and path to image
+# =============================================================================
+# def readMetadata(omeXMLObject, imageID=0):
+#     """ Parses most common meta data out of OME-xml structure.
+#     
+#     Input: omeXMLObject: OME-XML object with meta data
+#            imageID: the image in multi-image files the meta data should 
+#                     come from. Default=0
+#      
+#     Output: meta: dict with meta data
+#      
+#     Warning: If some keys are not found, software replaces the values 
+#              with default values.
+#     """       
+#     meta={'AcquisitionDate': omeXMLObject.image(imageID).AcquisitionDate}
+#     meta['Name']=omeXMLObject.image(imageID).Name
+#     meta['SizeC']=omeXMLObject.image(imageID).Pixels.SizeC
+#     meta['SizeT']=omeXMLObject.image(imageID).Pixels.SizeT
+#     meta['SizeX']=omeXMLObject.image(imageID).Pixels.SizeX
+#     meta['SizeY']=omeXMLObject.image(imageID).Pixels.SizeY
+#     meta['SizeZ']=omeXMLObject.image(imageID).Pixels.SizeZ
+# 
+#     # Most values are not included in bioformats parser. 
+#     # Thus, we have to find them ourselves
+#     # The normal find procedure is problematic because each item name 
+#     # is proceeded by a schema identifier
+#     try:
+#         pixelsItems=omeXMLObject.image(imageID).Pixels.node.items()  
+#         meta.update(dict(pixelsItems))
+#     except:
+#         print('Could not read meta data in LoadImage.read_standard_meta\n\
+#                used default values')
+#         meta['PhysicalSizeX']=1.0
+#         meta['PhysicalSizeXUnit']='mum'
+#         meta['PysicalSizeY']=1.0
+#         meta['PhysicalSizeYUnit']='mum'
+#         meta['PysicalSizeZ']=1.0
+#         meta['PhysicalSizeZUnit']='mum'
+#         for c in range(meta['SizeC']):
+#             meta['Channel_'+str(c)]='Channel_'+str(c)
+#     return meta
+# =============================================================================
+
+def crop_image_nonzero(img):
+    """ A function to delete the all-zero rows and columns of a 
+        matrix of size n x m, to crop an image down to size (non-zero pixels) """
+        
+    hor_profile = img.any(axis=0)
+    ver_profile = img.any(axis=1)
     
-    Output: omeXMLObject: xml object based on OME standard ready to be parsed
+    hor_first = np.where(hor_profile != 0)[0].min()
+    hor_last = np.where(hor_profile != 0)[0].max()
+    ver_first = np.where(ver_profile != 0)[0].min()
+    ver_last = np.where(ver_profile != 0)[0].max()
     
-    """
-    xml=bioformats.get_omexml_metadata(filePath)
-    # xml is in unicode and may contain characters like 'mu'
-    # these characters will fail the xml parsing, thus recode the information
-    xml_normalized = unicodedata.normalize('NFKD',xml).encode('ascii','ignore')
-    
-    omeXMLObject = bioformats.OMEXML(xml_normalized)
-    
-#    # Parse XML with beautiful soup
-#    from bs4 import BeautifulSoup as bs    
-#    soup = bs(xml_normalized)
-#    prettysoup = bs.prettify(soup)
-#            
-#    # Extract metadata from XML
-#    import re
-#    image_series = re.findall(r'Image:[0-9]+', prettysoup)
-#    image_series = [im.split(':')[-1] for im in image_series]
+    img = img[ver_first:ver_last, hor_first:hor_last]
 
-    return omeXMLObject
-
-
-def readMetadata(omeXMLObject, imageID=0):
-    """ Parses most common meta data out of OME-xml structure.
-    
-    Input: omeXMLObject: OME-XML object with meta data
-           imageID: the image in multi-image files the meta data should 
-                    come from. Default=0
-     
-    Output: meta: dict with meta data
-     
-    Warning: If some keys are not found, software replaces the values 
-             with default values.
-    """       
-    meta={'AcquisitionDate': omeXMLObject.image(imageID).AcquisitionDate}
-    meta['Name']=omeXMLObject.image(imageID).Name
-    meta['SizeC']=omeXMLObject.image(imageID).Pixels.SizeC
-    meta['SizeT']=omeXMLObject.image(imageID).Pixels.SizeT
-    meta['SizeX']=omeXMLObject.image(imageID).Pixels.SizeX
-    meta['SizeY']=omeXMLObject.image(imageID).Pixels.SizeY
-    meta['SizeZ']=omeXMLObject.image(imageID).Pixels.SizeZ
-
-    # Most values are not included in bioformats parser. 
-    # Thus, we have to find them ourselves
-    # The normal find procedure is problematic because each item name 
-    # is proceeded by a schema identifier
-    try:
-        pixelsItems=omeXMLObject.image(imageID).Pixels.node.items()  
-        meta.update(dict(pixelsItems))
-    except:
-        print('Could not read meta data in LoadImage.read_standard_meta\n\
-               used default values')
-        meta['PhysicalSizeX']=1.0
-        meta['PhysicalSizeXUnit']='mum'
-        meta['PysicalSizeY']=1.0
-        meta['PhysicalSizeYUnit']='mum'
-        meta['PysicalSizeZ']=1.0
-        meta['PhysicalSizeZUnit']='mum'
-        for c in range(meta['SizeC']):
-            meta['Channel_'+str(c)]='Channel_'+str(c)
-    return meta
-
-
+    return img
+        
 def findFocussedCZI(df, output_dir, method='BREN', imageSizeThreshXY=None, show=False):
     """ Find most focussed CZI image from dataframe of 'filepaths' to CZI image
         stacks of 96-well plate well images.
@@ -196,21 +216,24 @@ def findFocussedCZI(df, output_dir, method='BREN', imageSizeThreshXY=None, show=
         # extract metadata from filename
         fname, dname = os.path.basename(file), os.path.basename(os.path.dirname(file))
         frname = fname.split('.')[0]
-        plateID = frname.split("_")[0].split("PG")[1]
-        GFP_mM = frname.split("mM_")[0].split("_")[-1]
+        plateID = frname.split("PG")[1].split("_")[0]
+        conc_mM = frname.split("mM_")[0].split("_")[-1]
         
-        # get the actual image reader
-        rdr = bioformats.get_image_reader(None, path=file)
-        #with bioformats.ImageReader(path=file, url=None, perform_init=True) as reader:
-        #    img_arr = reader.read(file)
-        #image_arrays = czifile.imread(file)
+        # # get the actual image reader
+        # rdr = bioformats.get_image_reader(None, path=file)
+        # #with bioformats.ImageReader(path=file, url=None, perform_init=True) as reader:
+        # #    img_arr = reader.read(file)
+        image_arrays = czifile.imread(file)
+        image_arrays.shape
 
-        # get total image series count
-        try:
-            # for "whatever" reason the number of total image series can only be accessed this way
-            totalseries = np.int(rdr.rdr.getSeriesCount())
-        except:
-            totalseries = 1 # in case there is only ONE series
+        # # get total image series count
+        # try:
+        #     # for "whatever" reason the number of total image series can only be accessed this way
+        #     totalseries = np.int(rdr.rdr.getSeriesCount())
+        # except:
+        #     totalseries = 1 # in case there is only ONE series
+        totalseries = image_arrays.shape[1]
+        zSlices = image_arrays.shape[3]
 
         # OPTIONAL: Get metadata (obtain instrument info)
         #omeXMLObject = getMetadata(file)
@@ -220,30 +243,43 @@ def findFocussedCZI(df, output_dir, method='BREN', imageSizeThreshXY=None, show=
         file_info = []
         too_small_log = []
         # Loop over wells (series)
-        for sc in range(0, totalseries):
+        for sc in range(totalseries):
             
-            # Set reader to series
-            rdr.rdr.setSeries(sc)
+            # # Set reader to series
+            # rdr.rdr.setSeries(sc)
+            img = np.array(image_arrays[0,sc,0,0,:,:,0])
+                    
+            hor_profile = img.any(axis=0)
+            ver_profile = img.any(axis=1)
             
+            hor_first = np.where(hor_profile != 0)[0].min()
+            hor_last = np.where(hor_profile != 0)[0].max()
+            ver_first = np.where(ver_profile != 0)[0].min()
+            ver_last = np.where(ver_profile != 0)[0].max()
+                
             # Filter small images
             if imageSizeThreshXY:
-                x, y = rdr.rdr.getSizeX(), rdr.rdr.getSizeY()
+                #x, y = rdr.rdr.getSizeX(), rdr.rdr.getSizeY()
+                x = hor_last - hor_first
+                y = ver_last - ver_first
                 if (x <= imageSizeThreshXY[0] and y <= imageSizeThreshXY[1]):
                     too_small_log.append(sc)
                 else:
                     # get number of z-slices
-                    zSlices = rdr.rdr.getImageCount()
+                    #zSlices = rdr.rdr.getImageCount()
 
                     # Loop over z-slices    
-                    for zc in range(0, zSlices):
-                        img = rdr.read(c=None, z=0, t=0, series=sc, index=zc,\
-                                       rescale=False)
+                    for zc in range(zSlices):
+                        # img = rdr.read(c=None, z=0, t=0, series=sc, index=zc,\
+                        #                rescale=False)
+                        img = np.array(image_arrays[0, sc, 0, zc, ver_first:ver_last, hor_first:hor_last, 0])
+                        # plt.imshow(img); plt.pause(3); plt.close()
                         
                         # measure focus of raw image (uint16)
                         fm = fmeasure(img, method)
                                                 
                         # store image info
-                        file_info.append([file, plateID, GFP_mM, sc, zc, fm])
+                        file_info.append([file, plateID, conc_mM, sc, zc, fm])
 
         if len(too_small_log) > 0:
             print("WARNING: %d image series were omitted (image size too small)"\
@@ -260,7 +296,7 @@ def findFocussedCZI(df, output_dir, method='BREN', imageSizeThreshXY=None, show=
         focussed_images_df = file_df[file_df['focus_measure'] == \
                              file_df.groupby(['seriesID'])['focus_measure']\
                              .transform(max)]
-        print("%d focussed images found." % focussed_images_df.shape[0])
+        print("%d most focussed images found." % focussed_images_df.shape[0])
 
         # save most focussed images
         print("Saving most focussed images..")
@@ -281,34 +317,49 @@ def findFocussedCZI(df, output_dir, method='BREN', imageSizeThreshXY=None, show=
 
             # Extract image metadata from filename
             img_info = focussed_images_df.iloc[i]            
-            seriesID = img_info['seriesID']
-            zSlice = img_info['z_slice_number']
+            sc = img_info['seriesID']
+            zc = img_info['z_slice_number']
             
-            # We do NOT want to rescale images if comparing between them
-            rdr.rdr.setSeries(seriesID)
-            img = rdr.read(c=None, z=0, t=0, series=seriesID,\
-                           index=zSlice, rescale=False)
-            
+            # # We do NOT want to rescale images if comparing between them
+            # rdr.rdr.setSeries(sc)
+            # img = rdr.read(c=None, z=0, t=0, series=sc, index=zc, rescale=False)
+            img = image_arrays[0,sc,0,zc,:,:,0]
             assert img.dtype == np.uint16 
-            
+
             # Convert image to 8-bit (Warning: some information will be lost)
             #import cv2
-            #img2 = cv2.convertScaleAbs(img, alpha=(255.0/65535.0))
-            #assert img2.dtype == np.uint8
-            
+            #img = cv2.convertScaleAbs(img, alpha=(255.0/65535.0))
+            #assert img.dtype == np.uint8
+ 
+            img = crop_image_nonzero(img)
+        
             if show:
                 plt.close('all')
                 plt.imshow(img); plt.pause(5)
                 
             # save as TIFF image
-            outPath = os.path.join(outDir, frname +\
-                                    '_s%dz%d' % (seriesID, zSlice) + '.tif')
+            outPath = os.path.join(outDir, frname + '_s%dz%d' % (sc, zc) + '.tif')
             
-            # Save as TIFF (bioformats)
-            bioformats.write_image(pathname=outPath,\
-                                   pixels=img,\
-                                   pixel_type=bioformats.PT_UINT16)
-                            
+            # # Save as TIFF (bioformats)
+            # bioformats.write_image(pathname=outPath,\
+            #                        pixels=img,\
+            #                        pixel_type=bioformats.PT_UINT16)
+            
+            # size = [img.shape[0], img.shape[1]]
+            # img = np.reshape(img, size)
+            # tifffile.imwrite(file=outPath, data=img[None, None, None, :, :], dtype=np.uint16, imagej=True, 
+            #                  metadata={'channels': 1,'slices': 1,'frames': 1})
+            # tifffile.imwrite(file=outPath, data=img[None, None, None, :, :], dtype=np.uint16,
+            #                  ome=True, metadata={'axes':'TZCYX'}, append=False)
+            # tifffile.imwrite(file=outPath, data=foo, dtype=np.uint16)
+            # shape=(1,1,img.shape[0],img.shape[1],1), ome=True, metadata={'axes':'TZCYX'}, planarconfig='CONTIG'
+            #tifffile.imsave(file=outPath, data=np.expand_dims(img, (0,1,2)), dtype=np.uint16, imagej=True)
+            
+            # Save TIF image as '.npy' for compatibility with ilastik software
+            np.save(outPath.replace('.tif','.npy'), 
+                    img[None, None, None, :, :], 
+                    allow_pickle=True)
+                        
     # concatenate dataframe from CZI file info
     df = pd.concat(file_df_list, axis=0, ignore_index=True)
 
@@ -425,13 +476,12 @@ if __name__ == "__main__":
 
     ######################
     
-    # Start Java virtual machine (for parsing CZI files with bioformats)
-    # TODO: Sort python-bioformats/javabridge compatibility with macOS Catalina
-    os.environ["JAVA_HOME"] = "/Library/Internet Plug-Ins/JavaAppletPlugin.plugin/Contents/Home"
-    javabridge.start_vm(class_path=bioformats.JARS, max_heap_size='6G')
+    # # Start Java virtual machine (for parsing CZI files with bioformats)
+    # os.environ["JAVA_HOME"] = "/Library/Internet Plug-Ins/JavaAppletPlugin.plugin/Contents/Home"
+    # javabridge.start_vm(class_path=bioformats.JARS, max_heap_size='6G')
 
-    classpath = javabridge.JClassWrapper('java.lang.System').getProperty('java.class.path')
-    assert pd.Series([os.path.isfile(path) for path in classpath.split(os.pathsep)]).all()    
+    # classpath = javabridge.JClassWrapper('java.lang.System').getProperty('java.class.path')
+    # assert pd.Series([os.path.isfile(path) for path in classpath.split(os.pathsep)]).all()    
 
     ######################
     ##### PARAMETERS #####
@@ -441,7 +491,8 @@ if __name__ == "__main__":
         image_root_dir = sys.argv[1]
     else: 
         # local copy
-        image_root_dir = '/Users/sm5911/Documents/fluorescence_data_local_copy'
+        #image_root_dir = '/Users/sm5911/Documents/PanGenomeGFP/data/fluorescence_data_local_copy'
+        image_root_dir = '/Users/sm5911/Documents/PanGenome/data/200924_dev_assay_optimisation2'
         #raise Exception("No directory path provided.")    
     
     # save most focussed images in output directory?
@@ -453,7 +504,7 @@ if __name__ == "__main__":
     # image file type (format): ['tif','czi']    
     imageFormat = 'czi'
     
-    # Size filter to use only small images (< 1000x1000 pixels)
+    # Size filter to use only small images (< 1024x1024 pixels)
     imageSizeThreshXY = [1024,1024]
 
     ####################
@@ -483,8 +534,8 @@ if __name__ == "__main__":
         
     ####################
     
-    # Terminate Java virtual machine
-    javabridge.kill_vm()
+    # # Terminate Java virtual machine
+    # javabridge.kill_vm()
 
     toc = time.time()
     print('Complete!\nTotal time taken: %.2f seconds.' % (toc - tic))        

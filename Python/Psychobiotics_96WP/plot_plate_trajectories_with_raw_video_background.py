@@ -54,6 +54,7 @@ def get_trajectory_data(featuresfilepath):
                            'worm_id': f['trajectories_data']['worm_index_joined']})
     # {'midbody_speed': f['timeseries_data']['speed_midbody']}
     return(df)
+# Look to see if TT here is as good - can replace
 
 
 def plot_trajectory(featurefilepath, 
@@ -82,7 +83,8 @@ def plot_trajectory(featurefilepath,
     # Downsample frames for plotting
     if downsample < 1 or downsample == None: # input error handling
         downsample = 1
-        
+    
+    # TODO: Check if [::1] is slower than no [], if so, put in 'if'
     ax.scatter(x=df['x'][::downsample], y=df['y'][::downsample],\
                 s=10, c=df['frame_number'][::downsample], cmap='plasma')
     #ax.tick_params(labelsize=5)
@@ -229,7 +231,7 @@ if __name__ == "__main__":
                         default=example_featuresN)
     # default to example file if none given
     parser.add_argument("--output", help="output directory path (for saving)", 
-                        default=example_featuresN.parent.parent) 
+                        default=example_featuresN.parent.parent)
     # default output directory if none given
     # parser.add_argument("--downsample", help="downsample trajectory data by plotting the worm centroid for every 'nth' frame",
     #                     default=10)

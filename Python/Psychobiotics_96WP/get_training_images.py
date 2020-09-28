@@ -10,80 +10,61 @@ Extract training and test images from directory of image files
 
 #%% Imports
 
-import os, glob, time
+import time
 import pandas as pd
 from sklearn.model_selection import train_test_split
 from shutil import copyfile
+from pathlib import Path
+from tqdm import tqdm
 
 #%% Main
 
 if __name__ == "__main__":
     
-    #%% Params
+    # input params
+    image_root_dir = Path("/Users/sm5911/Documents/PanGenome/data/200827_dev_assay_optimisation_focussed")
+    train_outdir = Path("/Users/sm5911/Documents/PanGenome/data/200827_dev_assay_optimisation_training_images")
+    test_outdir = Path("/Users/sm5911/Documents/PanGenome/data/200827_dev_assay_optimisation_test_images")
     
-    image_root_dir = "/Users/sm5911/Documents/PanGenomeGFP/data/fluorescence_data_local_copy_focussed"
-    train_outdir = "/Users/sm5911/Documents/PanGenomeGFP/data/fluorescence_data_training_images"
-    test_outdir = "/Users/sm5911/Documents/PanGenomeGFP/data/fluorescence_data_test_images"
-    
-    fileregex = "*/*/*.tif"
-    
-    maintain_directory_structure = False 
-    # If True, images are copied with respect to their enclosing sub-directories
-    # If False, all images aree saved together in the output directory defined above
-
-    #%% Sample images
-    
-    tic = time.time()   
-    image_list = glob.glob(os.path.join(image_root_dir, fileregex), recursive=True)
+    # sample train/test images from image_root_dir with train_test_split
+    tic = time.time()  
+    for fileregex in ["*.tif","*.npy"]:
+        image_list = list(image_root_dir.rglob(fileregex))
+        
     images = pd.Series(image_list)
     images.name = 'filename'
-
     training_images, test_images = train_test_split(images,\
                                                     train_size=100,\
-                                                    test_size=500,\
-                                                    random_state=30042020,\
+                                                    test_size=200,\
+                                                    random_state=11092020,\
                                                     shuffle=True,\
                                                     stratify=None)
-    
-    #%% Copy training images    
+    # copy training images    
     n = len(training_images)
     print("\nExtracting training images..")
-    for i, imPath in enumerate(sorted(training_images)):
-        if (i+1) % 10 == 0:
-            print("%d/%d (%.1f%%)" % (i+1, n, ((i+1)/n)*100))
-        if maintain_directory_structure:
-            outPath = imPath.replace(image_root_dir, train_outdir)
-            if not os.path.exists(os.path.dirname(outPath)):
-                os.makedirs(os.path.dirname(outPath))
-        else:
-            outPath = os.path.join(train_outdir, os.path.basename(imPath))
+    for imPath in tqdm(sorted(training_images)):
+        outPath = train_outdir / imPath.name
+        outPath.parent.mkdir(parents=True, exist_ok=True)
         copyfile(imPath, outPath)
         
     # Save filenames of training images
-    outPath = os.path.join(train_outdir, "training_image_filenames.csv")
+    outPath = train_outdir / "training_image_filenames.csv"
     training_images.name = 'filename'
     training_images.to_csv(outPath, index=False)
     
-    #%% Copy test images    
+    # copy test images    
     n = len(test_images)
     print("\nExtracting test images..")
-    for i, imPath in enumerate(sorted(test_images)):
-        if (i+1) % 10 == 0:
-            print("%d/%d (%.1f%%)" % (i+1, n, ((i+1)/n)*100))
-        if maintain_directory_structure:
-            outPath = imPath.replace(image_root_dir, test_outdir)
-            if not os.path.exists(os.path.dirname(outPath)):
-                os.makedirs(os.path.dirname(outPath))
-        else:
-            outPath = os.path.join(test_outdir, os.path.basename(imPath))
+    for imPath in tqdm(sorted(test_images)):
+        outPath = test_outdir / imPath.name
+        outPath.parent.mkdir(parents=True, exist_ok=True)
         copyfile(imPath, outPath)
 
-    # Save filenames of test images
-    outPath = os.path.join(test_outdir, "test_image_filenames.csv")
+    # save filenames of test images
+    outPath = test_outdir / "test_image_filenames.csv"
     test_images.name = 'filename'
     test_images.to_csv(outPath, index=False)
 
-    #%%   
     toc=time.time()
     print("Complete! (Time taken: %.2f seconds)" % (toc-tic))
     
