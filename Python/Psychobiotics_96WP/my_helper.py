@@ -302,3 +302,4 @@ def check_normality(fullresults, meta_colnames, BACTERIAL_STRAINS,\
         is_normal = False
             
     return prop_features_normal, is_normal
+

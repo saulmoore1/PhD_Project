@@ -1,10 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-@author: sm5911
-@date created: 26/10/2019
-@date updated: 11/06/2020
-
 PHENOTYPIC SCREENING FOR PSYCHOBIOTIC BACTERIA: COMPUTATIONAL ANALYSIS OF WORM 
 BEHAVIOUR ON VARIOUS BACTERIAL FOODS (96WP ASSAY)
 
@@ -43,6 +39,9 @@ performed for pairwise comparisons between strains.
 Box plots are produced for each significant feature in a representative list of 
 Top256 features (Javer et al, 2018)
 
+@author: sm5911
+@date created: 26/10/2019
+@date updated: 11/06/2020
 """
 
 #%% IMPORTS & DEPENDENCIES

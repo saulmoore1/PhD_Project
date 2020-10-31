@@ -48,7 +48,7 @@ df <- read.csv(control_results_path, header=TRUE, stringsAsFactors=FALSE)
 #str(df); dim(df)
 
 # # Subset results for selected worm strains (OPTIONAL)
-# df <- subset(df, df$worm_strain %in% c("N2","CB4856"))
+df <- subset(df, df$worm_strain %in% c("N2","CB4856"))
 
 # Convert worm strain + bluelight to factors
 strains <- unique(df$worm_strain) # get strain list
@@ -223,7 +223,7 @@ for (drug in drug_types) {
     feat_df$lm1_predicted <- predict(lm1)
       
     # Random effects should be categorical variables, with at least 5 levels 
-    # NB: 'Sex' should be added as a fixed effect (2 levels)
+    #   e.g.'Sex' should be added as a fixed effect (2 levels)
     # (https://ourcodingclub.github.io/tutorials/mixed-models/#FERE)
     
     # 2 params(intercept,slope),2 worm strains,3 bluelight conditions,16 durations=192 models! 
