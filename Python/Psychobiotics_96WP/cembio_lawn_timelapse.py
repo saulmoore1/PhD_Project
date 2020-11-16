@@ -13,6 +13,7 @@ Investigating CeMbio lawn growth rate
 
 import sys
 import cv2
+import argparse
 import re
 import numpy as np
 from tqdm import tqdm
@@ -28,24 +29,19 @@ for sysPath in PATH_LIST:
         sys.path.insert(0, sysPath)
 
 from tierpsy.analysis.compress.selectVideoReader import selectVideoReader
-from plot_plate_trajectories_with_raw_video_background import get_video_set
-from tierpsy.analysis.split_fov.FOVMultiWellsSplitter import FOVMultiWellsSplitter
-from tierpsy.analysis.split_fov.helper import serial2channel, parse_camera_serial
+from tierpsy.analysis.split_fov.helper import CAM2CH_df, serial2channel, parse_camera_serial
 
 #%% Globals
 
-RAWVIDEO_DIR = Path("/Volumes/behavgenom$/Saul/CeMbioScreen/RawVideos")
-EXP_DATES = ['20201022','20201023']
-
-SAVE_DIR = Path("/Users/sm5911/Desktop/CeMbio_lawn_timelapse") # "/Volumes/behavgenom$/Saul/CeMbioScreen/Results/20201022/"
-video_name = "CeMbio_lawn_growth_timelapse"
-
+# Channel-to-plate mapping dictionary
 CH2PLATE_dict = {'Ch1':((0,0),True),
                  'Ch2':((1,0),False),
                  'Ch3':((0,1),True),
                  'Ch4':((1,1),False),
                  'Ch5':((0,2),True),
                  'Ch6':((1,2),False)}
+
+fps_timelapse = 25 #€ frames per second for timelapse video
 
 #%% Functions
 
@@ -97,6 +93,8 @@ def average_frame_yaml(metadata_yaml_path):
 def save_avg_frames_for_timelapse(video_list, SAVE_DIR):
     """ Take the average frame from each video and save to file """
     
+    video2frame_dict = {}
+
     print('\nSaving average frame in %d videos' % len(video_list))
     for i, metadata_yaml_path in tqdm(enumerate(video_list)):
         
@@ -104,12 +102,16 @@ def save_avg_frames_for_timelapse(video_list, SAVE_DIR):
         fstem = metadata_yaml_path.parent.name
         fname = fstem.replace('.','_') + '.tif'
         
-        savepath = SAVE_DIR / fname
+        savepath = Path(SAVE_DIR) / "average_frames" / fname
         savepath.parent.mkdir(exist_ok=True)
         
         if not savepath.exists():         
             avg_frame = average_frame_yaml(metadata_yaml_path) 
             cv2.imwrite(str(savepath), avg_frame)
+        
+        video2frame_dict[str(metadata_yaml_path)] = str(savepath)
+    
+    return video2frame_dict
 
 def parse_frame_serial(filepath):
     """ Regex search of filestem for 4-digit number separated by underscores 
@@ -124,131 +126,199 @@ def parse_frame_serial(filepath):
 def match_plate_frame_filenames(raw_video_path_list):
     """ For each video frame timestamp, pair the video filenames for that 
         frame and return dictionary of filenames for each plate/frame"""
-    
-    video_list_no_camera_serial = []
-    for fname in raw_video_path_list:
         
+    video_list_no_camera_serial = []
+    for rawvideopath in raw_video_path_list:   
         # get camera serial from filename
-        camera_serial = parse_camera_serial(fname)
+        camera_serial = parse_camera_serial(rawvideopath)
         
         # append filestem to video list (no serial)
-        fstem = str(fname).replace(('.' + camera_serial + '/metadata.yaml'),'')
+        fstem = str(rawvideopath).replace(('.' + camera_serial + '/metadata.yaml'),'')
         video_list_no_camera_serial.append(Path(fstem).name)
-    
-    hydra_timestamp_list = np.unique(video_list_no_camera_serial)
+        
+    video_list_no_camera_serial = list(np.unique(video_list_no_camera_serial))
     
     plate_frame_filename_dict = {}
-    for fname in hydra_timestamp_list:
-        hydra_camera_video_set = [f for f in raw_video_path_list if fname in f]
+    for fname in video_list_no_camera_serial:
+        rig_video_set = [f for f in raw_video_path_list if fname in f]
         
         frame_idx = parse_frame_serial(fname)
-        plate_frame_filename_dict[frame_idx] = hydra_camera_video_set
-                
-    #frames = list(plate_frame_filename_dict.keys())
-    
+        plate_frame_filename_dict[frame_idx] = rig_video_set
+    print("Matched rig camera filenames for %d 96-well plate frame view\n" % len(video_list_no_camera_serial))   
+         
     return plate_frame_filename_dict
 
-def plate_frame_from_camera_frames(filepath, SAVE_DIR):
+def convert_filepath_to_rawvideo(filepath):
+    """ Helper function to convert featuresN filepath or MaskedVideo filepath 
+        into RawVideo filepath """
+    
+    parentdir = str(Path(filepath).parent)
+    
+    dirlist = ["Results/", "MaskedVideos/"]
+    if "RawVideos/" in parentdir:
+        rawvideopath = filepath
+        return rawvideopath
+    else:
+        for dirname in dirlist:
+            if dirname in parentdir:
+                # featuresN filepath
+                rawvideopath = Path(str(parentdir).replace(dirname, "RawVideos/")) / 'metadata.yaml'
+                return rawvideopath
+            
+def get_rig_video_set(filepath):
+    """ Get the set of filenames of the featuresN results files that belong to
+        the same 96-well plate that was imaged under that rig """
+        
+    rawvideopath = convert_filepath_to_rawvideo(filepath)
+    
+    # get camera serial from filename
+    camera_serial = parse_camera_serial(rawvideopath)
+    
+    # get list of camera serials for that hydra rig
+    hydra_rig = CAM2CH_df.loc[CAM2CH_df['camera_serial']==camera_serial,'rig']
+    rig_df = CAM2CH_df[CAM2CH_df['rig']==hydra_rig.values[0]]
+    camera_serial_list = list(rig_df['camera_serial'])
+   
+    # extract filename stem 
+    file_stem = str(rawvideopath).split('.' + camera_serial)[0]
+    
+    file_dict = {}
+    for camera_serial in camera_serial_list:
+        channel = serial2channel(camera_serial)
+        _loc, rotate = CH2PLATE_dict[channel]
+        
+        # get rawvideopath for camera serial
+        rawvideopath =  Path(file_stem + '.' + camera_serial) / "metadata.yaml"
+        file_dict[channel] = rawvideopath
+        
+    return file_dict
+
+def plate_frames_from_camera_frames(plate_frame_filename_dict, video2frame_dict, saveDir):
     """ Compile plate view by tiling images from each camera for a given frame
         and merging into a single plot of the entire 96-well plate, correcting 
         for camera orientation. """
-        
-    featurefilepath = '/Volumes/behavgenom$/Saul/MicrobiomeScreen96WP/Results/20200924/microbiome_run1_bluelight_20200924_140215.22956811/metadata_featuresN.hdf5'
-    file_dict = get_video_set(featurefilepath)
     
-    # define multi-panel figure
-    columns = 3
-    rows = 2
-    h_in = 6
-    x_off_abs = (3600-3036) / 3036 * h_in
-    x = columns * h_in + x_off_abs
-    y = rows * h_in
-    fig, axs = plt.subplots(rows,columns,figsize=[x,y])
-
-    x_offset = x_off_abs / x  # for bottom left image
-    width = (1-x_offset) / columns  # for all but top left image
-    width_tl = width + x_offset   # for top left image
-    height = 1/rows        # for all images
+    for (frame_idx, rig_video_set) in tqdm(plate_frame_filename_dict.items()):
+        
+        file_dict = get_rig_video_set(rig_video_set[0]) # gives channels as well 
+        assert sorted(file_dict.values()) == sorted([Path(i) for i in rig_video_set])
+                
+        # define multi-panel figure
+        columns = 3
+        rows = 2
+        h_in = 4
+        x_off_abs = (3600-3036) / 3036 * h_in
+        x = columns * h_in + x_off_abs
+        y = rows * h_in
+        fig, axs = plt.subplots(rows,columns,figsize=[x,y])
     
-    plt.ioff()
-    for channel, (maskedfilepath, featurefilepath) in file_dict.items():
+        x_offset = x_off_abs / x  # for bottom left image
+        width = (1-x_offset) / columns  # for all but top left image
+        width_tl = width + x_offset   # for top left image
+        height = 1/rows        # for all images
         
-        _loc, rotate = CH2PLATE_dict[channel]
-        _ri, _ci = _loc
+        plt.ioff()
+        for channel, rawvideopath in file_dict.items():
+            
+            _loc, rotate = CH2PLATE_dict[channel]
+            _ri, _ci = _loc
+    
+            # create bbox for image layout in figure
+            if (_ri == 0) and (_ci == 0):
+                # first image (with well names), bbox slightly shifted
+                bbox = [0, height, width_tl, height]
+            else:
+                # other images
+                bbox = [x_offset + width * _ci, height * (rows - (_ri + 1)), width, height]   
+            
+            # get location of subplot for camera
+            ax = axs[_loc]       
+            
+            # read average frame for rawvideopath
+            av_frame_path = video2frame_dict[str(rawvideopath)]
+            img = cv2.imread(av_frame_path)
+            
+            # rotate image 180° to align camera FOV if necessary
+            if rotate:
+                img = np.rot90(img, 2)   
+                        
+            # plot image without axes/labels
+            ax.imshow(img)
+            ax.get_xaxis().set_visible(False)
+            ax.get_yaxis().set_visible(False)
+            
+            # set image position in figure
+            ax.set_position(bbox)
+            
+        if saveDir:
+            saveName = rawvideopath.parent.stem + '.png'
+            savePath = Path(saveDir) / "plate_frame_timelapse" / saveName
+            savePath.parent.mkdir(exist_ok=True)
+            if not savePath.exists():
+                fig.savefig(savePath,
+                            bbox_inches='tight',
+                            dpi=300,
+                            pad_inches=0,
+                            transparent=True)
 
-        # create bbox for image layout in figure
-        if (_ri == 0) and (_ci == 0):
-            # first image (with well names), bbox slightly shifted
-            bbox = [0, height, width_tl, height]
-        else:
-            # other images
-            bbox = [x_offset + width * _ci, height * (rows - (_ri + 1)), width, height]   
-        
-        # get location of subplot for camera
-        ax = axs[_loc]
-        
-        # plot first frame of video + annotate wells
-        FOVsplitter = FOVMultiWellsSplitter(maskedfilepath)
-        FOVsplitter.plot_wells(is_rotate180=rotate, ax=ax, line_thickness=10)
-        
-        # set image position in figure
-        ax.set_position(bbox)
-        
-    if SAVE_DIR:
-        saveName = maskedfilepath.parent.stem + '.png'
-        savePath = Path(SAVE_DIR) / saveName
-        if not savePath.is_file():
-            fig.savefig(savePath,
-                        bbox_inches='tight',
-                        dpi=300,
-                        pad_inches=0,
-                        transparent=True)   
-    return(fig)      
-   
-
-
-def make_video_from_frames(IMAGES_DIR, video_name, fps):
+def make_video_from_frames(IMAGES_DIR, video_name, fps=25):
     """ Create a video from the images (frames) in a given directory """
     
-    image_list = list(IMAGES_DIR.rglob("*frame*.tif"))
+    image_path_list = sorted(list(IMAGES_DIR.rglob("*.png")))
     
-    image0 = cv2.imread(str(image_list[0]))
+    image0 = cv2.imread(str(image_path_list[0]))
     height, width, layers = image0.shape
     
     outpath_video = IMAGES_DIR / "{}.mp4".format(video_name)
 
-    video = moviepy.video.io.ImageSequenceClip.ImageSequenceClip(image_list, 
-                                                                 fps=fps)
-    video.write_videofile(outpath_video)
+    # video = moviepy.video.io.ImageSequenceClip.ImageSequenceClip(image_list, fps=fps)
+    # video.write_videofile(outpath_video)
     
-    # video = cv2.VideoWriter(outpath_video, 0, 1, (width, height))   
-    # for image in image_path_list:
-    #     video.write(cv2.imread(str(image))) 
-    # cv2.destroyAllWindows()
-    # video.release()
+    video = cv2.VideoWriter(str(outpath_video), cv2.VideoWriter_fourcc(*'XVID'), fps, (width, height))   
+    for imPath in tqdm(image_path_list):
+        video.write(cv2.imread(str(imPath))) 
+    cv2.destroyAllWindows()
+    video.release()
     
     
 #%% Main
 
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description='Create timelapse video from a series of RawVideos')
+    parser.add_argument('--rawvideo_dir', help='Path to RawVideo directory',
+                        default="/Volumes/behavgenom$/Saul/CeMbioScreen/RawVideos") 
+                        # TODO: remove default option here
     
+    known_args = parser.parse_known_args()
+    parser.add_argument('--save_dir', help='Path to save directory', 
+                        default= "/Users/sm5911/Desktop/CeMbio_Lawn_Timelapse")
+                        # TODO: default = Path(known_args.rawvideo_dir) / "timelapse_results"
+    
+    parser.add_argument('--dates', help='List of experiment dates to analyse', 
+                        default=['20201022','20201023'])
+                        # TODO: default = None
+    args = parser.parse_args()
+    
+    RAWVIDEO_DIR = Path(args.rawvideo_dir)
+    SAVE_DIR = Path(args.save_dir)
+    EXP_DATES = args.dates
+            
     video_list_save_path = SAVE_DIR / "cembio_lawn_video_list.txt"
-    
+
     if not Path(video_list_save_path).exists():
         # get video list
-        video_list = get_video_list(RAWVIDEO_DIR, EXP_DATES, video_list_save_path)
+        video_list = get_video_list(Path(RAWVIDEO_DIR), EXP_DATES, video_list_save_path)
     else: 
         # read video list
-        video_list = read_list_from_file(filepath=video_list_save_path)
+        video_list = read_list_from_file(filepath=video_list_save_path)    
+    print("%d videos found." % len(video_list))
     
-    save_avg_frames_for_timelapse(video_list, SAVE_DIR)
-    
+    # save average frames for timelapse
+    video2frame_dict = save_avg_frames_for_timelapse(video_list, SAVE_DIR)
+        
     plate_frame_filename_dict = match_plate_frame_filenames(video_list)
     
-    for (frame_idx, rig_video_list) in plate_frame_filename_dict.items():
-        print(frame_idx, len(rig_video_list))
-        
-        filenames = plate_frame_filename_dict[frame_idx]
-        #plate_frame_from_camera_frames(frame_idx, SAVE_DIR)
-    
-    #make_video_from_frames(SAVE_DIR, video_name, fps=25)
+    plate_frames_from_camera_frames(plate_frame_filename_dict, video2frame_dict, SAVE_DIR)
+
+    timelapse_dir = SAVE_DIR / "plate_frame_timelapse"
+    make_video_from_frames(timelapse_dir, video_name='timelapse', fps=fps_timelapse)
