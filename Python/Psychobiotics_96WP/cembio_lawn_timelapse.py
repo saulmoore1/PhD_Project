@@ -18,7 +18,6 @@ import re
 import numpy as np
 from tqdm import tqdm
 from pathlib import Path
-import moviepy.video.io.ImageSequenceClip
 from matplotlib import pyplot as plt
 
 # Path to Tierpsy Github functions

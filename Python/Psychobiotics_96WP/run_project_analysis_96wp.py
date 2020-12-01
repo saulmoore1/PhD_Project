@@ -59,7 +59,6 @@ from matplotlib import pyplot as plt
 from matplotlib import patches as mpatches
 from matplotlib import transforms
 
-# Custom imports
 # Path to Github helper functions (USER-DEFINED path to local copy of Github repo)
 PATH_LIST = ['/Users/sm5911/Tierpsy_Versions/tierpsy-tools-python/',
              '/Users/sm5911/Documents/GitHub/PhD_Project/Python/Psychobiotics_96WP']
@@ -74,10 +73,9 @@ from tierpsytools.read_data import hydra_metadata as tt_hm # read_hydra_metadata
 from my_helper import ranksumtest, savefig, pcainfo, plotPCA, MahalanobisOutliers, check_normality
 from run_control_analysis_96wp import control_variation
 
-bigtic = time.time() # record script start time
-
 #%% LIBRARY TO ANALYSE
 
+bigtic = time.time() # record script start time
 
 # Library to analyse:
 ANALYSIS = 'microbiome'
@@ -136,8 +134,7 @@ elif ANALYSIS.lower() == 'pangenome':
                       "instrument_name", "well_name"]
     
     TIMEPOINT = None
-
-    
+   
 #%% GLOBAL PARAMETERS
 
 RESULTS_DIR = PROJECT_ROOT_DIR / "Results"

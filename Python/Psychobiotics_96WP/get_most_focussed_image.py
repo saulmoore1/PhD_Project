@@ -32,6 +32,7 @@ from PIL import Image
 from matplotlib import pyplot as plt
 from shutil import copyfile
 from cv2 import subtract
+from pathlib import Path
 
 
 #%% Functions
@@ -80,21 +81,24 @@ def findImageFiles(image_root_dir, imageFormat):
         raise Exception('ERROR: Image format (str) not provided.')
     else:
         if imageFormat.lower().endswith('czi'):
-            file_regex = '*/*.czi'
+            file_regex_list = ['*.czi','*/*.czi']
         elif imageFormat.lower().endswith('tif'):
-            file_regex = '*/*.tif'
+            file_regex_list = ['*.tif','*/*.tif']
 
-        # find image files
-        print("Finding image files in %s" % image_root_dir)
-        images = glob.glob(os.path.join(image_root_dir, file_regex))
-        
-        if len(images) == 0:
-            raise Exception('ERROR: Unable to locate images. Check directory!')
-        else:
-            print("%d image files found." % len(images))
-            return pd.DataFrame(images, columns=["filepath"])
+    # find image files
+    print("Finding image files in %s" % image_root_dir)
+    image_list = []
+    for file_regex in file_regex_list:
+        images = list(Path(image_root_dir).rglob(file_regex))
+        image_list.extend(images)
+    
+    if len(image_list) == 0:
+        raise Exception('ERROR: Unable to locate images. Check directory!')
+    else:
+        print("%d image files found." % len(image_list))
+        return pd.DataFrame(image_list, columns=["filepath"])
    
-     
+ 
 # =============================================================================
 # def getMetadata(filePath):
 #     """ Get metadata associated with image file as xml.
@@ -214,6 +218,7 @@ def findFocussedCZI(df, output_dir, method='BREN', imageSizeThreshXY=None, show=
         #############################
 
         # extract metadata from filename
+        file = str(file)
         fname, dname = os.path.basename(file), os.path.basename(os.path.dirname(file))
         frname = fname.split('.')[0]
         plateID = frname.split("PG")[1].split("_")[0]
@@ -302,7 +307,7 @@ def findFocussedCZI(df, output_dir, method='BREN', imageSizeThreshXY=None, show=
         print("Saving most focussed images..")
         
         # Add dname to outDir when analysing multiple replicate folders at a time
-        if df.shape[0] == len([i for i in df['filepath'] if dname in i]):
+        if df.shape[0] == len([i for i in df['filepath'] if dname in str(i)]):
             # We are analysing a single replicate folder
             outDir = os.path.join(output_dir, frname)
         else:
@@ -457,8 +462,8 @@ def findFocussedTIF(df, output_dir, method='BREN'):
 
 def findFocussedImages(df, output_dir, method, imageFormat, imageSizeFilterXY, show=False):
     
-    df = df[df['filepath'].str.endswith(imageFormat)]
-
+    assert all([str(df.loc[i,'filepath']).endswith(imageFormat) for i in range(len(df))])
+    
     if imageFormat.lower().endswith('czi'):
         focussed_images_df = findFocussedCZI(df, output_dir, method, imageSizeFilterXY, show)
         
@@ -492,7 +497,7 @@ if __name__ == "__main__":
     else: 
         # local copy
         #image_root_dir = '/Users/sm5911/Documents/PanGenomeGFP/data/fluorescence_data_local_copy'
-        image_root_dir = '/Users/sm5911/Documents/PanGenome/data/200924_dev_assay_optimisation2'
+        image_root_dir = '/Users/sm5911/Documents/PanGenome/data/dev_assay_optimisation_local_copy/201106_dev_assay_optimisation3'
         #raise Exception("No directory path provided.")    
     
     # save most focussed images in output directory?

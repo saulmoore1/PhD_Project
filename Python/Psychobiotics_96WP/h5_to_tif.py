@@ -13,10 +13,12 @@ import sys, tables, cv2 #os
 import numpy as np
 from pathlib import Path
 from tqdm import tqdm
+from matplotlib import pyplot as plt
 
 def h5_to_tif(dirpath_h5):
     h5_list = list(dirpath_h5.rglob("*.h5"))
-        
+    
+    plt.ioff()
     for h5 in tqdm(h5_list):
         # Read file
         with tables.File(h5, mode='r') as fid:
@@ -32,7 +34,7 @@ def h5_to_tif(dirpath_h5):
         assert img.ndim == 2
         
         # Rescale image
-        img *= 65535.0
+        img = np.multiply(img, 65535.0, casting='unsafe')
         img = img.astype(np.uint16)
         
         # Save files in new folder named 'tif_images'
@@ -46,6 +48,7 @@ if __name__ == "__main__":
         dirpath_h5 = sys.argv[1]
     else:
         # Default
+        print("\nWARNING: No dirpath provided!")
         dirpath_h5 = "/Users/sm5911/Documents/PanGenome/results/object_probabilities"
  
     h5_to_tif(Path(dirpath_h5))

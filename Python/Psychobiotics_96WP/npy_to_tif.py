@@ -38,4 +38,4 @@ if __name__ == "__main__":
         print("WARNING: No directory provided! Using default path: %s" % dirpath_npy)
     
     npy_to_tif(dirpath_npy)
-    print("\nDone!")    
+    print("\nDone!")

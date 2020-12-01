@@ -67,8 +67,10 @@ if __name__ == "__main__":
     if len(sys.argv) > 2:
         remove_duplicate_0th = sys.argv[2].lower() == 'true' # create boolean from string input       
     else:
-        # Default is to not remove duplicate images when renaming
-        print("WARNING: Assuming the first series image (s0) is the first well in the plate (A1)")
+        # Default is to NOT remove duplicate images when renaming
+        print("WARNING: Assuming first series image (s0) is first well of plate (A1)")
         remove_duplicate_0th = False
     
     edit_image_names(image_dir, remove_duplicate_0th=remove_duplicate_0th)
+    
+    print("\nDone!")
