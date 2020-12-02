@@ -14,6 +14,7 @@ import re
 import sys
 import umap
 import datetime
+import itertools
 import numpy as np
 import pandas as pd
 import seaborn as sns
@@ -30,6 +31,8 @@ from sklearn.decomposition import PCA
 from sklearn.manifold import TSNE
 from matplotlib import pyplot as plt
 from matplotlib import patches, transforms
+from matplotlib.axes._axes import _log as mpl_axes_logger
+from mpl_toolkits.mplot3d import Axes3D
 
 # Path to Github helper functions (USER-DEFINED path to local copy of Github repo)
 PATH_LIST = ['/Users/sm5911/Tierpsy_Versions/tierpsy-tools-python/']
@@ -46,9 +49,9 @@ from tierpsytools.hydra.match_wells_annotations import (import_wells_annoations_
                                                         match_rawvids_annotations,
                                                         update_metadata)
 from tierpsytools.feature_processing.filter_features import (filter_nan_inf, 
-                                                              feat_filter_std, 
-                                                              drop_bad_wells,
-                                                              drop_ventrally_signed)
+                                                             feat_filter_std, 
+                                                             drop_bad_wells,
+                                                             drop_ventrally_signed)
  
 #%% Functions
 def duration_L1_diapause(df):
@@ -212,12 +215,12 @@ def process_feature_summaries(metadata,
         according to 'nan_threshold' given, where feature column containing 
         more than threshold number of NaN values are dropped from the analysis 
     """    
-    print("Processing feature summary results..")
     combined_feats_path = results_dir / "full_features.csv"
     combined_fnames_path = results_dir / "full_filenames.csv"
  
     if not np.logical_and(combined_feats_path.is_file(), 
                           combined_fnames_path.is_file()):
+        print("Processing feature summary results..")
         
         if imaging_dates:
             feat_files = []
@@ -245,6 +248,7 @@ def process_feature_summaries(metadata,
     # Read features/filename summaries
     feature_summaries = pd.read_csv(combined_feats_path, comment='#')
     filename_summaries = pd.read_csv(combined_fnames_path, comment='#')
+    print("Feature summary results loaded.")
 
     features, metadata = read_hydra_metadata(feature_summaries, 
                                              filename_summaries,
@@ -537,7 +541,7 @@ def anova_by_feature(feat_df,
 
     # Perform 1-way ANOVAs for each feature between test strains
     test_pvalues_df = pd.DataFrame(index=['stat','pval'], columns=feat_df.columns)
-    for f, feature in tqdm(enumerate(feat_df.columns)):
+    for f, feature in enumerate(tqdm(feat_df.columns)):
             
         # Perform test and capture outputs: test statistic + p value
         test_stat, test_pvalue = TEST(*[feat_df[meta_df[group_by]==strain][feature]\
@@ -553,7 +557,7 @@ def anova_by_feature(feat_df,
                                    returnsorted=False)
     
     # Update pvalues with Benjamini-Yekutieli correction
-    test_pvalues_df.loc['pval', :] = _corrArray[1]
+    test_pvalues_df.loc['pval',:] = _corrArray[1]
     
     # Store names of features that show significant differences across the test bacteria
     sigfeats = test_pvalues_df.columns[np.where(test_pvalues_df.loc['pval'] < p_value_threshold)]
@@ -609,10 +613,7 @@ def boxplots_top_feats(feat_meta_df,
                        saveDir=None, 
                        p_value_threshold=0.05, 
                        n_top_features=None):
-    """ Box plots of top features found by t-test to differ significantly 
-        between strains 
-    """  
-
+    """ Box plots of most significantly different features between strains """    
         
     plt.ioff() if saveDir else plt.ion()
     plt.close('all')
@@ -661,10 +662,18 @@ def boxplots_top_feats(feat_meta_df,
                             palette=colour_dict,
                             showfliers=False, 
                             showmeans=True,
-                            meanprops={"marker":"x", "markersize":5, "markeredgecolor":"k"},
-                            flierprops={"marker":"x", "markersize":15, "markeredgecolor":"r"})
-                sns.stripplot(x=group_by, y=feature, data=plot_df, s=6, 
-                              marker=".", color='gray', edgecolor='k')
+                            meanprops={"marker":"x", 
+                                       "markersize":5,
+                                       "markeredgecolor":"k"},
+                            flierprops={"marker":"x", 
+                                        "markersize":15, 
+                                        "markeredgecolor":"r"})
+                sns.stripplot(x=group_by, 
+                              y=feature, 
+                              data=plot_df, 
+                              s=6, 
+                              marker=".", 
+                              color='k')
                 ax.set_xlabel('Strain', fontsize=15, labelpad=12)
                 ax.set_ylabel(feature, fontsize=15, labelpad=12)
                 ax.set_title(feature, fontsize=20, pad=40)
@@ -702,17 +711,22 @@ def boxplots_by_strain(df,
                        features2plot=None,
                        saveDir=None,
                        p_value_threshold=0.05,
-                       n_top_features=5, 
-                       max_groups=48,
+                       max_features_plot_cap=None, 
+                       max_groups_plot_cap=48,
                        figsize=[8,12]):
     """ Boxplots comparing all strains to control for a given feature """
-    
+        
     if features2plot is not None:
         assert all(feat in df.columns for feat in features2plot)
         n = len(features2plot)
         features2plot = [feature for feature in features2plot if \
                          (test_pvalues_df[feature] < p_value_threshold).any()]
         print("Dropped %d insignificant features" % (n - len(features2plot)))
+        
+        if max_features_plot_cap and len(features2plot) > max_features_plot_cap:
+            print("WARNING: Too many features to plot! Capping at %d plots"\
+                  % max_features_plot_cap)
+            features2plot = features2plot[:max_features_plot_cap]
     else:
         # Plot all sig feats between any strain and control
         features2plot = [feature for feature in test_pvalues_df.columns if \
@@ -724,11 +738,11 @@ def boxplots_by_strain(df,
     # Seaborn boxplots with swarmplot overlay for each feature - saved to file
     plt.ioff() if saveDir else plt.ion()
     sns.set(color_codes=True); sns.set_style('darkgrid')
-    for f, feature in tqdm(enumerate(features2plot)):
+    for f, feature in enumerate(tqdm(features2plot)):
         sortedPvals = test_pvalues_df[feature].sort_values(ascending=True)
         strains2plt = list(sortedPvals.index)
-        if len(strains2plt) > max_groups:
-            strains2plt = list(sortedPvals[:max_groups].index)
+        if len(strains2plt) > max_groups_plot_cap:
+            strains2plt = list(sortedPvals[:max_groups_plot_cap].index)
             
         strains2plt.insert(0, control_strain)
         plot_df = df[df[group_by].isin(strains2plt)]
@@ -778,51 +792,335 @@ def boxplots_by_strain(df,
         else:
             plt.show()
 
-
 def plot_clustermap(featZ, 
                     meta, 
                     group_by, 
                     saveto=None):
      """ Seaborn clustermap (hierarchical clustering heatmap) of normalised """                
+     
+     # Store feature columns
+     fset = featZ.columns
+     
      # Compute average value for strain for each feature (not each well)
-     strainMean_df = fullresults.groupby(group_by).mean().reset_index()
+     featZ_grouped = featZ.join(meta).groupby(group_by).mean().reset_index()
      
+     # Map colors for strains
+     strain_list = list(featZ_grouped[group_by].unique())
      colour_dictionary = dict(zip(strain_list, sns.color_palette("gist_rainbow", len(strain_list))))
-     
+     row_colours = meta[group_by].map(colour_dictionary)
+
      # Heatmap (clustergram) of Top10 features per strain (n=45)
      plt.close('all')
-     row_colours = results_meta[group_by].map(colour_dictionary)
      sns.set(font_scale=0.6)
-     g = sns.clustermap(zscores, #row_colors=row_colours,
-                        standard_scale=1, # z_score=1
-                        metric='euclidean', method='complete',\
-                        figsize=[15,10], #xticklabels=3,
-                        yticklabels=results_meta[group_by],
-                        xticklabels=False)
+     cg = sns.clustermap(data=featZ_grouped[fset], 
+                         row_colors=row_colours,
+                         #standard_scale=1, 
+                         #z_score=1,
+                         metric='euclidean', 
+                         method='complete',\
+                         figsize=[15,10], 
+                         #xticklabels=3,
+                         yticklabels=featZ_grouped[group_by],
+                         xticklabels=fset if len(fset) < 256 else False)
+     # patch_list = []
+     # for l, key in enumerate(colour_dictionary.keys()):
+     #     patch = patches.Patch(color=colour_dictionary[key], label=key)
+     #     patch_list.append(patch)
+     # plt.legend(handles=patch_list, labels=colour_dictionary.keys(),\
+     #            borderaxespad=0.4, frameon=False, loc=(-3, -13), fontsize=8)
      
-     #plt.setp(g.ax_heatmap.xaxis.get_majorticklabels(), rotation=90)
-     plt.setp(g.ax_heatmap.yaxis.get_majorticklabels(), fontsize=10)
-     #patches = []
-     #for l, key in enumerate(colour_dictionary.keys()):
-     #    patch = mpatches.Patch(color=colour_dictionary[key], label=key)
-     #    patches.append(patch)
-     #plt.legend(handles=patches, labels=colour_dictionary.keys(),\
-     #           borderaxespad=0.4, frameon=False, loc=(-3, -13), fontsize=8)
+     if len(fset) <= 256:
+         plt.setp(cg.ax_heatmap.xaxis.get_majorticklabels(), rotation=90)
+     plt.setp(cg.ax_heatmap.yaxis.get_majorticklabels(), fontsize=10)
      plt.subplots_adjust(top=0.95,bottom=0.05,left=0.02,right=0.92,hspace=0.2,wspace=0.2)
+     #plt.tight_layout(rect=[0,0,.95,1])
      
+     # Extract clustered features
+     clustered_features = np.array(fset)[cg.dendrogram_col.reordered_ind]
+
      # Save clustermap and features of interest
-     cluster_outpath = os.path.join(plotroot, 'Hierarchical_Clustering_Top256.eps')
-     directory = os.path.dirname(cluster_outpath)
-     if not os.path.exists(directory):
-         os.makedirs(directory)
-     plt.savefig(cluster_outpath, tight_layout=True, dpi=300, saveFormat='eps')
-     plt.show(); plt.pause(5)
+     if saveto:
+         saveto.parent.mkdir(exist_ok=True, parents=True)
+         plt.savefig(saveto, format='eps', dpi=300)
+     else:
+         plt.show()
      
      return clustered_features
-   
-def do_pca(features, metadata, group_by, var_subset, saveDir=None):
-    """ """
+
+def pcainfo(pca, zscores, PCs_to_keep=10, n_feats2print=10):
+    """ A function to plot PCA explained variance, and print the most 
+        important features in the given principal component (P.C.)
+    """
+        
+    cum_expl_var_frac = np.cumsum(pca.explained_variance_ratio_)
+
+    # Plot explained variance
+    fig, ax = plt.subplots()
+    plt.plot(range(1,len(cum_expl_var_frac)+1),
+             cum_expl_var_frac,
+             marker='o')
+    ax.set_xlabel('Number of Principal Components', fontsize=15)
+    ax.set_ylabel('explained $\sigma^2$', fontsize=15)
+    ax.set_ylim((0,1.05))
+    fig.tight_layout()
     
+    # Print important features
+    important_feats_list = []
+    for pc in range(PCs_to_keep):
+        important_feats = zscores.columns[np.argsort(pca.components_[pc]**2)\
+                                          [-n_feats2print:][::-1]]
+        important_feats_list.append(pd.Series(important_feats, 
+                                              name='PC_{}'.format(str(pc+1))))
+    
+        if pc == 0:
+            print("\nTop %d features in Principal Component %d:\n" % (n_feats2print, pc+1))
+            for feat in important_feats:
+                print(feat)
+
+    important_feats = pd.DataFrame(important_feats_list).T
+    
+    return important_feats, fig
+
+def plot_pca(featZ, 
+             meta, 
+             group_by, 
+             n_dims=2,
+             var_subset=None, 
+             saveDir=None,
+             PCs_to_keep=10,
+             n_feats2print=10):
+    """ Perform principal components analysis 
+        - group_by : column in metadata to group by for plotting (colours) 
+        - n_dims : number of principal component dimensions to plot (2 or 3)
+        - var_subset : subset list of categorical names in featZ[group_by]
+        - saveDir : directory to save PCA results
+        - PCs_to_keep : number of PCs to project
+        - n_feats2print : number of top features influencing PCs to store """
+        
+    if var_subset is not None:
+        assert all([strain in meta[group_by].unique() for strain in var_subset])
+    else:
+        var_subset = list(meta[group_by].unique())
+    
+    # Perform PCA on extracted features
+    print("\nPerforming Principal Components Analysis (PCA)...")
+
+    # Fit the PCA model with the normalised data
+    pca = PCA()
+    pca.fit(featZ)
+
+    # Plot summary data from PCA: explained variance (most important features)
+    plt.ioff() if saveDir else plt.ion()
+    important_feats, fig = pcainfo(pca=pca, 
+                                   zscores=featZ, 
+                                   PCs_to_keep=PCs_to_keep, 
+                                   n_feats2print=n_feats2print)
+           
+    # Save plot of PCA explained variance
+    if saveDir:
+        pca_path = Path(saveDir) / 'PCA_explained.eps'
+        pca_path.parent.mkdir(exist_ok=True, parents=True)
+        plt.tight_layout()
+        plt.savefig(pca_path, format='eps', dpi=300)
+
+        # Save PCA important features list
+        pca_feat_path = Path(saveDir) / 'PC_top{}_features.csv'.format(str(n_feats2print))
+        important_feats.to_csv(pca_feat_path, index=False)        
+    else:
+        plt.show(); plt.pause(2)
+
+    # Project data (zscores) onto PCs
+    projected = pca.transform(featZ) # A matrix is produced
+    # NB: Could also have used pca.fit_transform() OR decomposition.TruncatedSVD().fit_transform()
+
+    # Store the results for first few PCs in dataframe
+    projected_df = pd.DataFrame(data=projected[:,:PCs_to_keep],
+                                columns=['PC' + str(n+1) for n in range(PCs_to_keep)],
+                                index=featZ.index)
+    
+    plt.close('all')
+    if n_dims == 2: 
+        # OPTION 1: Plot PCA - 2 principal components
+        plt.rc('xtick',labelsize=15)
+        plt.rc('ytick',labelsize=15)
+        sns.set_style("whitegrid")
+        fig, ax = plt.subplots(figsize=[10,10])
+        
+        # Create colour palette for plot loop
+        palette = itertools.cycle(sns.color_palette("gist_rainbow", len(var_subset)))
+        
+        for g_var in var_subset:
+            g_var_projected_df = projected_df[meta[group_by]==g_var]
+            sns.scatterplot(x=g_var_projected_df['PC1'], 
+                            y=g_var_projected_df['PC2'], 
+                            color=next(palette), s=50)
+        ax.set_xlabel('Principal Component 1', fontsize=20, labelpad=12)
+        ax.set_ylabel('Principal Component 2', fontsize=20, labelpad=12)
+        ax.set_title("2-component PCA by '{}'".format(group_by), fontsize=20)
+        if len(var_subset) <= 15:
+            plt.tight_layout(rect=[0.04, 0, 0.84, 0.96])
+            ax.legend(var_subset, frameon=False, loc=(1, 0.85), fontsize=15)
+        ax.grid()
+        plt.tight_layout()
+        
+    elif n_dims == 3:
+        # OPTION 2: Plot PCA - 3 principal components  
+        plt.rc('xtick',labelsize=12)
+        plt.rc('ytick',labelsize=12)
+        fig = plt.figure(figsize=[10,10])
+        mpl_axes_logger.setLevel('ERROR') # Work-around for 3D plot colour warnings
+        ax = Axes3D(fig) # ax = fig.add_subplot(111, projection='3d')
+        
+        # Create colour palette for plot loop
+        palette = itertools.cycle(sns.color_palette("gist_rainbow", len(var_subset)))
+        
+        for g_var in var_subset:
+            g_var_projected_df = projected_df[meta[group_by]==g_var]
+            ax.scatter(xs=g_var_projected_df['PC1'], 
+                       ys=g_var_projected_df['PC2'], 
+                       zs=g_var_projected_df['PC3'],
+                       zdir='z', s=30, c=next(palette), depthshade=False)
+        ax.set_xlabel('Principal Component 1', fontsize=15, labelpad=12)
+        ax.set_ylabel('Principal Component 2', fontsize=15, labelpad=12)
+        ax.set_zlabel('Principal Component 3', fontsize=15, labelpad=12)
+        ax.set_title("3-component PCA by '{}'".format(group_by), fontsize=20)
+        if len(var_subset) <= 15:
+            ax.legend(var_subset, frameon=False, fontsize=12)
+            #ax.set_rasterized(True)
+        ax.grid()
+    else:
+        raise ValueError("Value for 'n_dims' must be either 2 or 3")
+
+    # Save PCA plot
+    if saveDir:
+        pca_path = Path(saveDir) / ('pca_by_{}'.format(group_by) 
+                                    + ('.png' if n_dims == 3 else '.eps'))
+        plt.savefig(pca_path, format='png' if n_dims == 3 else 'eps', 
+                    dpi=600 if n_dims == 3 else 300) # rasterized=True
+    else:
+        # Rotate the axes and update plot        
+        if n_dims == 3:
+            for angle in range(0, 360):
+                ax.view_init(270, angle)
+                plt.draw(); plt.pause(0.0001)
+        else:
+            plt.show()
+    
+    return projected_df
+
 def remove_outliers_pca(projected_df, feat_df):
     """ Remove outliers in dataset for PCA using Mahalanobis distance metric """
+    
+    # Remove outliers: Use Mahalanobis distance to exclude outliers from PCA
+    
+    indsOutliers = MahalanobisOutliers(projected, showplot=True)
+    plt.pause(5); plt.close()
+    
+    # Drop outlier observation(s)
+    print("Dropping %d outliers from analysis" % len(indsOutliers))
+    indsOutliers = results_feats.index[indsOutliers]
+    results_feats = results_feats.drop(index=indsOutliers)
+    fullresults = fullresults.drop(index=indsOutliers)
+    
+    # Re-normalise data
+    zscores = results_feats.apply(zscore, axis=0)
+    
+    # Drop features with NaN values after normalising
+    zscores.dropna(axis=1, inplace=True)
+    print("Dropped %d features after normalisation (NaN)" % (len(results_feats.columns)-len(zscores.columns)))
+    
+    # Use Top256 features
+    print("Using Top256 feature list for dimensionality reduction...")
+    top256featcols = [feat for feat in zscores.columns if feat in featurelist]
+    zscores = zscores[top256featcols]
+    
+    # Project data on PCA axes again
+    pca = PCA()
+    pca.fit(zscores)
+    projected = pca.transform(zscores) # project data (zscores) onto PCs
+    important_feats, fig = pcainfo(pca=pca, zscores=zscores, PC=1, n_feats2print=10)
+    plt.pause(5); plt.close()
+    
+    # Store the results for first few PCs
+    projected_df = pd.DataFrame(projected[:,:10],\
+                                  columns=['PC' + str(n+1) for n in range(10)])
+    projected_df.set_index(fullresults.index, inplace=True) # Do not lose index position
+    projected_df = pd.concat([fullresults[metadata_colnames], projected_df], axis=1)
+    
+
     return projected_df, feat_df
+
+#%% Plot PCA - All bacterial strains (food)
+
+# topNstrains = 5
+
+# if is_normal:
+#     test_name = 'ttest_ind'
+# else:
+#     test_name = 'ranksumtest'
+    
+# stats_inpath = os.path.join(PROJECT_ROOT_DIR, 'Results', 'Stats', test_name + '_results.csv')
+# test_pvalues_df = pd.read_csv(stats_inpath, index_col=0)
+# print("Loaded %s results." % test_name)
+
+# propfeatssigdiff = ((test_pvalues_corrected_df < p_value_threshold).sum(axis=1)/len(featurelist))*100
+# propfeatssigdiff = propfeatssigdiff.sort_values(ascending=False)
+
+# topStrains = list(propfeatssigdiff[:topNstrains].index)
+# topStrains_projected_df = projected_df[projected_df['food_type'].str.upper().isin(topStrains)]
+# topStrains.insert(0, CONTROL_STRAIN)
+
+# otherStrains = [strain for strain in BACTERIAL_STRAINS if strain not in topStrains]
+# otherStrains_projected_df = projected_df[projected_df['food_type'].str.upper().isin(otherStrains)]
+
+# # Create colour palette for plot loop
+# #colour_dict_other = {strain: "r" if strain == "OP50" else "darkgray" for strain in otherStrains}
+# colour_dict_other = {strain: "darkgray" for strain in otherStrains}
+# topcols = sns.color_palette("Paired", len(topStrains))
+# colour_dict_top = {strain: topcols[i] for i, strain in enumerate(topStrains)}
+# #colour_dict.update(colour_dict2)
+# #palette = itertools.cycle(sns.color_palette("gist_rainbow", len(BACTERIAL_STRAINS)))
+
+# plt.close()
+# plotpath_2d = os.path.join(PROJECT_ROOT_DIR, 'Results', 'Plots', 'All', 'PCA', 'PCA_2PCs_byStrain.eps')
+# title = None #"""2-Component PCA (Top256 features)"""
+# plt.rc('xtick',labelsize=15)
+# plt.rc('ytick',labelsize=15)
+# sns.set_style("whitegrid")
+# fig, ax = plt.subplots(figsize=[10,10])
+
+# palette_other = itertools.cycle(list(colour_dict_other.values()))
+# for strain in otherStrains:
+#     strain_projected_df = projected_df[projected_df['food_type'].str.upper()==strain]
+#     sns.scatterplot(strain_projected_df['PC1'], strain_projected_df['PC2'],\
+#                     color=next(palette_other), s=50, alpha=0.65, linewidth=0)
+
+# palette_top = itertools.cycle(list(colour_dict_top.values()))
+# for strain in topStrains:
+#     strain_projected_df = projected_df[projected_df['food_type'].str.upper()==strain]
+#     sns.scatterplot(strain_projected_df['PC1'], strain_projected_df['PC2'],\
+#                     color=next(palette_top), s=70, edgecolor='k') # marker="^"
+    
+# ax.set_xlabel('Principal Component 1', fontsize=20, labelpad=12)
+# ax.set_ylabel('Principal Component 2', fontsize=20, labelpad=12)
+# if title:
+#     ax.set_title(title, fontsize=20)
+
+# # Add plot legend
+# patches = []
+# for l, key in enumerate(colour_dict_top.keys()):
+#     patch = mpatches.Patch(color=colour_dict_top[key], label=key)
+#     patches.append(patch)
+# plt.legend(handles=patches, labels=colour_dict_top.keys(), frameon=False, fontsize=12)
+# ax.grid()
+
+# # Save PCA scatterplot of first 2 PCs
+# savefig(plotpath_2d, tight_layout=False, tellme=True, saveFormat='png') # rasterized=True
+# plt.show(); plt.pause(2)
+
+def plot_tSNE():
+    """ """
+    
+def plot_umap():
+    """ """
+    

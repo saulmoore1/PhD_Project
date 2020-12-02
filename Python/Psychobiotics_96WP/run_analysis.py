@@ -22,13 +22,8 @@ from scipy.stats import (kruskal,
                          zscore)
 from matplotlib import pyplot as plt
 from matplotlib import transforms, patches
-    
-# Path to Github helper functions (USER-DEFINED path to local copy of Github repo)
-PATH_LIST = ['/Users/sm5911/Tierpsy_Versions/tierpsy-tools-python/']
-for sysPath in PATH_LIST:
-    if sysPath not in sys.path:
-        sys.path.insert(0, sysPath)
-        
+
+# Import custom helper functions
 from helper import (process_metadata, 
                     process_feature_summaries,
                     clean_features_summaries,
@@ -41,11 +36,18 @@ from helper import (process_metadata,
                     boxplots_top_feats,
                     boxplots_by_strain,
                     plot_clustermap,
-                    do_pca,
+                    plot_pca,
                     remove_outliers_pca)
-from tierpsytools.read_data import compile_features_summaries
-from tierpsytools.read_data import hydra_metadata
+   
+# Path to Github helper functions (USER-DEFINED path to local copy of Github repo)
+PATH_LIST = ['/Users/sm5911/Tierpsy_Versions/tierpsy-tools-python/']
+for sysPath in PATH_LIST:
+    if sysPath not in sys.path:
+        sys.path.insert(0, sysPath)
 
+from tierpsytools.analysis.significant_features import k_significant_feat
+from tierpsytools.feature_processing.filter_features import feat_filter_std
+        
 #%% Globals
 
 OMIT_STRAIN_LIST = None # List of bacterial or worm strains to omit (depending on chosen 'grouping_var')
@@ -56,7 +58,8 @@ CHECK_NORMAL = True
 SHOW_PLOTS = False
 NAN_THRESHOLD = 0.2 # Threshold NaN proportion to drop feature from analysis  
 P_VALUE_THRESHOLD = 0.05 # Threshold p-value for statistical significance    
-                                              
+K_SIG_FEATS = 50
+
 perplexities = [5,10,20,30] # tSNE: Perplexity parameter for tSNE mapping
 n_neighbours = [5,10,20,30] # UMAP: N-neighbours parameter for UMAP projections                                            
 min_dist = 0.3 # Minimum distance parameter for UMAP projections    
@@ -137,7 +140,7 @@ if __name__ == "__main__":
         print("Saving full results (features/metadata) to:\n '%s'" % full_results_path)     
         fullresults.to_csv(full_results_path, index=False)
 
-#%% SUBSET
+#%% Subset
     
     # Load Tierpsy Top256 feature set
     if USE_TOP256:
@@ -181,7 +184,7 @@ if __name__ == "__main__":
         stats_dir = results_dir / "Stats" / "Timepoint_{}".format(timepoint) / ftname
         plot_dir = results_dir / "Plots" / "Timepoint_{}".format(timepoint) / ftname
 
-#%%     STATS  
+#%%     Statistics  
         
         # Look to see if response data are homoscedastic / normally distributed
         if CHECK_NORMAL:
@@ -251,11 +254,8 @@ if __name__ == "__main__":
         # TODO: Perform post-hoc analyses (eg.Tukey HSD) for pairwise comparisons 
         # between strains for each feature?
 
-#%%     PLOTS 
-        # - INDIVIDUAL PLOTS OF TOP RANKED FEATURES (STATS) FOR EACH strain
-        # - Rank features by pvalue significance (lowest first) and select the Top 10 features for each strain
-        # - Plot boxplots of the most important features for each strain compared to control
-        # - Plot features separately with feature as title and in separate folders for each strain
+#%%     Boxplots of most significantly different features for each strain vs control
+        # Features ranked by t-test pvalue significance (lowest first)
         
         # Load test results (pvalues) for plotting
         # NB: Non-parametric ranksum test preferred over t-test as many features may not be normally distributed
@@ -263,11 +263,7 @@ if __name__ == "__main__":
         stats_inpath = stats_dir / '{}_results.csv'.format(test_name)
         pvalues_ttest = pd.read_csv(stats_inpath, index_col=0)
         print("Loaded '%s' results." % test_name)
-        
-        # OPTIONAL: Plot cherry-picked features
-        #fset = ['speed_50th','curvature_neck_abs_50th','major_axis_50th','angular_velocity_neck_abs_50th']
-        fset = pvalues_ttest.columns[np.where((pvalues_ttest < P_VALUE_THRESHOLD).any(axis=0))]
-        
+                
         # from tierpsytools.analysis.significant_features import plot_feature_boxplots
         # plot_feature_boxplots(feat_to_plot=fset,
         #                       y_class=GROUPING_VAR,
@@ -285,25 +281,54 @@ if __name__ == "__main__":
                            p_value_threshold=0.05, 
                            n_top_features=50)
         
+#%%     K significant features
+
+        k_sigfeat_dir = plot_dir / 'k_sig_feats'
+        k_sigfeat_dir.mkdir(exist_ok=True, parents=True)
+
+        # Infer feature set
+        fset, (scores, pvalues), support = k_significant_feat(feat=feat_df, 
+                                                              y_class=meta_df[GROUPING_VAR], 
+                                                              k=K_SIG_FEATS, 
+                                                              score_func='f_classif', 
+                                                              scale=None, 
+                                                              feat_names=None, 
+                                                              plot=True, 
+                                                              k_to_plot=None, 
+                                                              close_after_plotting=True,
+                                                              saveto=None, 
+                                                              figsize=None, 
+                                                              title=None, 
+                                                              xlabel=None)        
+        # OPTIONAL: Plot cherry-picked features
+        #fset = ['speed_50th','curvature_neck_abs_50th','major_axis_50th','angular_velocity_neck_abs_50th']
+        #fset = pvalues_ttest.columns[np.where((pvalues_ttest < P_VALUE_THRESHOLD).any(axis=0))]
         boxplots_by_strain(df=meta_df.join(feat_df), 
                            group_by=GROUPING_VAR,
                            test_pvalues_df=pvalues_ttest,
                            control_strain=control_strain,
                            features2plot=fset,
-                           saveDir=plot_dir / 'All',
-                           n_top_features=5, 
-                           max_groups=48,
-                           p_value_threshold=0.05)      
+                           saveDir=k_sigfeat_dir,
+                           max_features_plot_cap=K_SIG_FEATS, 
+                           max_groups_plot_cap=48,
+                           p_value_threshold=0.05)   
         
-        #%% HIERARCHICAL CLUSTERING (HEATMAP)
+        # Save k most significant features
+        fset_out = pd.Series(fset)
+        fset_out.name = 'k_significant_features'
+        fset_out = pd.DataFrame(fset_out)
+        fset_out.to_csv(stats_dir / 'k_significant_features.csv', header=0, index=None)   
+        
+#%%     Hierarchical Clustering (Heatmap)
         # Clustermap of features by strain, to see if data cluster into groups
         
         # Ensure no NaN values in features
         assert not feat_df.isna().sum(axis=0).any()
         
-        # TODO: Remove feats with a standard deviation == 0 prior to normalisation
+        # Drop features with zero standard deviation before normalisation
+        feat_df = feat_filter_std(feat_df, threshold=0.0) 
         
-        # Normalise the features results 
+        # Normalise features results 
         #zscores = (feat_df-feat_df.mean())/feat_df.std() # minus mean, divide by std
         featZ_df = feat_df.apply(zscore, axis=0)
         
@@ -312,31 +337,27 @@ if __name__ == "__main__":
         featZ_df.dropna(axis=1, inplace=True)
         print("Dropped %d features after normalisation (NaN)" % (n_cols-len(featZ_df.columns)))
         
+        # TODO: import fastcluster
+        # eg. linkage, complete, average, weighted, centroid
+        # Plot clustermap
         heatmap_path = plot_dir / 'hierarchical_clustermap.eps'
-        clustered_features = plot_clustermap(featZ_df, meta_df, group_by=GROUPING_VAR, saveto=heatmap_path)
+        clustered_features = plot_clustermap(featZ=featZ_df, 
+                                             meta=meta_df, 
+                                             group_by=GROUPING_VAR, 
+                                             saveto=heatmap_path)
 
-        #%%
-        from tierpsytools.analysis.significant_features import k_significant_feat
+#%%     Principal Components Analysis (PCA)
+
+        pca_dir = plot_dir / 'PCA'
+        projected_df = plot_pca(featZ=featZ_df, 
+                                meta=meta_df, 
+                                group_by=GROUPING_VAR, 
+                                n_dims=2,
+                                var_subset=strain_list, 
+                                saveDir=pca_dir,
+                                PCs_to_keep=10,
+                                n_feats2print=10)
         
-        k_sigfeat_dir = plot_dir / 'k_significant_features.eps'
-        k_sigfeat_dir.mkdir(exist_ok=True, parents=True)
-        
-        feature_list, (scores, pvalues), support = k_significant_feat(feat=feat_df, 
-                                                                      y_class=meta_df[GROUPING_VAR], 
-                                                                      k=5, 
-                                                                      score_func='f_classif', 
-                                                                      scale=None, 
-                                                                      feat_names=None, 
-                                                                      plot=True, 
-                                                                      k_to_plot=None, 
-                                                                      close_after_plotting=False,
-                                                                      saveto=k_sigfeat_dir, 
-                                                                      figsize=None, 
-                                                                      title=None, 
-                                                                      xlabel=None)
+        # TODO: Remove outliers from PCA
+        #remove_outliers_pca(projected_df, feat_df)
      
-        projected_df = do_pca(featZ_df, meta_df, group_by=GROUPING_VAR, var_subset=strain_list, saveDir=plot_dir)
-        
-        remove_outliers_pca(projected_df, feat_df)
-
-        

@@ -1018,7 +1018,7 @@ cluster_outpath = os.path.join(plotroot, 'Hierarchical_Clustering_Top256.eps')
 directory = os.path.dirname(cluster_outpath)
 if not os.path.exists(directory):
     os.makedirs(directory)
-plt.savefig(cluster_outpath, tight_layout=True, dpi=300, saveFormat='eps')
+plt.savefig(cluster_outpath, dpi=300, format='eps')
 plt.show(); plt.pause(5)
 
 
