@@ -11,17 +11,15 @@ Analyse Filipe's Tests - N2 vs R60K (ribosomal mutant) behaviour on E. coli OP50
 
 import sys
 import argparse
-import numpy as np
+#import numpy as np
 import pandas as pd
-import seaborn as sns
-from tqdm import tqdm
+#from tqdm import tqdm
 from pathlib import Path
 from scipy.stats import (kruskal,
                          ttest_ind, 
                          f_oneway, 
                          zscore)
-from matplotlib import pyplot as plt
-from matplotlib import transforms, patches
+#from matplotlib import pyplot as plt
 
 # Import custom helper functions
 from helper import (process_metadata, 
@@ -37,7 +35,9 @@ from helper import (process_metadata,
                     boxplots_by_strain,
                     plot_clustermap,
                     plot_pca,
-                    remove_outliers_pca)
+                    remove_outliers_mahalanobis,
+                    plot_tSNE,
+                    plot_umap)
    
 # Path to Github helper functions (USER-DEFINED path to local copy of Github repo)
 PATH_LIST = ['/Users/sm5911/Tierpsy_Versions/tierpsy-tools-python/']
@@ -50,23 +50,11 @@ from tierpsytools.feature_processing.filter_features import feat_filter_std
         
 #%% Globals
 
-OMIT_STRAIN_LIST = None # List of bacterial or worm strains to omit (depending on chosen 'grouping_var')
-USE_TOP256 = False # Use Tierpsy Top256 features for analysis?
-FILTER_SIZE_RELATED_FEATS = False # Drop size features from analysis?
-ADD_WELL_ANNOTATIONS = True
-CHECK_NORMAL = True
 SHOW_PLOTS = False
-NAN_THRESHOLD = 0.2 # Threshold NaN proportion to drop feature from analysis  
-P_VALUE_THRESHOLD = 0.05 # Threshold p-value for statistical significance    
-K_SIG_FEATS = 50
 
-perplexities = [5,10,20,30] # tSNE: Perplexity parameter for tSNE mapping
-n_neighbours = [5,10,20,30] # UMAP: N-neighbours parameter for UMAP projections                                            
-min_dist = 0.3 # Minimum distance parameter for UMAP projections    
-      
 #%% Functions
 
-
+            
 #%% Main
 
 if __name__ == "__main__":
@@ -76,32 +64,56 @@ if __name__ == "__main__":
                         containing 'AuxiliaryFiles', 'RawVideos',\
                         'MaskedVideos' and 'Results' folders,\
                         eg. /Volumes/hermes$/KeioScreen_96WP",
-                        default="/Volumes/hermes$/Filipe_Tests_96WP")
-    parser.add_argument('--grouping_var', help="Treatment variable by which you\
+                        default="/Volumes/hermes$/KeioScreen_96WP", type=str)
+    parser.add_argument('--group_by', help="Treatment variable by which you \
                         want to group results, eg. 'worm_strain' or 'food_type'",
-                        default='worm_strain')
-    parser.add_argument('--imaging_dates', help="Imaging dates to use for analysis.\
+                        default='food_type', type=str)
+    parser.add_argument('--omit_strains', help="List of strains in 'group_by' \
+                        to ignore in the analysis", default=None)
+    parser.add_argument('--dates', help="List of imaging dates to use for analysis.\
                         If None, all imaging dates will be investigated",
                         default=None)
-    parser.add_argument('--timepoint', help="Single timepoint to subset results for analysis.\
-                        If None, all timepoints will be investigated",
-                        default=None)
-    args = parser.parse_args() 
-    PROJECT_DIR = Path(args.project_dir)
-    GROUPING_VAR = args.grouping_var
-    IMAGING_DATES = args.imaging_dates
-    TIMEPOINT = args.timepoint
+    parser.add_argument('--timepoints', help="List of timepoints to subset \
+                        results for analysis. If None, all timepoints will be \
+                        investigated", default=None) # TODO: Change to imaging run number
+    parser.add_argument('--top256', help="Use Tierpsy Top256 features only",
+                        default=True, type=bool)
+    parser.add_argument('--drop_size_related', help="Remove size-related Tierpsy \
+                        features from analysis", default=False, type=bool)
+    parser.add_argument('--well_annotations', help="Add 'is_bad_well' labels \
+                        from WellAnnotator GUI", default=True, type=bool)
+    parser.add_argument('--check_normal', help="Perform Shapiro-Wilks test for \
+                        normality to decide between parametric/non-parametric \
+                        statistics", default=True, type=bool)
+    parser.add_argument('--nan_thresh', help="Threshold proportion of NaN values \
+                        to drop feature from analysis", default=0.2, type=float)
+    parser.add_argument('--pval_thresh', help="Threshold p-value for statistical \
+                        significance", default=0.05, type=float)
+    parser.add_argument('--k_sig_feats', help="Number of most significantly \
+                        different features to plot", default=10, type=int)
+    args = parser.parse_args()
     
-    # PROJECT_DIR = Path('/Volumes/hermes$/KeioScreen_96WP')
-    # GROUPING_VAR = 'food_type'
-    # IMAGING_DATES = ['20201020','20201021']
-    # TIMEPOINT = None
-      
-    print('\nProject root directory: %s' % str(PROJECT_DIR))
-    print('Grouping variable: %s' % GROUPING_VAR)
-    print("Imaging dates: %s" % str(IMAGING_DATES))
-    print('Timepoint: %s' % str(TIMEPOINT))
+    for arg in list(args._get_kwargs()):
+        print('%s: %s' % (arg[0], str(arg[1])))
+        
+    PROJECT_DIR = Path(args.project_dir)                # str
+    GROUPING_VAR = args.group_by                        # str
+    OMIT_STRAIN_LIST = args.omit_strains                # list
+    IMAGING_DATES = args.dates                          # list
+    TIMEPOINT = args.timepoints                         # list
+    USE_TOP256 = args.top256                            # bool
+    FILTER_SIZE_RELATED_FEATS = args.drop_size_related  # bool
+    ADD_WELL_ANNOTATIONS = args.well_annotations        # bool
+    CHECK_NORMAL = args.check_normal                    # bool
+    NAN_THRESHOLD = args.nan_thresh                     # float
+    P_VALUE_THRESHOLD = args.pval_thresh                # float
+    K_SIG_FEATS = args.k_sig_feats                      # int
     
+    # PROJECT_DIR = Path("/Volumes/hermes$/Filipe_Tests_96WP") # Filipe
+    # GROUPING_VAR = 'worm_strain' # Filipe
+    IMAGING_DATES = ['20201020','20201021'] # Keio
+     
+
     aux_dir = PROJECT_DIR / "AuxiliaryFiles"
     results_dir = PROJECT_DIR / "Results"
     
@@ -184,18 +196,22 @@ if __name__ == "__main__":
         stats_dir = results_dir / "Stats" / "Timepoint_{}".format(timepoint) / ftname
         plot_dir = results_dir / "Plots" / "Timepoint_{}".format(timepoint) / ftname
 
-#%%     Statistics  
+#%%     Check normality  
         
         # Look to see if response data are homoscedastic / normally distributed
         if CHECK_NORMAL:
             normtest_savepath = stats_dir / "shapiro_normality_test_results.csv"
             normtest_savepath.parent.mkdir(exist_ok=True, parents=True) # make folder if it does not exist
-            prop_features_normal, is_normal = shapiro_normality_test(features_df=feat_df,
-                                                                     metadata_df=meta_df,
-                                                                     group_by=GROUPING_VAR,
-                                                                     p_value_threshold=P_VALUE_THRESHOLD)                
+            (prop_features_normal, 
+             is_normal) = shapiro_normality_test(features_df=feat_df,
+                                                 metadata_df=meta_df,
+                                                 group_by=GROUPING_VAR,
+                                                 p_value_threshold=P_VALUE_THRESHOLD)                
             # Save normailty test results to file
-            prop_features_normal.to_csv(normtest_savepath, index=True, index_label='food_type', header='prop_normal')
+            prop_features_normal.to_csv(normtest_savepath, 
+                                        index=True, 
+                                        index_label='food_type', 
+                                        header='prop_normal')
         else:
             is_normal = False # Default non-parametric
         
@@ -205,23 +221,28 @@ if __name__ == "__main__":
         control_strain = [strain for strain in strain_list if strain in control_strain_list]
         assert len(control_strain) == 1
         control_strain = control_strain[0]
+
+#%%     t-tests/rank-sum tests for significantly different features between 
+#       each strains vs control
+ 
         
         # Record name of statistical test
         TEST = ttest_ind if is_normal else ranksumtest
         test_name = str(TEST).split(' ')[1].split('.')[-1].split('(')[0].split('\'')[0]
         
-        # Perform STATISTICS: t-tests/rank-sum tests for significantly different
-        # features between each strains vs control
-        pvalues_ttest, sigfeats_table, sigfeats_list = ttest_by_feature(feat_df, 
-                                                                        meta_df, 
-                                                                        group_by=GROUPING_VAR, 
-                                                                        control_strain=control_strain, 
-                                                                        is_normal=is_normal, 
-                                                                        p_value_threshold=P_VALUE_THRESHOLD,
-                                                                        fdr_method='fdr_by')
+        (pvalues_ttest, 
+         sigfeats_table, 
+         sigfeats_list) = ttest_by_feature(feat_df, 
+                                           meta_df, 
+                                           group_by=GROUPING_VAR, 
+                                           control_strain=control_strain, 
+                                           is_normal=is_normal, 
+                                           p_value_threshold=P_VALUE_THRESHOLD,
+                                           fdr_method='fdr_by')
         # Save test statistics to file
         stats_outpath = stats_dir / '{}_results.csv'.format(test_name)
-        sigfeats_outpath = Path(str(stats_outpath).replace('_results.csv', '_significant_features.csv'))
+        sigfeats_outpath = Path(str(stats_outpath).replace('_results.csv',
+                                                           '_significant_features.csv'))
         stats_outpath.parent.mkdir(exist_ok=True, parents=True) # Create save directory if it does not exist
         pvalues_ttest.to_csv(stats_outpath) # Save test results to CSV
         sigfeats_list.to_csv(sigfeats_outpath, index=False) # Save feature list to text file
@@ -230,9 +251,10 @@ if __name__ == "__main__":
         prop_sigfeats = barplot_sigfeats_ttest(test_pvalues_df=pvalues_ttest, 
                                                saveDir=plot_dir,
                                                p_value_threshold=P_VALUE_THRESHOLD)
+
+#%%     One-way ANOVA/Kruskal-Wallis tests for significantly different 
+#       features across strains
         
-        # One-way ANOVA/Kruskal-Wallis tests for significantly different 
-        # features across strains
         pvalues_anova, sigfeats_list = anova_by_feature(feat_df, 
                                                         meta_df, 
                                                         group_by=GROUPING_VAR, 
@@ -247,7 +269,8 @@ if __name__ == "__main__":
         
         # Save test statistics to file
         stats_outpath = stats_dir / '{}_results.csv'.format(test_name)
-        sigfeats_outpath = Path(str(stats_outpath).replace('_results.csv', '_significant_features.csv'))
+        sigfeats_outpath = Path(str(stats_outpath).replace('_results.csv',
+                                                           '_significant_features.csv'))
         pvalues_anova.to_csv(stats_outpath) # Save test results as CSV
         sigfeats_list.to_csv(sigfeats_outpath, index=False) # Save feature list as text file
         
@@ -255,7 +278,7 @@ if __name__ == "__main__":
         # between strains for each feature?
 
 #%%     Boxplots of most significantly different features for each strain vs control
-        # Features ranked by t-test pvalue significance (lowest first)
+#       features ranked by t-test pvalue significance (lowest first)
         
         # Load test results (pvalues) for plotting
         # NB: Non-parametric ranksum test preferred over t-test as many features may not be normally distributed
@@ -317,10 +340,11 @@ if __name__ == "__main__":
         fset_out = pd.Series(fset)
         fset_out.name = 'k_significant_features'
         fset_out = pd.DataFrame(fset_out)
-        fset_out.to_csv(stats_dir / 'k_significant_features.csv', header=0, index=None)   
+        fset_out.to_csv(stats_dir / 'k_significant_features.csv', header=0, 
+                        index=None)   
         
 #%%     Hierarchical Clustering (Heatmap)
-        # Clustermap of features by strain, to see if data cluster into groups
+#       - clustermap of features by strain, to see if data cluster into groups
         
         # Ensure no NaN values in features
         assert not feat_df.isna().sum(axis=0).any()
@@ -335,7 +359,8 @@ if __name__ == "__main__":
         # Drop features with NaN values after normalising
         n_cols = len(featZ_df.columns)
         featZ_df.dropna(axis=1, inplace=True)
-        print("Dropped %d features after normalisation (NaN)" % (n_cols-len(featZ_df.columns)))
+        print("Dropped %d features after normalisation (NaN)" %\
+              (n_cols-len(featZ_df.columns)))
         
         # TODO: import fastcluster
         # eg. linkage, complete, average, weighted, centroid
@@ -360,4 +385,30 @@ if __name__ == "__main__":
         
         # TODO: Remove outliers from PCA
         #remove_outliers_pca(projected_df, feat_df)
+ 
+# #%%     t-distributed Stochastic Neighbour Embedding (tSNE)
+
+#         perplexities = [5,10,20,30] # tSNE: Perplexity parameter for tSNE mapping
+
+#         tsne_dir = plot_dir / 'tSNE'
+#         plot_tSNE(featZ=featZ_df,
+#                   meta=meta_df,
+#                   group_by=GROUPING_VAR,
+#                   var_subset=strain_list,
+#                   saveDir=tsne_dir,
+#                   perplexities=perplexities)
+        
+# #%%     Uniform Manifold Projection (UMAP)
+
+#         n_neighbours = [5,10,20,30] # UMAP: N-neighbours parameter for UMAP projections                                            
+#         min_dist = 0.3 # Minimum distance parameter for UMAP projections    
+        
+#         umap_dir = plot_dir / 'UMAP'
+#         plot_umap(featZ=featZ_df,
+#                   meta=meta_df,
+#                   group_by=GROUPING_VAR,
+#                   var_subset=strain_list,
+#                   saveDir=tsne_dir,
+#                   n_neighbours=n_neighbours,
+#                   min_dist=min_dist)
      

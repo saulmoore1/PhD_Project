@@ -208,7 +208,7 @@ def findFocussedCZI(df, output_dir, method='BREN', imageSizeThreshXY=None, show=
     
     file_df_list = []
     df = df.sort_values(by=['filepath']).reset_index(drop=True)    
-    n = len(df['filepath'].unique())
+    n = len(df['filepath'])
     for f, file in enumerate(df['filepath']):
         print("\nProcessing file %d/%d (%.1f%%)" % (f+1, n, ((f+1)/n)*100))
         
@@ -349,16 +349,6 @@ def findFocussedCZI(df, output_dir, method='BREN', imageSizeThreshXY=None, show=
             # bioformats.write_image(pathname=outPath,\
             #                        pixels=img,\
             #                        pixel_type=bioformats.PT_UINT16)
-            
-            # size = [img.shape[0], img.shape[1]]
-            # img = np.reshape(img, size)
-            # tifffile.imwrite(file=outPath, data=img[None, None, None, :, :], dtype=np.uint16, imagej=True, 
-            #                  metadata={'channels': 1,'slices': 1,'frames': 1})
-            # tifffile.imwrite(file=outPath, data=img[None, None, None, :, :], dtype=np.uint16,
-            #                  ome=True, metadata={'axes':'TZCYX'}, append=False)
-            # tifffile.imwrite(file=outPath, data=foo, dtype=np.uint16)
-            # shape=(1,1,img.shape[0],img.shape[1],1), ome=True, metadata={'axes':'TZCYX'}, planarconfig='CONTIG'
-            #tifffile.imsave(file=outPath, data=np.expand_dims(img, (0,1,2)), dtype=np.uint16, imagej=True)
             
             # Save TIF image as '.npy' for compatibility with ilastik software
             np.save(outPath.replace('.tif','.npy'), 

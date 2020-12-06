@@ -20,15 +20,19 @@ def npy_to_tif(dirpath_npy):
         in a new directory titled, 'tif_images' """
     npy_list = list(dirpath_npy.rglob('*.npy'))
     
-    for img_path in tqdm(npy_list):
-        img = np.load(img_path).squeeze()
-    
-        outdir = img_path.parent / "tif_images"
-        outdir.mkdir(parents=True, exist_ok=True)
-        outpath = outdir / img_path.with_suffix('.tif').name
+    if len(npy_list) > 0:
+        for img_path in tqdm(npy_list):
+            img = np.load(img_path).squeeze()
         
-        cv2.imwrite(str(outpath), img)       
-
+            outdir = img_path.parent / "tif_images"
+            outdir.mkdir(parents=True, exist_ok=True)
+            outpath = outdir / img_path.with_suffix('.tif').name
+            
+            cv2.imwrite(str(outpath), img)       
+        print("\nDone!")
+    else:
+        raise Warning("\nNo '.npy' files found in:\n {}".format(dirpath_npy))
+        
 if __name__ == "__main__":
     
     if len(sys.argv) > 1:
@@ -38,4 +42,3 @@ if __name__ == "__main__":
         print("WARNING: No directory provided! Using default path: %s" % dirpath_npy)
     
     npy_to_tif(dirpath_npy)
-    print("\nDone!")

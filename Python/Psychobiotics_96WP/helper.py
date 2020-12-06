@@ -29,6 +29,7 @@ from scipy.stats import (ttest_ind,
 from statsmodels.stats import multitest as smm # AnovaRM
 from sklearn.decomposition import PCA
 from sklearn.manifold import TSNE
+from sklearn.covariance import MinCovDet
 from matplotlib import pyplot as plt
 from matplotlib import patches, transforms
 from matplotlib.axes._axes import _log as mpl_axes_logger
@@ -203,6 +204,10 @@ def process_metadata(aux_dir,
         # load metadata
         meta_df = pd.read_csv(compiled_metadata_path, dtype={"comments":str}, header=0)
         print("Metadata loaded.")
+        
+        if imaging_dates:
+            print("Extracting metadata for imaging dates provided..")
+            meta_df = meta_df.loc[meta_df['date_yyyymmdd'].isin(imaging_dates),:]
         
     return meta_df
 
@@ -601,6 +606,7 @@ def barplot_sigfeats_ttest(test_pvalues_df,
         savePath = Path(saveDir) / 'percentage_sigfeats.eps'
         print("Saving figure: %s" % savePath.name)
         plt.savefig(savePath, format='eps', dpi=600)
+        plt.close()
     else:
         plt.show()
     
@@ -1008,48 +1014,181 @@ def plot_pca(featZ,
     
     return projected_df
 
-def remove_outliers_pca(projected_df, feat_df):
-    """ Remove outliers in dataset for PCA using Mahalanobis distance metric """
+def MahalanobisOutliers(featMatProjected, extremeness=2., showplot=False):
+    """ A function to determine to return a list of outlier indices using the
+        Mahalanobis distance. 
+        Outlier threshold = std(Mahalanobis distance) * extremeness degree 
+        [extreme_values=2, very_extreme_values=3 --> according to 68-95-99.7 rule]
+    """
+    # NB: Euclidean distance puts more weight than it should on correlated variables
+    # Chicken and egg situation, we can’t know they are outliers until we calculate 
+    # the stats of the distribution, but the stats of the distribution are skewed by outliers!
+    # Mahalanobis gets around this by weighting by robust estimation of covariance matrix
     
-    # Remove outliers: Use Mahalanobis distance to exclude outliers from PCA
+    # Fit a Minimum Covariance Determinant (MCD) robust estimator to data 
+    robust_cov = MinCovDet().fit(featMatProjected[:,:10]) # Use the first 10 principal components
     
-    indsOutliers = MahalanobisOutliers(projected, showplot=True)
-    plt.pause(5); plt.close()
+    # Get the Mahalanobis distance
+    MahalanobisDist = robust_cov.mahalanobis(featMatProjected[:,:10])
     
-    # Drop outlier observation(s)
-    print("Dropping %d outliers from analysis" % len(indsOutliers))
-    indsOutliers = results_feats.index[indsOutliers]
-    results_feats = results_feats.drop(index=indsOutliers)
-    fullresults = fullresults.drop(index=indsOutliers)
-    
-    # Re-normalise data
-    zscores = results_feats.apply(zscore, axis=0)
+    # Colour PCA by Mahalanobis distance
+    if showplot:
+        projectedTable = pd.DataFrame(featMatProjected[:,:10],\
+                              columns=['PC' + str(n+1) for n in range(10)])
+        plt.close('all')
+        plt.rc('xtick',labelsize=15)
+        plt.rc('ytick',labelsize=15)
+        fig, ax = plt.subplots(figsize=[10,10])
+        ax.set_facecolor('#F7FFFF')
+        plt.scatter(np.array(projectedTable['PC1']), np.array(projectedTable['PC2']), c=MahalanobisDist)
+        plt.title('Mahalanobis Distance for Outlier Detection', fontsize=20)
+        plt.colorbar()
+
+    k = np.std(MahalanobisDist) * extremeness
+    upper_t = np.mean(MahalanobisDist) + k
+    outliers = []
+    for i in range(len(MahalanobisDist)):
+        if (MahalanobisDist[i] >= upper_t):
+            outliers.append(i)
+    print("Outliers found: %d" % len(outliers))
+            
+    return np.array(outliers)
+
+def remove_outliers_mahalanobis(df, features_to_analyse=None):
+    """ Remove outliers from dataset based on Mahalanobis distance metric 
+        between points in PCA space. """
+
+    if features_to_analyse:
+        data = df[features_to_analyse]
+    else:
+        data = df
+            
+    # Normalise the data before PCA
+    zscores = data.apply(zscore, axis=0)
     
     # Drop features with NaN values after normalising
+    colnames_before = list(zscores.columns)
     zscores.dropna(axis=1, inplace=True)
-    print("Dropped %d features after normalisation (NaN)" % (len(results_feats.columns)-len(zscores.columns)))
+    colnames_after = list(zscores.columns)
+    nan_cols = [col for col in colnames_before if col not in colnames_after]
+    if len(nan_cols) > 0:
+        print("Dropped %d features with NaN values after normalization:\n%s" %\
+              (len(nan_cols), nan_cols))
+
+    print("\nPerforming PCA for outlier removal...")
     
-    # Use Top256 features
-    print("Using Top256 feature list for dimensionality reduction...")
-    top256featcols = [feat for feat in zscores.columns if feat in featurelist]
-    zscores = zscores[top256featcols]
-    
-    # Project data on PCA axes again
+    # Fit the PCA model with the normalised data
     pca = PCA()
     pca.fit(zscores)
-    projected = pca.transform(zscores) # project data (zscores) onto PCs
-    important_feats, fig = pcainfo(pca=pca, zscores=zscores, PC=1, n_feats2print=10)
+    
+    # Project data (zscores) onto PCs
+    projected = pca.transform(zscores) # A matrix is produced
+    # NB: Could also have used pca.fit_transform()
+
+    # Plot summary data from PCA: explained variance (most important features)
+    important_feats, fig = pcainfo(pca, zscores, PC=1, n_feats2print=10)        
+    
+    # Remove outliers: Use Mahalanobis distance to exclude outliers from PCA
+    indsOutliers = MahalanobisOutliers(projected, showplot=True)
+    
+    # Get outlier indices in original dataframe
+    indsOutliers = np.array(data.index[indsOutliers])
     plt.pause(5); plt.close()
     
-    # Store the results for first few PCs
-    projected_df = pd.DataFrame(projected[:,:10],\
-                                  columns=['PC' + str(n+1) for n in range(10)])
-    projected_df.set_index(fullresults.index, inplace=True) # Do not lose index position
-    projected_df = pd.concat([fullresults[metadata_colnames], projected_df], axis=1)
+    # Drop outlier(s)
+    print("Dropping %d outliers from analysis" % len(indsOutliers))
+    df = df.drop(index=indsOutliers)
+        
+    return df, indsOutliers
+
+def control_variation(df, outDir, features_to_analyse, 
+                      variables_to_analyse=["date_yyyymmdd"], 
+                      remove_outliers=True, 
+                      p_value_threshold=0.05, 
+                      PCs_to_keep=10):
+    """ A function written to analyse control variation over time across with respect 
+        to a defined grouping variable (factor), eg. day of experiment, run number, 
+        duration of L1 diapause, camera/rig ID, etc. """
+           
+    # Record non-data columns before dropping feature columns   
+    other_colnames = [col for col in df.columns if col not in features_to_analyse]
+        
+    # Drop columns that contain only zeros
+    colnames_before = list(df.columns)
+    AllZeroFeats = df[features_to_analyse].columns[(df[features_to_analyse] == 0).all()]
+    df = df.drop(columns=AllZeroFeats)
+    colnames_after = list(df.columns)
+    zero_cols = [col for col in colnames_before if col not in colnames_after]
+    if len(zero_cols) > 0:
+        print("Dropped %d features with all-zero summaries:\n%s" % (len(zero_cols), zero_cols))
     
+    # Record feature column names after dropping zero data
+    features_to_analyse = [feat for feat in df.columns if feat not in other_colnames]
+    
+    # # Remove outliers from the dataset 
+    # if remove_outliers:
+    #     df, indsOutliers = removeOutliersMahalanobis(df, features_to_analyse)
+    #     remove_outliers = False 
+    #     # NB: Ensure Mahalanobis operation to remove outliers is performed only once!
 
-    return projected_df, feat_df
+    # Check for normality in features to analyse in order decide which 
+    # statistical test to use: one-way ANOVA (parametric) or Kruskal-Wallis 
+    # (non-parametric) test
+    TEST = check_normality(df, features_to_analyse, p_value_threshold)
 
+    # Record name of statistical test used (kruskal/f_oneway)
+    test_name = str(TEST).split(' ')[1].split('.')[-1].split('(')[0].split('\'')[0]
+
+    # CONTROL VARIATION: STATS (ANOVAs)
+    # - Does N2 worm behaviour on control vary across experiment days? 
+    #       (worms are larger? Shorter L1 diapuase? Camera focus/FOV adjusted? Skewed by non-worm tracked objects?
+    #       Did not record time when worms were refed! Could be this. If so, worms will be bigger across all foods on that day) 
+    # - Perform ANOVA to see if features vary across imaging days for control
+    # - Perform Tukey HSD post-hoc analyses for pairwise differences between imaging days
+    # - Highlight outlier imaging days and investigate reasons why
+    # - Save list of top significant features for outlier days - are they size-related features?
+    for grouping_variable in variables_to_analyse:
+        print("\nTESTING: %s\n" % grouping_variable)
+        
+        if not len(df[grouping_variable].unique()) > 1:
+            print("Need at least two groups for stats to investigate %s" % grouping_variable)
+        else:
+            print("Performing %s tests for '%s'" % (test_name, grouping_variable))            
+    
+            test_results_df, sigfeats_out = \
+                topfeats_ANOVA_by_group(df, 
+                                        grouping_variable, 
+                                        features_to_analyse,
+                                        TEST,
+                                        p_value_threshold)
+            
+            # Ensure directory exists to save results
+            Path(outDir).mkdir(exist_ok=True, parents=True)
+            
+            # Define outpaths
+            froot = 'control_variation_in_' + grouping_variable + '_' + test_name
+            stats_outpath = outDir / (froot + "_results.csv")
+            sigfeats_outpath = outDir / (froot + "_significant_features.csv")
+                                   
+            # Save test statistics + significant features list to file
+            test_results_df.to_csv(stats_outpath)
+            sigfeats_out.to_csv(sigfeats_outpath, header=False)
+
+            # Box plots
+            plotDir = outDir / "Plots"
+            topfeats_boxplots_by_group(df, 
+                                       test_results_df, 
+                                       grouping_variable,
+                                       plot_save_dir=plotDir, #save to plotDir
+                                       p_value_threshold=p_value_threshold)
+                        
+            # PCA (coloured by grouping variable, eg. experiment date)
+            df = doPCA(df, 
+                       grouping_variable, 
+                       features_to_analyse,
+                       plot_save_dir = plotDir,
+                       PCs_to_keep = PCs_to_keep)
+            
 #%% Plot PCA - All bacterial strains (food)
 
 # topNstrains = 5
@@ -1123,4 +1262,47 @@ def plot_tSNE():
     
 def plot_umap():
     """ """
-    
+
+# =============================================================================
+# def remove_outliers_pca(projected_df, feat_df):
+#     """ Remove outliers in dataset for PCA using Mahalanobis distance metric """
+#     
+#     # Remove outliers: Use Mahalanobis distance to exclude outliers from PCA
+#     
+#     indsOutliers = MahalanobisOutliers(projected, showplot=True)
+#     plt.pause(5); plt.close()
+#     
+#     # Drop outlier observation(s)
+#     print("Dropping %d outliers from analysis" % len(indsOutliers))
+#     indsOutliers = results_feats.index[indsOutliers]
+#     results_feats = results_feats.drop(index=indsOutliers)
+#     fullresults = fullresults.drop(index=indsOutliers)
+#     
+#     # Re-normalise data
+#     zscores = results_feats.apply(zscore, axis=0)
+#     
+#     # Drop features with NaN values after normalising
+#     zscores.dropna(axis=1, inplace=True)
+#     print("Dropped %d features after normalisation (NaN)" % (len(results_feats.columns)-len(zscores.columns)))
+#     
+#     # Use Top256 features
+#     print("Using Top256 feature list for dimensionality reduction...")
+#     top256featcols = [feat for feat in zscores.columns if feat in featurelist]
+#     zscores = zscores[top256featcols]
+#     
+#     # Project data on PCA axes again
+#     pca = PCA()
+#     pca.fit(zscores)
+#     projected = pca.transform(zscores) # project data (zscores) onto PCs
+#     important_feats, fig = pcainfo(pca=pca, zscores=zscores, PC=1, n_feats2print=10)
+#     plt.pause(5); plt.close()
+#     
+#     # Store the results for first few PCs
+#     projected_df = pd.DataFrame(projected[:,:10],\
+#                                   columns=['PC' + str(n+1) for n in range(10)])
+#     projected_df.set_index(fullresults.index, inplace=True) # Do not lose index position
+#     projected_df = pd.concat([fullresults[metadata_colnames], projected_df], axis=1)
+#     
+# 
+#     return projected_df, feat_df
+# =============================================================================
