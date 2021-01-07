@@ -24,7 +24,7 @@ BREN: Brenner's (Santos, 97)
 
 #%% Imports
 
-import os, sys, glob, time
+import os, sys, time
 import numpy as np
 import pandas as pd
 import czifile #tifffile, bioformats, javabridge, unicodedata
@@ -220,9 +220,8 @@ def findFocussedCZI(df, output_dir, method='BREN', imageSizeThreshXY=None, show=
         # extract metadata from filename
         file = str(file)
         fname, dname = os.path.basename(file), os.path.basename(os.path.dirname(file))
-        frname = fname.split('.')[0]
-        plateID = frname.split("PG")[1].split("_")[0]
-        conc_mM = frname.split("mM_")[0].split("_")[-1]
+        plateID = fname.split('.')[0]
+        conc_mM = plateID.split("mM")[0].split("_")[-1]
         
         # # get the actual image reader
         # rdr = bioformats.get_image_reader(None, path=file)
@@ -309,10 +308,10 @@ def findFocussedCZI(df, output_dir, method='BREN', imageSizeThreshXY=None, show=
         # Add dname to outDir when analysing multiple replicate folders at a time
         if df.shape[0] == len([i for i in df['filepath'] if dname in str(i)]):
             # We are analysing a single replicate folder
-            outDir = os.path.join(output_dir, frname)
+            outDir = os.path.join(output_dir, plateID)
         else:
             # We are analysing multiple replicate folders
-            outDir = os.path.join(output_dir, dname, frname)
+            outDir = os.path.join(output_dir, dname, plateID)
         if not os.path.exists(outDir):
             os.makedirs(outDir)
             
@@ -343,7 +342,7 @@ def findFocussedCZI(df, output_dir, method='BREN', imageSizeThreshXY=None, show=
                 plt.imshow(img); plt.pause(5)
                 
             # save as TIFF image
-            outPath = os.path.join(outDir, frname + '_s%dz%d' % (sc, zc) + '.tif')
+            outPath = os.path.join(outDir, plateID + '_s%dz%d' % (sc, zc) + '.tif')
             
             # # Save as TIFF (bioformats)
             # bioformats.write_image(pathname=outPath,\

@@ -18,11 +18,11 @@ trajectories throughout the video, for the entire 96-well plate (imaged under
 
 import sys
 import h5py
-import tqdm
 import argparse
 import pandas as pd
-from matplotlib import pyplot as plt
+from tqdm import tqdm
 from pathlib import Path
+from matplotlib import pyplot as plt
 
 from tierpsy.analysis.split_fov.FOVMultiWellsSplitter import FOVMultiWellsSplitter
 from tierpsy.analysis.split_fov.helper import CAM2CH_df, serial2channel, parse_camera_serial
@@ -58,12 +58,12 @@ def get_trajectory_data(featuresfilepath):
 
 
 def plot_trajectory(featurefilepath, 
-                   ax=None, 
-                   downsample=10, 
-                   legend=True, 
-                   rotate=False, 
-                   img_shape=None, 
-                   **kwargs):
+                    ax=None, 
+                    downsample=10, 
+                    legend=True, 
+                    rotate=False, 
+                    img_shape=None, 
+                    **kwargs):
     """ Overlay feature file trajectory data onto existing figure """
         
     df = get_trajectory_data(featurefilepath)
@@ -145,6 +145,8 @@ def plot_plate_trajectories(featurefilepath, saveDir=None, downsample=10):
     rows = 2
     x = 25.5
     y = 16
+    plt.ioff() if saveDir else plt.ion()
+    plt.close('all')
     fig, axs = plt.subplots(rows,columns,figsize=[x,y])
     
     x_offset = 1.5 / x  # for bottom left image
@@ -182,25 +184,35 @@ def plot_plate_trajectories(featurefilepath, saveDir=None, downsample=10):
         
         # set image position in figure
         ax.set_position(bbox)
-        
-    plt.show()
+    
     if saveDir:
         saveName = maskedfilepath.parent.stem + '.png'
         savePath = Path(saveDir) / saveName
+        Path(saveDir).mkdir(exist_ok=True, parents=True)
         fig.savefig(savePath,
                     bbox_inches='tight',
                     dpi=300,
                     pad_inches=0,
-                    transparent=True)            
+                    transparent=True)  
+    else:
+        # TODO: Fix show plot figsize
+        plt.tight_layout()
+        plt.show(); plt.pause(5)
+          
     return(fig)
 
 
-def plot_plate_trajectories_from_filenames_summary(filenames_path, saveDir):
+def plot_plate_trajectories_from_filenames_summary(filenames_path, 
+                                                   saveDir=None, 
+                                                   downsample=10):
     """ Plot plate trajectories for all files in Tierpsy filenames summaries
         'filenames_path', and save results to 'saveDir' """
 
     filenames_df = pd.read_csv(filenames_path, comment='#')
-    filenames_list = filenames_df[filenames_df['is_good']==True]['file_name']
+    try:
+        filenames_list = filenames_df[filenames_df['is_good']==True]['filename']
+    except:
+        filenames_list = filenames_df[filenames_df['is_good']==True]['file_name']        
     
     filestem_list = []
     featurefile_list = []  
@@ -216,29 +228,56 @@ def plot_plate_trajectories_from_filenames_summary(filenames_path, saveDir):
     
     # overlay trajectories and combine plots for each plate that was imaged
     for featurefilepath in tqdm(featurefile_list):
-        plot_plate_trajectories(featurefilepath, saveDir)
+        print("\nPlotting plate trajectories for: %s" % \
+              Path(featurefilepath).parent.name)
+        plot_plate_trajectories(featurefilepath, 
+                                saveDir=saveDir, 
+                                downsample=downsample)
         
         
 #%% Main
     
 if __name__ == "__main__":
     print("\nRunning: ", sys.argv[0])
-    
-    example_featuresN = Path("/Volumes/behavgenom$/Saul/MicrobiomeScreen96WP/Results/20200222/microbiome_screen2_run7_p1_20200222_122858.22956805/metadata_featuresN.hdf5")
-    
+        
     parser = argparse.ArgumentParser()
-    parser.add_argument("--input", help="input file path (featuresN)", 
-                        default=example_featuresN)
-    # default to example file if none given
-    parser.add_argument("--output", help="output directory path (for saving)", 
-                        default=example_featuresN.parent.parent)
-    # default output directory if none given
-    # parser.add_argument("--downsample", help="downsample trajectory data by plotting the worm centroid for every 'nth' frame",
-    #                     default=10)
-    args = parser.parse_args()
-    print("Input file:", args.input)
-    print("Output directory:", args.output)
     
-    plot_plate_trajectories(args.input, saveDir=args.output, downsample=10)
+    # FeaturesN filepath
+    parser.add_argument("--features_file", help="Input a single featuresN HDF5 \
+                        filepath to plot all trajectories for that plate", 
+                        default=None)  
+    # Full filenames filepath
+    parser.add_argument("--full_filenames", help="Input a full_filenames.csv \
+                        filepath to plot plate trajectories for all videos", 
+                        default=None)
+    # Save dirpath
+    parser.add_argument("--save_dir", help="Path to directory to save plate \
+                        trajectories", default=None)
+    # Downsample
+    parser.add_argument("--downsample", help="Downsample trajectory data by \
+                        plotting the worm centroid for every 'nth' frame",
+                        default=10)
+    args = parser.parse_args()
+    
+    FEAT_FILE_PATH = Path(args.features_file) if args.features_file else None
+    FULL_FILES_PATH = Path(args.full_filenames) if args.full_filenames else None
+    SAVE_DIR = Path(args.save_dir) if args.save_dir else None
+    DOWNSAMPLE = int(args.downsample)
+        
+    if (FEAT_FILE_PATH is not None) or (FULL_FILES_PATH is not None):
+        
+        if FULL_FILES_PATH:
+            print("\nPlotting plate trajectories from full filenames summaries:")
+            plot_plate_trajectories_from_filenames_summary(FULL_FILES_PATH, 
+                                                           saveDir=SAVE_DIR, 
+                                                           downsample=DOWNSAMPLE)
+        elif FEAT_FILE_PATH:
+            print("\nPlotting plate trajectories for features file provided:")
+            plot_plate_trajectories(FEAT_FILE_PATH, 
+                                    saveDir=SAVE_DIR, 
+                                    downsample=DOWNSAMPLE)
+    else:
+        print("\nNo file path provided!")
 
+    
     

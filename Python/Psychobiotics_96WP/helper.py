@@ -199,6 +199,9 @@ def process_metadata(aux_dir,
                                       matched_long=matched_long, 
                                       saveto=compiled_metadata_path,
                                       del_if_exists=True)
+            prop_bad = meta_df.is_bad_well.sum()/len(meta_df.is_bad_well)
+            print("%.1f%% of data is labelled as BAD WELLS" % (prop_bad*100))
+            
         print("Metadata saved to: %s" % compiled_metadata_path)
     else:
         # load metadata
@@ -206,9 +209,16 @@ def process_metadata(aux_dir,
         print("Metadata loaded.")
         
         if imaging_dates:
-            print("Extracting metadata for imaging dates provided..")
             meta_df = meta_df.loc[meta_df['date_yyyymmdd'].isin(imaging_dates),:]
-        
+            print("Extracted metadata for imaging dates provided.")
+        if add_well_annotations:
+            if not 'is_bad_well' in meta_df.columns:
+                raise Warning("Bad well annotations not found in metadata!\n\
+                         Please delete + re-compile with annotations")
+            else:
+                prop_bad = meta_df.is_bad_well.sum()/len(meta_df.is_bad_well)
+                print("%.1f%% of data are labelled as BAD WELLS!" % (prop_bad*100))
+                
     return meta_df
 
 def process_feature_summaries(metadata, 
@@ -416,6 +426,66 @@ def shapiro_normality_test(features_df,
             
     return prop_features_normal, is_normal
 
+def anova_by_feature(feat_df, 
+                     meta_df, 
+                     group_by, 
+                     strain_list=None, 
+                     p_value_threshold=0.05, 
+                     is_normal=True,
+                     fdr_method='fdr_by'):
+    """ One-way ANOVA/Kruskal-Wallis tests for pairwise differences across 
+        strains for each feature """
+
+    # Drop columns that contain only zeros
+    n_cols = len(feat_df.columns)
+    feat_df = feat_df.drop(columns=feat_df.columns[(feat_df == 0).all()])
+    zero_cols = n_cols - len(feat_df.columns)
+    if zero_cols > 0:
+        print("Dropped %d feature summaries (all zeros)" % zero_cols)
+  
+    # Record name of statistical test used (kruskal/f_oneway)
+    TEST = f_oneway if is_normal else kruskal
+    test_name = str(TEST).split(' ')[1].split('.')[-1].split('(')[0].split('\'')[0]
+    print("\nComputing %s tests between strains for each feature..." % test_name)
+
+    # Perform 1-way ANOVAs for each feature between test strains
+    test_pvalues_df = pd.DataFrame(index=['stat','pval'], columns=feat_df.columns)
+    for f, feature in enumerate(tqdm(feat_df.columns)):
+            
+        # Perform test and capture outputs: test statistic + p value
+        test_stat, test_pvalue = TEST(*[feat_df[meta_df[group_by]==strain][feature]\
+                                           for strain in meta_df[group_by].unique()])
+        test_pvalues_df.loc['stat',feature] = test_stat
+        test_pvalues_df.loc['pval',feature] = test_pvalue
+
+    # Perform Bonferroni correction for multiple comparisons on one-way ANOVA pvalues
+    _corrArray = smm.multipletests(test_pvalues_df.loc['pval'], 
+                                   alpha=p_value_threshold, 
+                                   method=fdr_method,
+                                   is_sorted=False, 
+                                   returnsorted=False)
+    
+    # Update pvalues with Benjamini-Yekutieli correction
+    test_pvalues_df.loc['pval',:] = _corrArray[1]
+    
+    # Store names of features that show significant differences across the test bacteria
+    sigfeats = test_pvalues_df.columns[np.where(test_pvalues_df.loc['pval'] < p_value_threshold)]
+    print("Complete!\n%d/%d (%.1f%%) features exhibit significant differences between strains (%s test, %s)"\
+          % (len(sigfeats), len(test_pvalues_df.columns), 
+             len(sigfeats)/len(test_pvalues_df.columns)*100, test_name, fdr_method))
+    
+    # Compile list to store names of significant features
+    sigfeats_list = pd.Series(test_pvalues_df.columns[np.where(test_pvalues_df.loc['pval'] < p_value_threshold)])
+    sigfeats_list.name = 'significant_features_' + test_name
+    sigfeats_list = pd.DataFrame(sigfeats_list)
+      
+    topfeats = test_pvalues_df.loc['pval'].sort_values(ascending=True)[:10]
+    print("Top 10 significant features by %s test:\n" % test_name)
+    for feat in topfeats.index:
+        print(feat)
+
+    return test_pvalues_df, sigfeats_list
+
 def ranksumtest(test_data, control_data):
     """ Wilcoxon rank sum test (column-wise between 2 dataframes of equal dimensions)
         Returns 2 lists: a list of test statistics, and a list of associated p-values
@@ -522,66 +592,6 @@ def ttest_by_feature(feat_df,
 
     return test_pvalues_df, sigfeats_table, sigfeats_list
 
-def anova_by_feature(feat_df, 
-                     meta_df, 
-                     group_by, 
-                     strain_list=None, 
-                     p_value_threshold=0.05, 
-                     is_normal=True,
-                     fdr_method='fdr_by'):
-    """ One-way ANOVA/Kruskal-Wallis tests for pairwise differences across 
-        strains for each feature """
-
-    # Drop columns that contain only zeros
-    n_cols = len(feat_df.columns)
-    feat_df = feat_df.drop(columns=feat_df.columns[(feat_df == 0).all()])
-    zero_cols = n_cols - len(feat_df.columns)
-    if zero_cols > 0:
-        print("Dropped %d feature summaries (all zeros)" % zero_cols)
-  
-    # Record name of statistical test used (kruskal/f_oneway)
-    TEST = f_oneway if is_normal else kruskal
-    test_name = str(TEST).split(' ')[1].split('.')[-1].split('(')[0].split('\'')[0]
-    print("\nComputing %s tests between strains for each feature..." % test_name)
-
-    # Perform 1-way ANOVAs for each feature between test strains
-    test_pvalues_df = pd.DataFrame(index=['stat','pval'], columns=feat_df.columns)
-    for f, feature in enumerate(tqdm(feat_df.columns)):
-            
-        # Perform test and capture outputs: test statistic + p value
-        test_stat, test_pvalue = TEST(*[feat_df[meta_df[group_by]==strain][feature]\
-                                           for strain in meta_df[group_by].unique()])
-        test_pvalues_df.loc['stat',feature] = test_stat
-        test_pvalues_df.loc['pval',feature] = test_pvalue
-
-    # Perform Bonferroni correction for multiple comparisons on one-way ANOVA pvalues
-    _corrArray = smm.multipletests(test_pvalues_df.loc['pval'], 
-                                   alpha=p_value_threshold, 
-                                   method='fdr_bh',
-                                   is_sorted=False, 
-                                   returnsorted=False)
-    
-    # Update pvalues with Benjamini-Yekutieli correction
-    test_pvalues_df.loc['pval',:] = _corrArray[1]
-    
-    # Store names of features that show significant differences across the test bacteria
-    sigfeats = test_pvalues_df.columns[np.where(test_pvalues_df.loc['pval'] < p_value_threshold)]
-    print("Complete!\n%d/%d (%.1f%%) features exhibit significant differences between strains (%s test, %s)"\
-          % (len(sigfeats), len(test_pvalues_df.columns), 
-             len(sigfeats)/len(test_pvalues_df.columns)*100, test_name, fdr_method))
-    
-    # Compile list to store names of significant features
-    sigfeats_list = pd.Series(test_pvalues_df.columns[np.where(test_pvalues_df.loc['pval'] < p_value_threshold)])
-    sigfeats_list.name = 'significant_features_' + test_name
-    sigfeats_list = pd.DataFrame(sigfeats_list)
-      
-    topfeats = test_pvalues_df.loc['pval'].sort_values(ascending=True)[:10]
-    print("Top 10 significant features by %s test:\n" % test_name)
-    for feat in topfeats.index:
-        print(feat)
-
-    return test_pvalues_df, sigfeats_list
-
 def barplot_sigfeats_ttest(test_pvalues_df, 
                            saveDir=None,
                            p_value_threshold=0.05):
@@ -640,7 +650,7 @@ def boxplots_top_feats(feat_meta_df,
             if not n_top_features:
                 n_top_features = n_sigfeats
             if len(topfeats) < n_top_features:
-                print("Only %d significant features found for %s" % (n_sigfeats, strain))
+                print("Only %d significant features found for %s" % (n_sigfeats, str(strain)))
                 n_top_features = len(topfeats)
             else:
                 topfeats = topfeats[:n_top_features]
@@ -651,10 +661,10 @@ def boxplots_top_feats(feat_meta_df,
     
             # Subset feature summary results for test-strain + control only
             plot_df = feat_meta_df[np.logical_or(feat_meta_df[group_by]==control_strain,
-                                                 feat_meta_df[group_by]==strain)] 
+                                                 feat_meta_df[group_by]==str(strain))]
         
             # Colour/legend dictionary
-            colour_dict = {strain:'#C2FDBE', control_strain:'#0C9518'}
+            colour_dict = {str(strain):'#C2FDBE', control_strain:'#0C9518'}
                                                   
             # Boxplots of control vs test-strain for each top-ranked significant feature
             for f, feature in enumerate(topfeats.index):
@@ -702,7 +712,7 @@ def boxplots_top_feats(feat_meta_df,
     
                 # Save figure
                 if saveDir:
-                    plot_path = saveDir / strain / ('{0}_'.format(f + 1) + feature + '.eps')
+                    plot_path = saveDir / str(strain) / ('{0}_'.format(f + 1) + feature + '.eps')
                     plot_path.parent.mkdir(exist_ok=True, parents=True)
                     plt.savefig(plot_path, format='eps', dpi=300)
                 else:
@@ -772,7 +782,7 @@ def boxplots_by_strain(df,
                     flierprops={"marker":"x", "markersize":15, "markeredgecolor":"r"},\
                     palette=colour_dict)
         ax.set_xlabel(feature, fontsize=18, labelpad=10)
-        ax.set_ylabel('Strain', fontsize=18, labelpad=10)
+        ax.set_ylabel(group_by, fontsize=18, labelpad=10)
         locs, labels = plt.yticks() # Get y-axis tick positions and labels
         labs = [lab.get_text() for lab in labels]
         #trans = transforms.blended_transform_factory(ax.transData, ax.transAxes)
@@ -853,7 +863,7 @@ def plot_clustermap(featZ,
      
      return clustered_features
 
-def pcainfo(pca, zscores, PCs_to_keep=10, n_feats2print=10):
+def pcainfo(pca, zscores, PC=0, n_feats2print=10):
     """ A function to plot PCA explained variance, and print the most 
         important features in the given principal component (P.C.)
     """
@@ -871,20 +881,18 @@ def pcainfo(pca, zscores, PCs_to_keep=10, n_feats2print=10):
     fig.tight_layout()
     
     # Print important features
-    important_feats_list = []
-    for pc in range(PCs_to_keep):
-        important_feats = zscores.columns[np.argsort(pca.components_[pc]**2)\
-                                          [-n_feats2print:][::-1]]
-        important_feats_list.append(pd.Series(important_feats, 
-                                              name='PC_{}'.format(str(pc+1))))
+    # important_feats_list = []
+    # for pc in range(PCs_to_keep):
+    important_feats = pd.DataFrame(pd.Series(zscores.columns[np.argsort(pca.components_[PC]**2)\
+                                      [-n_feats2print:][::-1]], name='PC_{}'.format(str(PC))))
+    # important_feats_list.append(pd.Series(important_feats, 
+    #                                       name='PC_{}'.format(str(pc+1))))
+    # important_feats = pd.DataFrame(important_feats_list).T
     
-        if pc == 0:
-            print("\nTop %d features in Principal Component %d:\n" % (n_feats2print, pc+1))
-            for feat in important_feats:
-                print(feat)
+    print("\nTop %d features in Principal Component %d:\n" % (n_feats2print, PC))
+    for feat in important_feats['PC_{}'.format(PC)]:
+        print(feat)
 
-    important_feats = pd.DataFrame(important_feats_list).T
-    
     return important_feats, fig
 
 def plot_pca(featZ, 
@@ -919,7 +927,7 @@ def plot_pca(featZ,
     plt.ioff() if saveDir else plt.ion()
     important_feats, fig = pcainfo(pca=pca, 
                                    zscores=featZ, 
-                                   PCs_to_keep=PCs_to_keep, 
+                                   PC=0, 
                                    n_feats2print=n_feats2print)
            
     # Save plot of PCA explained variance
@@ -1014,7 +1022,7 @@ def plot_pca(featZ,
     
     return projected_df
 
-def MahalanobisOutliers(featMatProjected, extremeness=2., showplot=False):
+def MahalanobisOutliers(featMatProjected, extremeness=2., saveto=None):
     """ A function to determine to return a list of outlier indices using the
         Mahalanobis distance. 
         Outlier threshold = std(Mahalanobis distance) * extremeness degree 
@@ -1031,19 +1039,28 @@ def MahalanobisOutliers(featMatProjected, extremeness=2., showplot=False):
     # Get the Mahalanobis distance
     MahalanobisDist = robust_cov.mahalanobis(featMatProjected[:,:10])
     
-    # Colour PCA by Mahalanobis distance
-    if showplot:
-        projectedTable = pd.DataFrame(featMatProjected[:,:10],\
-                              columns=['PC' + str(n+1) for n in range(10)])
-        plt.close('all')
-        plt.rc('xtick',labelsize=15)
-        plt.rc('ytick',labelsize=15)
-        fig, ax = plt.subplots(figsize=[10,10])
-        ax.set_facecolor('#F7FFFF')
-        plt.scatter(np.array(projectedTable['PC1']), np.array(projectedTable['PC2']), c=MahalanobisDist)
-        plt.title('Mahalanobis Distance for Outlier Detection', fontsize=20)
-        plt.colorbar()
+    projectedTable = pd.DataFrame(featMatProjected[:,:10],\
+                      columns=['PC' + str(n+1) for n in range(10)])
 
+    plt.ioff() if saveto else plt.ion()
+    plt.close('all')
+    plt.rc('xtick',labelsize=15)
+    plt.rc('ytick',labelsize=15)
+    fig, ax = plt.subplots(figsize=[10,10])
+    ax.set_facecolor('#F7FFFF')
+    plt.scatter(np.array(projectedTable['PC1']), 
+                np.array(projectedTable['PC2']), 
+                c=MahalanobisDist) # colour PCA by Mahalanobis distance
+    plt.title('Mahalanobis Distance for Outlier Detection', fontsize=20)
+    plt.colorbar()
+    
+    if saveto:
+        saveto.parent.mkdir(exist_ok=True, parents=True)
+        suffix = Path(saveto).suffix.strip('.')
+        plt.savefig(saveto, format=suffix, dpi=300)
+    else:
+        plt.show()
+        
     k = np.std(MahalanobisDist) * extremeness
     upper_t = np.mean(MahalanobisDist) + k
     outliers = []
@@ -1054,7 +1071,7 @@ def MahalanobisOutliers(featMatProjected, extremeness=2., showplot=False):
             
     return np.array(outliers)
 
-def remove_outliers_mahalanobis(df, features_to_analyse=None):
+def remove_outliers_mahalanobis(df, features_to_analyse=None, saveto=None):
     """ Remove outliers from dataset based on Mahalanobis distance metric 
         between points in PCA space. """
 
@@ -1086,10 +1103,10 @@ def remove_outliers_mahalanobis(df, features_to_analyse=None):
     # NB: Could also have used pca.fit_transform()
 
     # Plot summary data from PCA: explained variance (most important features)
-    important_feats, fig = pcainfo(pca, zscores, PC=1, n_feats2print=10)        
+    important_feats, fig = pcainfo(pca, zscores, PC=0, n_feats2print=10)        
     
     # Remove outliers: Use Mahalanobis distance to exclude outliers from PCA
-    indsOutliers = MahalanobisOutliers(projected, showplot=True)
+    indsOutliers = MahalanobisOutliers(projected, saveto=saveto)
     
     # Get outlier indices in original dataframe
     indsOutliers = np.array(data.index[indsOutliers])
@@ -1101,9 +1118,10 @@ def remove_outliers_mahalanobis(df, features_to_analyse=None):
         
     return df, indsOutliers
 
-def control_variation(df, outDir, features_to_analyse, 
+def control_variation(control_feats, control_meta, saveDir, 
+                      features_to_analyse=None, 
                       variables_to_analyse=["date_yyyymmdd"], 
-                      remove_outliers=True, 
+                      remove_outliers=False, 
                       p_value_threshold=0.05, 
                       PCs_to_keep=10):
     """ A function written to analyse control variation over time across with respect 
