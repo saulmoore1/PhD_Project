@@ -101,7 +101,7 @@ if __name__ == "__main__":
     parser.add_argument('--pval_thresh', help="Threshold p-value for statistical \
                         significance", default=0.05, type=float)
     parser.add_argument('--k_sig_feats', help="Number of most significantly \
-                        different features to plot", default=10, type=int)  
+                        different features to plot", default=100, type=int)  
     args = parser.parse_args()
     
     for arg in list(args._get_kwargs()):
