@@ -69,10 +69,10 @@ if __name__ == "__main__":
     parser.add_argument('--project_dir', help="Project root directory,\
                         containing 'AuxiliaryFiles', 'RawVideos',\
                         'MaskedVideos' and 'Results' folders",
-                        default='/Volumes/hermes$/KeioScreen_96WP', type=str)
+                        default='/Volumes/hermes$/Filipe_Tests_96WP', type=str)
     parser.add_argument('--analyse_variables', help="List of categorical \
                         variables that you wish to investigate", nargs='+',
-                        default=['worm_strain','food_type'])
+                        default=['worm_strain'])
     parser.add_argument('--omit_strains', help="List of strains in 'analyse_variables' \
                         to omit from the analysis", nargs='+', default=None)
     parser.add_argument('--dates', help="List of imaging dates to use for analysis.\
@@ -82,7 +82,7 @@ if __name__ == "__main__":
                         analysis. If None, all imaging runs will be investigated",
                         nargs='+', default=None)
     parser.add_argument('--top256', help="Use Tierpsy Top256 features only",
-                        default=True, type=bool, choices=(True,False))
+                        default=False, type=bool, choices=(True,False))
     parser.add_argument('--drop_size_related', help="Remove size-related Tierpsy \
                         features from analysis", default=False, type=bool, 
                         choices=(True,False))
