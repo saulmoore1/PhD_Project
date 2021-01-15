@@ -307,6 +307,8 @@ if __name__ == "__main__":
                 # Subset results for strains of interest
                 metadata = metadata[metadata[GROUPING_VAR].isin(strain_list)]
                 features = features.loc[metadata.index]
+                # TODO: FIX THIS BIT TO OMIT STRAINS FROM FULL METADATA BEFORE SUBSET IN FOR LOOP
+                # ~ .isin(OMIT_STRAIN_LIST)
      
     #%%     Check normality  
                 

@@ -32,6 +32,9 @@ def edit_image_names(image_dir, remove_duplicate_0th=False):
         
     well_mapping_dict = {key:value for key, value in zip(series_IDs, well_IDs)}
     
+    new_well_IDs = [(j+str(i+1)) for i in range(12) for j in 'ABCDEFGH']
+    new_well_mapping_dict = {key:value for key, value in zip(well_IDs, new_well_IDs)}
+    
     # Edit image names to change seriesID into wellID
     for file in file_list:
         seriesID = re.findall(r'.*_s([0-9]+?)z.*', str(file))

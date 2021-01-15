@@ -21,23 +21,16 @@ experiment runs for time-dependence of various potential confounders:
     L1 diapause duration (age-effects), 
     Temperature/Humidity (stochastic environmental effects)
 
+Depending on whether feature results are normally distributed, parametric tests 
+(or non-parametric equivalents) are performed, and the Benjamini-Yekutieli 
+correction applied to correct for multiple comparisons.
+
+t-tests/Wilcoxon ranksum tests are perfomed to look for behavioural features 
+that differ between each strain vs control. For each food, box plots are saved 
+for the top features that most significantly differ from control observations.
+
 Principal components analysis, tSNE and UMAP are performed to see if strains 
 can be clustered into groups with different behaviours in phenotype space.
-
-Depending on whether feature results are normally distributed, the following
-parametric tests (or non-parametric equivalents) are performed (with the 
-Benjamini-Hochberg correction applied to correct for multiple comparisons):
-
-(1) T-tests/Wilcoxon ranksum tests to look for behavioural features that differ 
-between each strain and the control. For each food, box plots are saved for the 
-top features that most significantly differ from control observations.
-
-(2) One-way ANOVA/Kruskal-Wallis tests to look for 'hit' strains that elicit 
-different N2 behaviour. For significant features, post-hoc Tukey HSD tests are 
-performed for pairwise comparisons between strains.
-
-Box plots are produced for each significant feature in a representative list of 
-Top256 features (Javer et al, 2018)
 
 @author: sm5911
 @date created: 26/10/2019

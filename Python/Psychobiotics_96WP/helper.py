@@ -272,7 +272,11 @@ def process_feature_summaries(metadata,
     if add_bluelight:
         features, metadata = align_bluelight_conditions(feat=features, 
                                                         meta=metadata, 
-                                                        how='outer')
+                                                        how='outer',
+                                                        merge_on_cols=['date_yyyymmdd',
+                                                                       'imaging_run_number',
+                                                                       'imaging_plate_id',
+                                                                       'well_name'])
     assert set(features.index) == set(metadata.index)
     
     return features, metadata
@@ -282,7 +286,8 @@ def clean_features_summaries(features,
                              feature_columns=None, 
                              imputeNaN=True,
                              nan_threshold=0.2, 
-                             drop_size_related_feats=False):
+                             drop_size_related_feats=False,
+                             norm_feats_only=False):
     """ Clean features summary results:
         - Drop features with too many NaN/Inf values (> nan_threshold)
         - Impute remaining NaN values with global mean value for each feature
@@ -334,22 +339,28 @@ def clean_features_summaries(features,
     # is on its left or right side and this is not known for the multiworm tracking data
     feature_columns = features.columns
     features = drop_ventrally_signed(features)
-    print("Dropped %d features that are ventrally signed" % (len(feature_columns)-len(features.columns)))
+    print("Dropped %d features that are ventrally signed" \
+          % (len(feature_columns)-len(features.columns)))
     
     # Drop size-related features
     if drop_size_related_feats:
         size_feat_keys = ['blob','box','width','length','area']
-        feature_columns = list(features.columns)
         size_features = []
-        for feature in feature_columns:
+        for feature in list(features.columns):
             for key in size_feat_keys:
                 if key in feature:
-                    size_features.append(feature)  
-        feature_columns = [feat for feat in feature_columns if feat not in size_features]
-
-        print("Dropped %d features that are size-related" % len(size_features))
+                    size_features.append(feature)
+        feature_columns = [feat for feat in features.columns if feat not in size_features]
         features = features[feature_columns]
-
+        print("Dropped %d features that are size-related" % len(size_features))
+        
+    # Use '_norm' features only
+    if norm_feats_only:
+        feature_columns = features.columns
+        norm_features = [feat for feat in feature_columns if '_norm' in feat]
+        features = features[norm_features]
+        print("Dropped %d features that are not '_norm' features" % (len(feature_columns)-len(features.columns)))
+        
     return features, metadata
 
 def load_top256(top256_path, remove_path_curvature=True, add_bluelight=True):
@@ -364,8 +375,8 @@ def load_top256(top256_path, remove_path_curvature=True, add_bluelight=True):
     # Remove features from Top256 that are path curvature related
     top256 = [feat for feat in top256 if "path_curvature" not in feat]
     n_feats_after = len(top256)
-    print("Dropped %d features from Top%d that are related to path curvature" %\
-          ((n - n_feats_after), n))
+    print("Dropped %d features from Top%d that are related to path curvature"\
+          % ((n - n_feats_after), n))
         
     if add_bluelight:
         bluelight_suffix = ['_prestim','_bluelight','_poststim']
