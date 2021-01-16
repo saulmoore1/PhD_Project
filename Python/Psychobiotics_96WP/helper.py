@@ -31,7 +31,8 @@ from sklearn.decomposition import PCA
 from sklearn.manifold import TSNE
 from sklearn.covariance import MinCovDet
 from matplotlib import pyplot as plt
-from matplotlib import patches, transforms
+#from matplotlib import patches, transforms
+from matplotlib.gridspec import GridSpec
 from matplotlib.axes._axes import _log as mpl_axes_logger
 from mpl_toolkits.mplot3d import Axes3D
 
@@ -53,7 +54,9 @@ from tierpsytools.feature_processing.filter_features import (filter_nan_inf,
                                                              feat_filter_std, 
                                                              drop_bad_wells,
                                                              drop_ventrally_signed)
- 
+
+CUSTOM_STYLE = '/Users/sm5911/Documents/GitHub/PhD_Project/Python/Psychobiotics_96WP/analysis_heatmap.mplstyle'
+
 #%% Functions
 def duration_L1_diapause(df):
     """ Calculate L1 diapause duration (if possible) and append to results """
@@ -200,7 +203,7 @@ def process_metadata(aux_dir,
                                       saveto=compiled_metadata_path,
                                       del_if_exists=True)
             prop_bad = meta_df.is_bad_well.sum()/len(meta_df.is_bad_well)
-            print("%.1f%% of data is labelled as BAD WELLS" % (prop_bad*100))
+            print("%.1f%% of data are labelled as 'bad well' data" % (prop_bad*100))
             
         print("Metadata saved to: %s" % compiled_metadata_path)
     else:
@@ -217,7 +220,7 @@ def process_metadata(aux_dir,
                          Please delete + re-compile with annotations")
             else:
                 prop_bad = meta_df.is_bad_well.sum()/len(meta_df.is_bad_well)
-                print("%.1f%% of data are labelled as BAD WELLS!" % (prop_bad*100))
+                print("%.1f%% of data are labelled as 'bad well' data" % (prop_bad*100))
                 
     return meta_df
 
@@ -298,30 +301,31 @@ def clean_features_summaries(features,
     assert set(features.index) == set(metadata.index)
 
     if feature_columns is not None:
+        assert all([feat in features.columns for feat in feature_columns])
         features = features[feature_columns]
     else:
         feature_columns = features.columns
-        
-    assert all([feat in features.columns for feat in feature_columns])
-    assert not any(features.sum(axis=1) == 0) # ensure no missing row data
-    assert not any((features == 0).all()) # ensure no columns containing only zeros
-    
-    print("Cleaning feature summary results..")
-
+               
     # Drop bad well data
-    features, metadata = drop_bad_wells(features, metadata)
-    
+    features, metadata = drop_bad_wells(features, metadata, bad_well_cols=['is_bad_well'], verbose=False)
+    assert not any(features.sum(axis=1) == 0) # ensure no missing row data
+
     # Drop feature columns with too many NaN values
     features = filter_nan_inf(features, threshold=nan_threshold, axis=0)
     nan_cols = [col for col in feature_columns if col not in features.columns]
-    print("Dropped %d features with >%.1f%% NaNs" % (len(nan_cols), nan_threshold*100))
-    # Dropped feats are 'food_edge'-related (n = 93 *3=279) which is undefined, so NaNs expected
+    if len(nan_cols) > 0:
+        print("Dropped %d features with >%.1f%% NaNs" % (len(nan_cols), nan_threshold*100))
+    # Dropped feats are 'food_edge'-related (n = 93 *3=279) which is undefined so NaNs are expected
     
+    # if any((features == 0).all()): # check for columns containing only zeros
+    #     print("%d features found with all zero values" % len(features.columns[(features == 0).all()]))
+ 
     # Drop feature columns with zero standard deviation
     feature_columns = features.columns
     features = feat_filter_std(features, threshold=0.0)
     zero_std_feats = [col for col in feature_columns if col not in features.columns]
-    print("Dropped %d features with zero standard deviation" % len(zero_std_feats))
+    if len(zero_std_feats) > 0:
+        print("Dropped %d features with zero standard deviation" % len(zero_std_feats))
     
     # Impute remaining NaN values (using global mean feature value for each strain)
     if imputeNaN:
@@ -339,8 +343,9 @@ def clean_features_summaries(features,
     # is on its left or right side and this is not known for the multiworm tracking data
     feature_columns = features.columns
     features = drop_ventrally_signed(features)
-    print("Dropped %d features that are ventrally signed" \
-          % (len(feature_columns)-len(features.columns)))
+    ventrally_signed_feats = [col for col in feature_columns if col not in features.columns]
+    if len(ventrally_signed_feats) > 0:
+        print("Dropped %d features that are ventrally signed" % len(ventrally_signed_feats))
     
     # Drop size-related features
     if drop_size_related_feats:
@@ -365,8 +370,8 @@ def clean_features_summaries(features,
 
 def load_top256(top256_path, remove_path_curvature=True, add_bluelight=True):
     """ Load Tierpsy Top256 set of features describing N2 behaviour on E. coli 
-        OP50 bacteria """
-        
+        OP50 bacteria 
+    """   
     top256_df = pd.read_csv(top256_path, header=0)
     top256 = list(top256_df[top256_df.columns[0]])
     n = len(top256)
@@ -387,18 +392,23 @@ def load_top256(top256_path, remove_path_curvature=True, add_bluelight=True):
 def shapiro_normality_test(features_df, 
                            metadata_df, 
                            group_by, 
-                           p_value_threshold=0.05):
-    """ """
+                           p_value_threshold=0.05,
+                           verbose=True):
+    """ Perform a Shapiro-Wilks test for normality among feature summary results separately for 
+        each test group in 'group_by' column provided, e.g. group_by='worm_strain', and return 
+        whether or not theee feature data can be considered normally distributed for parameetric 
+        statistics 
+    """
+    if verbose:
+        print("Checking for feature normality..")
+        
     is_normal_threshold = 1 - p_value_threshold
-    
     strain_list = list(metadata_df[group_by].unique())
-    
-    print("Checking for normality in feature summaries for each strain..")
     prop_features_normal = pd.Series(data=None, index=strain_list, name='prop_normal')
     for strain in strain_list:
         strain_meta = metadata_df[metadata_df[group_by]==strain]
-        strain_feats = features_df.loc[strain_meta.index]
-        if not strain_feats.shape[0] > 2:
+        strain_feats = features_df.reindex(strain_meta.index)
+        if verbose and not strain_feats.shape[0] > 2:
             print("Not enough data for normality test for %s" % strain)
         else:
             strain_feats = strain_feats.dropna(axis=1, how='all')
@@ -420,21 +430,26 @@ def shapiro_normality_test(features_df,
                     
             prop_normal = (normality_results.loc['pval'] < p_value_threshold).sum()/len(fset)
             prop_features_normal.loc[strain] = prop_normal
-            print("%.1f%% (n=%d) of features are normal for %s" %\
-                  (prop_normal*100, strain_feats.shape[0], strain))
+            if verbose:
+                print("%.1f%% of features are normal for %s (n=%d)" % (prop_normal*100, strain, 
+                                                                       strain_feats.shape[0]))
 
     # Determine whether to perform parametric or non-parametric statistics
     # NB: Null hypothesis - feature summary results for individual strains are normally distributed (Gaussian)
     total_prop_normal = np.mean(prop_features_normal)
     if total_prop_normal > is_normal_threshold:
-        print("""More than %d%% of features (%.1f%%) were found to obey a normal (Gaussian) distribution, 
-        so parametric analyses will be preferred.""" % (is_normal_threshold*100, total_prop_normal*100))
         is_normal = True
+        if verbose:
+            print('More than %d%% of features (%.1f%%) were found to obey a normal distribution '\
+                  % (is_normal_threshold*100, total_prop_normal*100)
+                  + 'so parametric analyses will be preferred.')
     else:
-        print("""Less than %d%% of features (%.1f%%) were found to obey a normal (Gaussian) distribution, 
-        so non-parametric analyses will be preferred.""" % (is_normal_threshold*100, total_prop_normal*100))
         is_normal = False
-            
+        if verbose:
+            print("""Less than %d%% of features (%.1f%%) were found to obey a normal distribution, 
+                  so non-parametric analyses will be preferred.""" % (is_normal_threshold*100, 
+                                                                      total_prop_normal*100))
+    
     return prop_features_normal, is_normal
 
 def anova_by_feature(feat_df, 
@@ -445,8 +460,8 @@ def anova_by_feature(feat_df,
                      is_normal=True,
                      fdr_method='fdr_by'):
     """ One-way ANOVA/Kruskal-Wallis tests for pairwise differences across 
-        strains for each feature """
-
+        strains for each feature 
+    """
     # Drop columns that contain only zeros
     n_cols = len(feat_df.columns)
     feat_df = feat_df.drop(columns=feat_df.columns[(feat_df == 0).all()])
@@ -532,8 +547,8 @@ def ttest_by_feature(feat_df,
     
     # Extract control results
     control_meta = meta_df[meta_df[group_by] == control_strain]
-    control_feats = feat_df.loc[control_meta.index]
-
+    control_feats = feat_df.reindex(control_meta.index)
+    
     # Record test strains
     test_strains = [strain for strain in meta_df[group_by].unique() if strain != control_strain]
 
@@ -548,15 +563,17 @@ def ttest_by_feature(feat_df,
             
         # Grab feature summary results for that strain
         strain_meta = meta_df[meta_df[group_by] == strain]
-        strain_feats = feat_df.loc[strain_meta.index]
-                   
+        strain_feats = feat_df.reindex(strain_meta.index)
+        
         # Drop columns that contain only zeros
         n_cols = len(strain_feats.columns)
-        strain_feats = strain_feats.drop(columns=strain_feats.columns[(strain_feats == 0).all()])
-        control_feats = control_feats.drop(columns=control_feats.columns[(control_feats == 0).all()])
-        zero_cols = n_cols - len(strain_feats.columns)
-        if zero_cols > 0:
-            print("Dropped %d feature summaries for %s (all zeros)" % (zero_cols, strain))
+        strain_feats = feat_filter_std(strain_feats, threshold=0.0)
+        control_feats = feat_filter_std(control_feats, threshold=0.0)
+        # strain_feats = strain_feats.drop(columns=strain_feats.columns[(strain_feats == 0).all()])
+        # control_feats = control_feats.drop(columns=control_feats.columns[(control_feats == 0).all()])
+        zero_std_cols = n_cols - len(strain_feats.columns)
+        if zero_std_cols > 0:
+            print("Dropped %d feature summaries for %s (zero std)" % (zero_std_cols, strain))
             
         # Use only shared feature summaries between control data and test data
         shared_colnames = control_feats.columns.intersection(strain_feats.columns)
@@ -638,8 +655,9 @@ def boxplots_top_feats(feat_meta_df,
                        group_by, 
                        control_strain, 
                        saveDir=None, 
-                       p_value_threshold=0.05, 
-                       n_top_features=None):
+                       p_value_threshold=0.05,
+                       n_top_features=None,
+                       sns_colour_palette="tab10"):
     """ Box plots of most significantly different features between strains """    
         
     plt.ioff() if saveDir else plt.ion()
@@ -675,7 +693,9 @@ def boxplots_top_feats(feat_meta_df,
                                                  feat_meta_df[group_by]==str(strain))]
         
             # Colour/legend dictionary
-            colour_dict = {str(strain):'#C2FDBE', control_strain:'#0C9518'}
+            # Create colour palette for plot loop
+            colour_labels = sns.color_palette(sns_colour_palette, 2)
+            colour_dict = {control_strain:colour_labels[0], str(strain):colour_labels[1]} # '#0C9518', '#C2FDBE'
                                                   
             # Boxplots of control vs test-strain for each top-ranked significant feature
             for f, feature in enumerate(topfeats.index):
@@ -740,15 +760,15 @@ def boxplots_by_strain(df,
                        p_value_threshold=0.05,
                        max_features_plot_cap=None, 
                        max_groups_plot_cap=48,
-                       figsize=[8,12]):
+                       figsize=[8,12],
+                       sns_colour_palette="tab10"):
     """ Boxplots comparing all strains to control for a given feature """
         
     if features2plot is not None:
         assert all(feat in df.columns for feat in features2plot)
-        n = len(features2plot)
+        # Drop insignificant features
         features2plot = [feature for feature in features2plot if \
                          (test_pvalues_df[feature] < p_value_threshold).any()]
-        print("Dropped %d insignificant features" % (n - len(features2plot)))
         
         if max_features_plot_cap and len(features2plot) > max_features_plot_cap:
             print("WARNING: Too many features to plot! Capping at %d plots"\
@@ -777,11 +797,16 @@ def boxplots_by_strain(df,
         # Rank by median
         rankMedian = plot_df.groupby(group_by)[feature].median().sort_values(ascending=True)
         #plot_df = plot_df.set_index(group_by).loc[strains2plt].reset_index()
-        plot_df = plot_df.set_index(group_by).loc[list(rankMedian.index)].reset_index()
-        colour_dict = {strain: "r" if strain == control_strain else \
-                       "darkgray" for strain in plot_df[group_by].unique()}
-        colour_dict2 = {strain: "b" for strain in list(sortedPvals[sortedPvals < p_value_threshold].index)}
-        colour_dict.update(colour_dict2)
+        plot_df = plot_df.set_index(group_by).loc[rankMedian.index].reset_index()
+        
+        if len(strains2plt) > 10:
+            colour_dict = {strain: "r" if strain == control_strain else \
+                           "darkgray" for strain in plot_df[group_by].unique()}
+            colour_dict2 = {strain: "b" for strain in list(sortedPvals[sortedPvals < p_value_threshold].index)}
+            colour_dict.update(colour_dict2)
+        else:
+            colour_labels = sns.color_palette(sns_colour_palette, len(strains2plt))
+            colour_dict = {key:col for (key,col) in zip(plot_df[group_by].unique(), colour_labels)}
         
         # Seaborn boxplot for each feature (only top strains)
         plt.close('all')
@@ -822,57 +847,168 @@ def boxplots_by_strain(df,
 def plot_clustermap(featZ, 
                     meta, 
                     group_by, 
-                    saveto=None):
-     """ Seaborn clustermap (hierarchical clustering heatmap) of normalised """                
-     
-     # Store feature columns
-     fset = featZ.columns
-     
-     # Compute average value for strain for each feature (not each well)
-     featZ_grouped = featZ.join(meta).groupby(group_by).mean().reset_index()
-     
-     # Map colors for strains
-     strain_list = list(featZ_grouped[group_by].unique())
-     colour_dictionary = dict(zip(strain_list, sns.color_palette("gist_rainbow", len(strain_list))))
-     row_colours = meta[group_by].map(colour_dictionary)
+                    test_pvalues_df=None,
+                    selected_feats=None,
+                    saveto=None,
+                    sns_colour_palette="tab10"):
+    """ Seaborn clustermap (hierarchical clustering heatmap) of normalised """                
+    
+    assert (featZ.index == meta.index).all()
+    
+    # Store feature names
+    fset = featZ.columns
+        
+    # Compute average value for strain for each feature (not each well)
+    featZ_grouped = featZ.join(meta).groupby([group_by,'date_yyyymmdd']).mean().reset_index()
+    
+    # Map colors for strains
+    var_list = list(featZ_grouped[group_by].unique())
+    var_colour_dict = dict(zip(var_list, sns.color_palette(sns_colour_palette, len(var_list))))
+    date_list = list(featZ_grouped['date_yyyymmdd'].unique())
+    date_colour_dict = dict(zip(date_list, sns.color_palette("Set2", len(date_list))))
+    #date_colour_dict = dict(zip(set(date_list), sns.hls_palette(len(set(date_list)), l=0.5, s=0.8)))
+    bluelight_colour_dict = dict(zip(['prestim','bluelight','poststim'], sns.color_palette("Set2", 3)))
+    feat_colour_dict = {f:bluelight_colour_dict[f.split('_')[-1]] for f in fset}
+    
+    #Create additional row_colors here
+    row_cols_var = featZ_grouped[group_by].map(var_colour_dict)
+    row_cols_date = featZ_grouped['date_yyyymmdd'].map(date_colour_dict)
 
-     # Heatmap (clustergram) of Top10 features per strain (n=45)
-     plt.close('all')
-     sns.set(font_scale=0.6)
-     cg = sns.clustermap(data=featZ_grouped[fset], 
-                         row_colors=row_colours,
-                         #standard_scale=1, 
-                         #z_score=1,
-                         metric='euclidean', 
-                         method='complete',\
-                         figsize=[15,10], 
-                         #xticklabels=3,
-                         yticklabels=featZ_grouped[group_by],
-                         xticklabels=fset if len(fset) < 256 else False)
-     # patch_list = []
-     # for l, key in enumerate(colour_dictionary.keys()):
-     #     patch = patches.Patch(color=colour_dictionary[key], label=key)
-     #     patch_list.append(patch)
-     # plt.legend(handles=patch_list, labels=colour_dictionary.keys(),\
-     #            borderaxespad=0.4, frameon=False, loc=(-3, -13), fontsize=8)
+    # TODO: import fastcluster ??
+    # Plot clustermap
+    plt.ioff() if saveto else plt.ion()
+    plt.close('all')
+    sns.set(font_scale=0.6)
+    cg = sns.clustermap(data=featZ_grouped[fset], 
+                        row_colors=[row_cols_var, row_cols_date],
+                        col_colors=fset.map(feat_colour_dict),
+                        #standard_scale=1, 
+                        #z_score=1,
+                        metric='euclidean', 
+                        method='complete',
+                        vmin=-2, vmax=2,
+                        figsize=[15,10],
+                        xticklabels=fset if len(fset) < 256 else False,
+                        yticklabels=featZ_grouped[group_by])
+    #cg.ax_heatmap.axes.set_xticklabels([])
+    #cg.ax_heatmap.axes.set_yticklabels([])
+    if len(fset) <= 256:
+        plt.setp(cg.ax_heatmap.xaxis.get_majorticklabels(), rotation=90)
+    plt.setp(cg.ax_heatmap.yaxis.get_majorticklabels(), fontsize=10)
+    
+    # patch_list = []
+    # for l, key in enumerate(strain_colour_dict.keys()):
+    #     patch = patches.Patch(color=strain_colour_dict[key], label=key)
+    #     patch_list.append(patch)
+    # plt.legend(handles=patch_list, labels=strain_colour_dict.keys(),\
+    #            borderaxespad=0.4, frameon=False, loc=(-3, -13), fontsize=8)
      
-     if len(fset) <= 256:
-         plt.setp(cg.ax_heatmap.xaxis.get_majorticklabels(), rotation=90)
-     plt.setp(cg.ax_heatmap.yaxis.get_majorticklabels(), fontsize=10)
-     plt.subplots_adjust(top=0.95,bottom=0.05,left=0.02,right=0.92,hspace=0.2,wspace=0.2)
-     #plt.tight_layout(rect=[0,0,.95,1])
-     
-     # Extract clustered features
-     clustered_features = np.array(fset)[cg.dendrogram_col.reordered_ind]
+    plt.subplots_adjust(top=0.95,bottom=0.05,left=0.02,right=0.92,hspace=0.2,wspace=0.2)
+    plt.tight_layout(rect=[0, 0, 0.89, 1], w_pad=0.5)
+    
+    # Extract clustered features
+    clustered_features = np.array(fset)[cg.dendrogram_col.reordered_ind]
+    
+    # Save clustermap
+    if saveto:
+        saveto.parent.mkdir(exist_ok=True, parents=True)
+        plt.savefig(saveto, dpi=300)
+    else:
+        plt.show()
+    
+    return clustered_features
 
-     # Save clustermap and features of interest
-     if saveto:
-         saveto.parent.mkdir(exist_ok=True, parents=True)
-         plt.savefig(saveto, format='eps', dpi=300)
-     else:
-         plt.show()
-     
-     return clustered_features
+def plot_barcode_clustermap(featZ, 
+                            meta, 
+                            group_by, 
+                            control=None,
+                            test_pvalues_df=None,
+                            p_value_threshold=0.05,
+                            selected_feats=None,
+                            saveto=None,
+                            sns_colour_palette="tab10"):
+    
+    assert set(featZ.index) == set(meta.index)
+    
+    # Store feature names
+    fset = featZ.columns
+        
+    # Compute average value for strain for each feature (not each well)
+    featZ_grouped = featZ.join(meta).groupby(group_by).mean()#.reset_index()
+       
+    # Plot barcode clustermap
+    plt.ioff() if saveto else plt.ion()
+    plt.close('all')  
+    # Make dataframe for heatmap plot
+    heatmap_df_list = [featZ_grouped[fset]]
+    
+    if test_pvalues_df is not None:
+        assert set(test_pvalues_df.columns) == set(fset)
+        assert len(test_pvalues_df.index) == 1
+        
+        # rename index for plot label
+        test_pvalues_df.index = ['p<{}'.format(p_value_threshold)]
+        heatmap_df_list.append(-np.log10(test_pvalues_df))
+    
+    # Map colors for stimulus type
+    _stim = pd.DataFrame(data=[f.split('_')[-1] for f in fset], columns=['stim_type'])
+    _stim['stim_type'] = _stim['stim_type'].map({'prestim':1,'bluelight':2,'poststim':3})
+    _stim = _stim.transpose().rename(columns={c:v for c,v in enumerate(fset)})
+    heatmap_df_list.append(_stim)
+    heatmap_df = pd.concat(heatmap_df_list)
+    
+    # Add barcode - asterisk (*) to highlight selected features
+    cm=['inferno', 'inferno', 'Greys', 'Pastel1']
+    vmin_max = [(-2,2), (-2,2), (0,20), (1,3)]
+    sns.set_style('ticks')
+    plt.style.use(CUSTOM_STYLE)  
+    
+    f = plt.figure(figsize= (20,3))
+    gs = GridSpec(4, 1,wspace=0, hspace=0, height_ratios=[3,3,1,1])
+    cbar_ax = f.add_axes([.91, .3, .03, .4])
+    
+    for n, ((ix, r), c, v) in enumerate(zip(heatmap_df.iterrows(), cm, vmin_max)):
+        axis = f.add_subplot(gs[n])
+        sns.heatmap(r.to_frame().transpose().astype(float),
+                    yticklabels=[ix],
+                    xticklabels=[],
+                    ax=axis,
+                    cmap=c,
+                    cbar=n==0, #only plots colorbar for first plot
+                    cbar_ax=None if n else cbar_ax,
+                    vmin=v[0],
+                    vmax=v[1])
+        axis.set_yticklabels(labels=[ix], rotation=0, fontsize=20)
+        
+        if n>2:
+            c = sns.color_palette('Pastel1',3)
+            sns.heatmap(r.to_frame().transpose(),
+                    yticklabels=[ix],
+                    xticklabels=[],
+                    ax=axis,
+                    cmap=c,
+                    cbar=n==0, 
+                    cbar_ax=None if n else cbar_ax,
+                    vmin=v[0],
+                    vmax=v[1])
+            axis.set_yticklabels(labels=[ix], rotation=0, fontsize=20)
+        cbar_ax.set_yticklabels(labels = cbar_ax.get_yticklabels())#, fontdict=font_settings)
+        #f.tight_layout(rect=[0, 0, 0.89, 1], w_pad=0.5)
+    
+    if selected_feats is not None:
+        for feat in selected_feats:
+            try:
+                axis.text(heatmap_df.columns.get_loc(feat), 1, '*')
+            except KeyError:
+                print('{} not in featureset'.format(feat))
+    
+    if saveto:
+        saveto.parent.mkdir(exist_ok=True, parents=True)
+        plt.savefig(saveto, dpi=600)
+    else:
+        plt.show()
+                
+    return 
 
 def pcainfo(pca, zscores, PC=0, n_feats2print=10):
     """ A function to plot PCA explained variance, and print the most 
@@ -913,7 +1049,8 @@ def plot_pca(featZ,
              var_subset=None, 
              saveDir=None,
              PCs_to_keep=10,
-             n_feats2print=10):
+             n_feats2print=10,
+             sns_colour_palette="tab10"):
     """ Perform principal components analysis 
         - group_by : column in metadata to group by for plotting (colours) 
         - n_dims : number of principal component dimensions to plot (2 or 3)
@@ -921,7 +1058,8 @@ def plot_pca(featZ,
         - saveDir : directory to save PCA results
         - PCs_to_keep : number of PCs to project
         - n_feats2print : number of top features influencing PCs to store """
-        
+    
+    assert (featZ.index == meta.index).all()
     if var_subset is not None:
         assert all([strain in meta[group_by].unique() for strain in var_subset])
     else:
@@ -963,30 +1101,46 @@ def plot_pca(featZ,
                                 columns=['PC' + str(n+1) for n in range(PCs_to_keep)],
                                 index=featZ.index)
     
+    # TODO: Use sklearn.kdeplot Cluster boundaries (convex polygon?) and quantify overlap?
+
     plt.close('all')
-    if n_dims == 2: 
+    if n_dims == 2:
         # OPTION 1: Plot PCA - 2 principal components
         plt.rc('xtick',labelsize=15)
         plt.rc('ytick',labelsize=15)
-        sns.set_style("whitegrid")
-        fig, ax = plt.subplots(figsize=[10,10])
-        
+        fig, ax = plt.subplots(figsize=[9,8])
+                
         # Create colour palette for plot loop
-        palette = itertools.cycle(sns.color_palette("gist_rainbow", len(var_subset)))
+        colour_labels = sns.color_palette(sns_colour_palette, len(var_subset))
+        palette = dict(zip(var_subset, colour_labels))
         
-        for g_var in var_subset:
-            g_var_projected_df = projected_df[meta[group_by]==g_var]
-            sns.scatterplot(x=g_var_projected_df['PC1'], 
-                            y=g_var_projected_df['PC2'], 
-                            color=next(palette), s=50)
+        grouped = meta.join(projected_df).groupby(group_by)
+        for key, group in grouped:
+            group.plot(ax=ax, 
+                       kind='scatter', 
+                       x='PC1', 
+                       y='PC2', 
+                       label=key, 
+                       color=palette[key])
+        sns.kdeplot(x='PC1', 
+                    y='PC2', 
+                    data=meta.join(projected_df), 
+                    hue=group_by, 
+                    palette=palette,
+                    fill=False,
+                    thresh=0.05,
+                    levels=1)        
         ax.set_xlabel('Principal Component 1', fontsize=20, labelpad=12)
         ax.set_ylabel('Principal Component 2', fontsize=20, labelpad=12)
-        ax.set_title("2-component PCA by '{}'".format(group_by), fontsize=20)
+        ax.set_title("PCA by '{}'".format(group_by), fontsize=20)
+        sns.set_style("whitegrid")
         if len(var_subset) <= 15:
             plt.tight_layout(rect=[0.04, 0, 0.84, 0.96])
-            ax.legend(var_subset, frameon=False, loc=(1, 0.85), fontsize=15)
+            ax.legend(var_subset, frameon=False, loc='upper right', fontsize=15)
         ax.grid()
         plt.tight_layout()
+        plt.show()
+
         
     elif n_dims == 3:
         # OPTION 2: Plot PCA - 3 principal components  
@@ -997,7 +1151,7 @@ def plot_pca(featZ,
         ax = Axes3D(fig) # ax = fig.add_subplot(111, projection='3d')
         
         # Create colour palette for plot loop
-        palette = itertools.cycle(sns.color_palette("gist_rainbow", len(var_subset)))
+        palette = itertools.cycle(sns.color_palette(sns_colour_palette, len(var_subset)))
         
         for g_var in var_subset:
             g_var_projected_df = projected_df[meta[group_by]==g_var]
@@ -1008,7 +1162,7 @@ def plot_pca(featZ,
         ax.set_xlabel('Principal Component 1', fontsize=15, labelpad=12)
         ax.set_ylabel('Principal Component 2', fontsize=15, labelpad=12)
         ax.set_zlabel('Principal Component 3', fontsize=15, labelpad=12)
-        ax.set_title("3-component PCA by '{}'".format(group_by), fontsize=20)
+        ax.set_title("PCA by '{}'".format(group_by), fontsize=20)
         if len(var_subset) <= 15:
             ax.legend(var_subset, frameon=False, fontsize=12)
             #ax.set_rasterized(True)
@@ -1033,7 +1187,7 @@ def plot_pca(featZ,
     
     return projected_df
 
-def MahalanobisOutliers(featMatProjected, extremeness=2., saveto=None):
+def find_outliers_mahalanobis(featMatProjected, extremeness=2., saveto=None):
     """ A function to determine to return a list of outlier indices using the
         Mahalanobis distance. 
         Outlier threshold = std(Mahalanobis distance) * extremeness degree 
@@ -1082,7 +1236,7 @@ def MahalanobisOutliers(featMatProjected, extremeness=2., saveto=None):
             
     return np.array(outliers)
 
-def remove_outliers_mahalanobis(df, features_to_analyse=None, saveto=None):
+def remove_outliers_pca(df, features_to_analyse=None, saveto=None):
     """ Remove outliers from dataset based on Mahalanobis distance metric 
         between points in PCA space. """
 
@@ -1117,7 +1271,7 @@ def remove_outliers_mahalanobis(df, features_to_analyse=None, saveto=None):
     important_feats, fig = pcainfo(pca, zscores, PC=0, n_feats2print=10)        
     
     # Remove outliers: Use Mahalanobis distance to exclude outliers from PCA
-    indsOutliers = MahalanobisOutliers(projected, saveto=saveto)
+    indsOutliers = find_outliers_mahalanobis(projected, saveto=saveto)
     
     # Get outlier indices in original dataframe
     indsOutliers = np.array(data.index[indsOutliers])
@@ -1129,94 +1283,212 @@ def remove_outliers_mahalanobis(df, features_to_analyse=None, saveto=None):
         
     return df, indsOutliers
 
-def control_variation(control_feats, control_meta, saveDir, 
-                      features_to_analyse=None, 
-                      variables_to_analyse=["date_yyyymmdd"], 
-                      remove_outliers=False, 
-                      p_value_threshold=0.05, 
-                      PCs_to_keep=10):
-    """ A function written to analyse control variation over time across with respect 
-        to a defined grouping variable (factor), eg. day of experiment, run number, 
-        duration of L1 diapause, camera/rig ID, etc. """
-           
-    # Record non-data columns before dropping feature columns   
-    other_colnames = [col for col in df.columns if col not in features_to_analyse]
-        
-    # Drop columns that contain only zeros
-    colnames_before = list(df.columns)
-    AllZeroFeats = df[features_to_analyse].columns[(df[features_to_analyse] == 0).all()]
-    df = df.drop(columns=AllZeroFeats)
-    colnames_after = list(df.columns)
-    zero_cols = [col for col in colnames_before if col not in colnames_after]
-    if len(zero_cols) > 0:
-        print("Dropped %d features with all-zero summaries:\n%s" % (len(zero_cols), zero_cols))
+def plot_tSNE(featZ,
+              meta,
+              group_by,
+              var_subset=None,
+              saveDir=None,
+              perplexities=[10],
+              n_components=2,
+              sns_colour_palette="tab10"):
+    """ t-distributed stochastic neighbour embedding """
     
-    # Record feature column names after dropping zero data
-    features_to_analyse = [feat for feat in df.columns if feat not in other_colnames]
+    assert (meta.index == featZ.index).all()
+    assert type(perplexities) == list
     
-    # # Remove outliers from the dataset 
-    # if remove_outliers:
-    #     df, indsOutliers = removeOutliersMahalanobis(df, features_to_analyse)
-    #     remove_outliers = False 
-    #     # NB: Ensure Mahalanobis operation to remove outliers is performed only once!
-
-    # Check for normality in features to analyse in order decide which 
-    # statistical test to use: one-way ANOVA (parametric) or Kruskal-Wallis 
-    # (non-parametric) test
-    TEST = check_normality(df, features_to_analyse, p_value_threshold)
-
-    # Record name of statistical test used (kruskal/f_oneway)
-    test_name = str(TEST).split(' ')[1].split('.')[-1].split('(')[0].split('\'')[0]
-
-    # CONTROL VARIATION: STATS (ANOVAs)
-    # - Does N2 worm behaviour on control vary across experiment days? 
-    #       (worms are larger? Shorter L1 diapuase? Camera focus/FOV adjusted? Skewed by non-worm tracked objects?
-    #       Did not record time when worms were refed! Could be this. If so, worms will be bigger across all foods on that day) 
-    # - Perform ANOVA to see if features vary across imaging days for control
-    # - Perform Tukey HSD post-hoc analyses for pairwise differences between imaging days
-    # - Highlight outlier imaging days and investigate reasons why
-    # - Save list of top significant features for outlier days - are they size-related features?
-    for grouping_variable in variables_to_analyse:
-        print("\nTESTING: %s\n" % grouping_variable)
+    if var_subset is not None:
+        assert all([strain in meta[group_by].unique() for strain in var_subset])
+    else:
+        var_subset = list(meta[group_by].unique())    
         
-        if not len(df[grouping_variable].unique()) > 1:
-            print("Need at least two groups for stats to investigate %s" % grouping_variable)
+    print("Performing t-distributed stochastic neighbour embedding (t-SNE)")
+    for perplex in perplexities:
+        # 2-COMPONENT t-SNE
+        tSNE_embedded = TSNE(n_components=n_components, 
+                             init='random', 
+                             random_state=42,\
+                             perplexity=perplex, 
+                             n_iter=3000).fit_transform(featZ)
+        tSNE_df = pd.DataFrame(tSNE_embedded, columns=['tSNE_1', 'tSNE_2']).set_index(featZ.index)
+        
+        # Plot 2-D tSNE
+        plt.ioff() if saveDir else plt.ion()
+        plt.close('all')
+        plt.rc('xtick',labelsize=12)
+        plt.rc('ytick',labelsize=12)
+        fig = plt.figure(figsize=[10,10])
+        ax = fig.add_subplot(1,1,1) 
+        ax.set_xlabel('tSNE Component 1', fontsize=15, labelpad=12)
+        ax.set_ylabel('tSNE Component 2', fontsize=15, labelpad=12)
+        ax.set_title('2-component tSNE (perplexity={0})'.format(perplex), fontsize=20)
+        
+        # Create colour palette for plot loop
+        palette = itertools.cycle(sns.color_palette(sns_colour_palette, len(var_subset))) # 'gist_rainbow'
+        
+        for var in var_subset:
+            tSNE_var = tSNE_df[meta[group_by]==var]
+            sns.scatterplot(x='tSNE_1', y='tSNE_2', data=tSNE_var, color=next(palette), s=100)
+        plt.tight_layout(rect=[0.04, 0, 0.84, 0.96])
+        ax.legend(var_subset, frameon=False, loc=(1, 0.1), fontsize=15)
+        ax.grid()
+        
+        if saveDir:
+            saveDir.mkdir(exist_ok=True, parents=True)
+            savePath = Path(saveDir) / 'tSNE_perplex={0}.eps'.format(perplex)
+            plt.savefig(savePath, tight_layout=True, dpi=300)
         else:
-            print("Performing %s tests for '%s'" % (test_name, grouping_variable))            
+            plt.show(); plt.pause(2)
+        
+    return tSNE_df
     
-            test_results_df, sigfeats_out = \
-                topfeats_ANOVA_by_group(df, 
-                                        grouping_variable, 
-                                        features_to_analyse,
-                                        TEST,
-                                        p_value_threshold)
-            
-            # Ensure directory exists to save results
-            Path(outDir).mkdir(exist_ok=True, parents=True)
-            
-            # Define outpaths
-            froot = 'control_variation_in_' + grouping_variable + '_' + test_name
-            stats_outpath = outDir / (froot + "_results.csv")
-            sigfeats_outpath = outDir / (froot + "_significant_features.csv")
-                                   
-            # Save test statistics + significant features list to file
-            test_results_df.to_csv(stats_outpath)
-            sigfeats_out.to_csv(sigfeats_outpath, header=False)
+def plot_umap(featZ,
+              meta,
+              group_by,
+              var_subset=None,
+              saveDir=None,
+              n_neighbours=[10],
+              min_dist=0.3,
+              sns_colour_palette="tab10"):
+    """ Uniform manifold projection """
+    
+    assert (meta.index == featZ.index).all()
+    assert type(n_neighbours) == list
+    
+    if var_subset is not None:
+        assert all([strain in meta[group_by].unique() for strain in var_subset])
+    else:
+        var_subset = list(meta[group_by].unique())    
 
-            # Box plots
-            plotDir = outDir / "Plots"
-            topfeats_boxplots_by_group(df, 
-                                       test_results_df, 
-                                       grouping_variable,
-                                       plot_save_dir=plotDir, #save to plotDir
-                                       p_value_threshold=p_value_threshold)
-                        
-            # PCA (coloured by grouping variable, eg. experiment date)
-            df = doPCA(df, 
-                       grouping_variable, 
-                       features_to_analyse,
-                       plot_save_dir = plotDir,
-                       PCs_to_keep = PCs_to_keep)
+    print("Performing uniform manifold projection (UMAP)")
+    for n in n_neighbours:
+        UMAP_projection = umap.UMAP(n_neighbors=n,
+                                    min_dist=min_dist,
+                                    metric='correlation').fit_transform(featZ)
+        
+        UMAP_projection_df = pd.DataFrame(UMAP_projection, 
+                                          columns=['UMAP_1', 'UMAP_2']).set_index(featZ.index)
+        UMAP_projection_df.name = 'n={}'.format(str(n))
+        
+        # Plot 2-D UMAP
+        plt.close('all')
+        sns.set_style('whitegrid')
+        plt.rc('xtick',labelsize=12)
+        plt.rc('ytick',labelsize=12)
+        fig = plt.figure(figsize=[11,10])
+        ax = fig.add_subplot(1,1,1) 
+        ax.set_xlabel('UMAP Component 1', fontsize=15, labelpad=12)
+        ax.set_ylabel('UMAP Component 2', fontsize=15, labelpad=12)
+        ax.set_title('2-component UMAP (n_neighbours={0})'.format(n), fontsize=20)
+                
+        # Create colour palette for plot loop
+        palette = itertools.cycle(sns.color_palette(sns_colour_palette, len(var_subset)))
+        
+        for var in var_subset:
+            UMAP_var = UMAP_projection_df[meta[group_by]==var]
+            sns.scatterplot(x='UMAP_1', y='UMAP_2', data=UMAP_var, color=next(palette), s=100)
+        plt.tight_layout(rect=[0.04, 0, 0.84, 0.96])
+        ax.legend(var_subset, frameon=False, loc=(1, 0.1), fontsize=15)
+        ax.grid()
+        
+        if saveDir:
+            saveDir.mkdir(exist_ok=True, parents=True)
+            savePath = Path(saveDir) / 'UMAP_n_neighbours={0}.eps'.format(n)
+            plt.savefig(savePath, tight_layout=True, dpi=300)
+        else:
+            plt.show(); plt.pause(2)
+        
+    return UMAP_projection_df
+
+# =============================================================================
+# def control_variation(control_feats, control_meta, saveDir, 
+#                       features_to_analyse=None, 
+#                       variables_to_analyse=["date_yyyymmdd"], 
+#                       remove_outliers=False, 
+#                       p_value_threshold=0.05, 
+#                       PCs_to_keep=10):
+#     """ A function written to analyse control variation over time across with respect 
+#         to a defined grouping variable (factor), eg. day of experiment, run number, 
+#         duration of L1 diapause, camera/rig ID, etc. """
+#            
+#     # Record non-data columns before dropping feature columns   
+#     other_colnames = [col for col in df.columns if col not in features_to_analyse]
+#         
+#     # Drop columns that contain only zeros
+#     colnames_before = list(df.columns)
+#     AllZeroFeats = df[features_to_analyse].columns[(df[features_to_analyse] == 0).all()]
+#     df = df.drop(columns=AllZeroFeats)
+#     colnames_after = list(df.columns)
+#     zero_cols = [col for col in colnames_before if col not in colnames_after]
+#     if len(zero_cols) > 0:
+#         print("Dropped %d features with all-zero summaries:\n%s" % (len(zero_cols), zero_cols))
+#     
+#     # Record feature column names after dropping zero data
+#     features_to_analyse = [feat for feat in df.columns if feat not in other_colnames]
+#     
+#     # # Remove outliers from the dataset 
+#     # if remove_outliers:
+#     #     df, indsOutliers = removeOutliersMahalanobis(df, features_to_analyse)
+#     #     remove_outliers = False 
+#     #     # NB: Ensure Mahalanobis operation to remove outliers is performed only once!
+# 
+#     # Check for normality in features to analyse in order decide which 
+#     # statistical test to use: one-way ANOVA (parametric) or Kruskal-Wallis 
+#     # (non-parametric) test
+#     TEST = check_normality(df, features_to_analyse, p_value_threshold)
+# 
+#     # Record name of statistical test used (kruskal/f_oneway)
+#     test_name = str(TEST).split(' ')[1].split('.')[-1].split('(')[0].split('\'')[0]
+# 
+#     # CONTROL VARIATION: STATS (ANOVAs)
+#     # - Does N2 worm behaviour on control vary across experiment days? 
+#     #       (worms are larger? Shorter L1 diapuase? Camera focus/FOV adjusted? Skewed by non-worm tracked objects?
+#     #       Did not record time when worms were refed! Could be this. If so, worms will be bigger across all foods on that day) 
+#     # - Perform ANOVA to see if features vary across imaging days for control
+#     # - Perform Tukey HSD post-hoc analyses for pairwise differences between imaging days
+#     # - Highlight outlier imaging days and investigate reasons why
+#     # - Save list of top significant features for outlier days - are they size-related features?
+#     for grouping_variable in variables_to_analyse:
+#         print("\nTESTING: %s\n" % grouping_variable)
+#         
+#         if not len(df[grouping_variable].unique()) > 1:
+#             print("Need at least two groups for stats to investigate %s" % grouping_variable)
+#         else:
+#             print("Performing %s tests for '%s'" % (test_name, grouping_variable))            
+#     
+#             test_results_df, sigfeats_out = \
+#                 topfeats_ANOVA_by_group(df, 
+#                                         grouping_variable, 
+#                                         features_to_analyse,
+#                                         TEST,
+#                                         p_value_threshold)
+#             
+#             # Ensure directory exists to save results
+#             Path(outDir).mkdir(exist_ok=True, parents=True)
+#             
+#             # Define outpaths
+#             froot = 'control_variation_in_' + grouping_variable + '_' + test_name
+#             stats_outpath = outDir / (froot + "_results.csv")
+#             sigfeats_outpath = outDir / (froot + "_significant_features.csv")
+#                                    
+#             # Save test statistics + significant features list to file
+#             test_results_df.to_csv(stats_outpath)
+#             sigfeats_out.to_csv(sigfeats_outpath, header=False)
+# 
+#             # Box plots
+#             plotDir = outDir / "Plots"
+#             topfeats_boxplots_by_group(df, 
+#                                        test_results_df, 
+#                                        grouping_variable,
+#                                        plot_save_dir=plotDir, #save to plotDir
+#                                        p_value_threshold=p_value_threshold)
+#                         
+#             # PCA (coloured by grouping variable, eg. experiment date)
+#             df = doPCA(df, 
+#                        grouping_variable, 
+#                        features_to_analyse,
+#                        plot_save_dir = plotDir,
+#                        PCs_to_keep = PCs_to_keep)
+# =============================================================================
             
 #%% Plot PCA - All bacterial strains (food)
 
@@ -1286,19 +1558,13 @@ def control_variation(control_feats, control_meta, saveDir,
 # savefig(plotpath_2d, tight_layout=False, tellme=True, saveFormat='png') # rasterized=True
 # plt.show(); plt.pause(2)
 
-def plot_tSNE():
-    """ """
-    
-def plot_umap():
-    """ """
-
 # =============================================================================
 # def remove_outliers_pca(projected_df, feat_df):
 #     """ Remove outliers in dataset for PCA using Mahalanobis distance metric """
 #     
 #     # Remove outliers: Use Mahalanobis distance to exclude outliers from PCA
 #     
-#     indsOutliers = MahalanobisOutliers(projected, showplot=True)
+#     indsOutliers = find_outliers_mahalanobis(projected, showplot=True)
 #     plt.pause(5); plt.close()
 #     
 #     # Drop outlier observation(s)
