@@ -161,10 +161,20 @@ def process_metadata(aux_dir,
             rawDir = Path(str(day_meta_path).replace("AuxiliaryFiles","RawVideos")).parent
             
             # Get imgstore name + camera serial
-            if 'imgstore_name' not in day_meta.columns:
+            if ('imgstore_name' not in day_meta.columns):
                 if 'camera_serial' in day_meta.columns:
+                    # Delete camera_serial column as it will be recreated
                      day_meta = day_meta.drop(columns='camera_serial')
                 day_meta = add_imgstore_name(day_meta, rawDir)
+            
+            # If imgstore_name column is incomplete
+            elif 'imgstore_name' in day_meta.columns:
+                if day_meta['imgstore_name'].isna().any():
+                    day_meta = day_meta.drop(columns='imgstore_name')
+                    
+                    if 'camera_serial' in day_meta.columns:
+                        day_meta = day_meta.drop(columns='camera_serial')
+                    day_meta = add_imgstore_name(day_meta, rawDir)                    
             
             # Get filename
             day_meta['filename'] = [rawDir.parent / day_meta.loc[i,'imgstore_name']\
@@ -847,8 +857,6 @@ def boxplots_by_strain(df,
 def plot_clustermap(featZ, 
                     meta, 
                     group_by, 
-                    test_pvalues_df=None,
-                    selected_feats=None,
                     saveto=None,
                     sns_colour_palette="tab10"):
     """ Seaborn clustermap (hierarchical clustering heatmap) of normalised """                
@@ -874,11 +882,11 @@ def plot_clustermap(featZ,
     row_cols_var = featZ_grouped[group_by].map(var_colour_dict)
     row_cols_date = featZ_grouped['date_yyyymmdd'].map(date_colour_dict)
 
-    # TODO: import fastcluster ??
     # Plot clustermap
     plt.ioff() if saveto else plt.ion()
     plt.close('all')
     sns.set(font_scale=0.6)
+    # TODO: install fastcluster?
     cg = sns.clustermap(data=featZ_grouped[fset], 
                         row_colors=[row_cols_var, row_cols_date],
                         col_colors=fset.map(feat_colour_dict),
@@ -921,8 +929,7 @@ def plot_clustermap(featZ,
 def plot_barcode_clustermap(featZ, 
                             meta, 
                             group_by, 
-                            control=None,
-                            test_pvalues_df=None,
+                            pvalues_series=None,
                             p_value_threshold=0.05,
                             selected_feats=None,
                             saveto=None,
@@ -940,31 +947,33 @@ def plot_barcode_clustermap(featZ,
     plt.ioff() if saveto else plt.ion()
     plt.close('all')  
     # Make dataframe for heatmap plot
-    heatmap_df_list = [featZ_grouped[fset]]
+    heatmap_df = featZ_grouped[fset]
     
-    if test_pvalues_df is not None:
-        assert set(test_pvalues_df.columns) == set(fset)
-        assert len(test_pvalues_df.index) == 1
+    var_list = list(heatmap_df.index)
+    
+    if pvalues_series is not None:
+        assert set(pvalues_series.index) == set(fset)
         
-        # rename index for plot label
-        test_pvalues_df.index = ['p<{}'.format(p_value_threshold)]
-        heatmap_df_list.append(-np.log10(test_pvalues_df))
+        heatmap_df = heatmap_df.append(-np.log10(pvalues_series.astype(float)))
     
     # Map colors for stimulus type
     _stim = pd.DataFrame(data=[f.split('_')[-1] for f in fset], columns=['stim_type'])
     _stim['stim_type'] = _stim['stim_type'].map({'prestim':1,'bluelight':2,'poststim':3})
     _stim = _stim.transpose().rename(columns={c:v for c,v in enumerate(fset)})
-    heatmap_df_list.append(_stim)
-    heatmap_df = pd.concat(heatmap_df_list)
+    heatmap_df = heatmap_df.append(_stim)
     
     # Add barcode - asterisk (*) to highlight selected features
-    cm=['inferno', 'inferno', 'Greys', 'Pastel1']
-    vmin_max = [(-2,2), (-2,2), (0,20), (1,3)]
+    cm=list(np.repeat('inferno',len(var_list)))
+    cm.extend(['Greys', 'Pastel1'])
+    vmin_max = [(-1,1) for i in range(len(var_list))]
+    vmin_max.extend([(0,20), (1,3)])
     sns.set_style('ticks')
     plt.style.use(CUSTOM_STYLE)  
     
-    f = plt.figure(figsize= (20,3))
-    gs = GridSpec(4, 1,wspace=0, hspace=0, height_ratios=[3,3,1,1])
+    f = plt.figure(figsize= (20,len(var_list)+1))
+    height_ratios = list(np.repeat(3,len(var_list)))
+    height_ratios.extend([1,1])
+    gs = GridSpec(len(var_list)+2, 1, wspace=0, hspace=0, height_ratios=height_ratios)
     cbar_ax = f.add_axes([.91, .3, .03, .4])
     
     for n, ((ix, r), c, v) in enumerate(zip(heatmap_df.iterrows(), cm, vmin_max)):
@@ -980,7 +989,7 @@ def plot_barcode_clustermap(featZ,
                     vmax=v[1])
         axis.set_yticklabels(labels=[ix], rotation=0, fontsize=20)
         
-        if n>2:
+        if n > len(var_list):
             c = sns.color_palette('Pastel1',3)
             sns.heatmap(r.to_frame().transpose(),
                     yticklabels=[ix],
@@ -1046,7 +1055,8 @@ def plot_pca(featZ,
              meta, 
              group_by, 
              n_dims=2,
-             var_subset=None, 
+             var_subset=None,
+             control=None,
              saveDir=None,
              PCs_to_keep=10,
              n_feats2print=10,
@@ -1064,7 +1074,7 @@ def plot_pca(featZ,
         assert all([strain in meta[group_by].unique() for strain in var_subset])
     else:
         var_subset = list(meta[group_by].unique())
-    
+              
     # Perform PCA on extracted features
     print("\nPerforming Principal Components Analysis (PCA)...")
 
@@ -1101,18 +1111,31 @@ def plot_pca(featZ,
                                 columns=['PC' + str(n+1) for n in range(PCs_to_keep)],
                                 index=featZ.index)
     
-    # TODO: Use sklearn.kdeplot Cluster boundaries (convex polygon?) and quantify overlap?
-
+    # Create colour palette for plot loop
+    if len(var_subset) > 10:
+        if not control:
+            raise IOError('Too many groups for plot color mapping!' + 
+                          'Please provide a control group or subset of groups (n<10) to plot in color')
+        else:
+            # Give colours to control and make the rest gray
+            palette = {var:sns.color_palette(sns_colour_palette, 1)[0] if var == control else \
+                       "darkgray" for var in meta[group_by].unique()}
+    elif len(var_subset) <= 10:
+        colour_labels = sns.color_palette(sns_colour_palette, len(var_subset))
+        palette = dict(zip(var_subset, colour_labels))
+        
+        if set(var_subset) != set(meta[group_by].unique()):
+            # Make the rest gray
+            gray_strains = [var for var in meta[group_by].unique() if var not in var_subset]
+            gray_palette = {var:'darkgray' for var in gray_strains}
+            palette.update(gray_palette)
+        
     plt.close('all')
     if n_dims == 2:
         # OPTION 1: Plot PCA - 2 principal components
         plt.rc('xtick',labelsize=15)
         plt.rc('ytick',labelsize=15)
         fig, ax = plt.subplots(figsize=[9,8])
-                
-        # Create colour palette for plot loop
-        colour_labels = sns.color_palette(sns_colour_palette, len(var_subset))
-        palette = dict(zip(var_subset, colour_labels))
         
         grouped = meta.join(projected_df).groupby(group_by)
         for key, group in grouped:
@@ -1140,7 +1163,6 @@ def plot_pca(featZ,
         ax.grid()
         plt.tight_layout()
         plt.show()
-
         
     elif n_dims == 3:
         # OPTION 2: Plot PCA - 3 principal components  
@@ -1149,16 +1171,13 @@ def plot_pca(featZ,
         fig = plt.figure(figsize=[10,10])
         mpl_axes_logger.setLevel('ERROR') # Work-around for 3D plot colour warnings
         ax = Axes3D(fig) # ax = fig.add_subplot(111, projection='3d')
-        
-        # Create colour palette for plot loop
-        palette = itertools.cycle(sns.color_palette(sns_colour_palette, len(var_subset)))
-        
+                
         for g_var in var_subset:
             g_var_projected_df = projected_df[meta[group_by]==g_var]
             ax.scatter(xs=g_var_projected_df['PC1'], 
                        ys=g_var_projected_df['PC2'], 
                        zs=g_var_projected_df['PC3'],
-                       zdir='z', s=30, c=next(palette), depthshade=False)
+                       zdir='z', s=30, c=palette[g_var], depthshade=False)
         ax.set_xlabel('Principal Component 1', fontsize=15, labelpad=12)
         ax.set_ylabel('Principal Component 2', fontsize=15, labelpad=12)
         ax.set_zlabel('Principal Component 3', fontsize=15, labelpad=12)
@@ -1323,11 +1342,11 @@ def plot_tSNE(featZ,
         ax.set_title('2-component tSNE (perplexity={0})'.format(perplex), fontsize=20)
         
         # Create colour palette for plot loop
-        palette = itertools.cycle(sns.color_palette(sns_colour_palette, len(var_subset))) # 'gist_rainbow'
+        palette = dict(zip(var_subset, (sns.color_palette(sns_colour_palette, len(var_subset)))))
         
         for var in var_subset:
             tSNE_var = tSNE_df[meta[group_by]==var]
-            sns.scatterplot(x='tSNE_1', y='tSNE_2', data=tSNE_var, color=next(palette), s=100)
+            sns.scatterplot(x='tSNE_1', y='tSNE_2', data=tSNE_var, color=palette[var], s=100)
         plt.tight_layout(rect=[0.04, 0, 0.84, 0.96])
         ax.legend(var_subset, frameon=False, loc=(1, 0.1), fontsize=15)
         ax.grid()
@@ -1381,11 +1400,11 @@ def plot_umap(featZ,
         ax.set_title('2-component UMAP (n_neighbours={0})'.format(n), fontsize=20)
                 
         # Create colour palette for plot loop
-        palette = itertools.cycle(sns.color_palette(sns_colour_palette, len(var_subset)))
+        palette = dict(zip(var_subset, (sns.color_palette(sns_colour_palette, len(var_subset)))))
         
         for var in var_subset:
             UMAP_var = UMAP_projection_df[meta[group_by]==var]
-            sns.scatterplot(x='UMAP_1', y='UMAP_2', data=UMAP_var, color=next(palette), s=100)
+            sns.scatterplot(x='UMAP_1', y='UMAP_2', data=UMAP_var, color=palette[var], s=100)
         plt.tight_layout(rect=[0.04, 0, 0.84, 0.96])
         ax.legend(var_subset, frameon=False, loc=(1, 0.1), fontsize=15)
         ax.grid()

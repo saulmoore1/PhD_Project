@@ -13,7 +13,10 @@ import sys
 import argparse
 import pandas as pd
 from pathlib import Path
-from scipy.stats import (ttest_ind, zscore)
+from scipy.stats import (ttest_ind,
+                         f_oneway,
+                         kruskal,
+                         zscore)
 
 # custom helper functions
 from helper import (process_metadata, 
@@ -23,6 +26,7 @@ from helper import (process_metadata,
                     shapiro_normality_test,
                     ranksumtest,
                     ttest_by_feature,
+                    anova_by_feature,
                     barplot_sigfeats_ttest,
                     boxplots_top_feats,
                     boxplots_by_strain,
@@ -44,7 +48,12 @@ from tierpsytools.analysis.significant_features import k_significant_feat
 #%% Globals
 
 control_dict = {'worm_strain': 'N2',
-                'instrument_name': 'Hydra01'}
+                'drug_type': 'DMSO',
+                'food_type': 'BW25113', #'OP50',
+                'instrument_name': 'Hydra01',
+                'worm_life_stage': 'D1',
+                'lawn_growth_duration_hours': '8',
+                'lawn_storage_type': 'old'}
     
 #%% Main
 
@@ -55,28 +64,29 @@ if __name__ == "__main__":
     parser.add_argument('--project_dir', help="Project root directory,\
                         containing 'AuxiliaryFiles', 'RawVideos',\
                         'MaskedVideos' and 'Results' folders",
-                        default='/Volumes/hermes$/Filipe_Tests_96WP', type=str)
+                        default='/Volumes/hermes$/Filipe_Tests_96WP', type=str) # '/Volumes/hermes$/KeioScreen_96WP'
     parser.add_argument('--analyse_variables', help="List of categorical \
                         variables that you wish to investigate", nargs='+',
-                        default=['worm_strain','instrument_name'])
+                        default=['worm_strain','instrument_name']) #['food_type','instrument_name']
+    # Keio = ['food_type','instrument_name','lawn_growth_duration_hours','lawn_storage_type']
     parser.add_argument('--omit_strains', help="List of strains in 'analyse_variables' \
                         to omit from the analysis", nargs='+', default=None)
     parser.add_argument('--dates', help="List of imaging dates to use for analysis.\
                         If None, all imaging dates will be investigated", nargs='+',
-                        default=None)
+                        default=None) # ['20201208', '20201209']
     parser.add_argument('--runs', help="List of imaging run numbers to use for \
                         analysis. If None, all imaging runs will be investigated",
                         nargs='+', default=None)
     parser.add_argument('--use_top256', help="Use Tierpsy Top256 features only",
                         default=False, action='store_true')
     parser.add_argument('--drop_size_features', help="Remove size-related Tierpsy \
-                        features from analysis", default=True, 
-                        action='store_false')
+                        features from analysis", default=False, 
+                        action='store_true')
     parser.add_argument('--norm_features_only', help="Use only normalised \
                         size-invariant features ('_norm') for analysis",
-                        default=True, action='store_false')
+                        default=False, action='store_true')
     parser.add_argument('--add_well_annotations', help="Add 'is_bad_well' labels \
-                        from WellAnnotator GUI", default=True, 
+                        from WellAnnotator GUI", default=True,
                         action='store_false')
     parser.add_argument('--check_normal', help="Perform Shapiro-Wilks test for \
                         normality to decide between parametric/non-parametric \
@@ -115,6 +125,7 @@ if __name__ == "__main__":
     # IO paths
     aux_dir = PROJECT_DIR / "AuxiliaryFiles"
     results_dir = PROJECT_DIR / "Results"
+    save_dir = results_dir # Path('/Users/sm5911/Documents/tmp_analysis/Filipe')
 
     #%% Compile and clean results
     
@@ -139,7 +150,7 @@ if __name__ == "__main__":
                                                   # FIXME: keep all feats here, but plot only norm
                                                   norm_feats_only=NORM_FEATS_ONLY)
     # Save full results to file
-    full_results_path = results_dir / 'full_results.csv' 
+    full_results_path = save_dir / 'full_results.csv' 
     if not full_results_path.exists():
         fullresults = metadata.join(features) # join metadata + results
         print("Saving full results (features/metadata) to:\n '%s'" % full_results_path)     
@@ -206,9 +217,9 @@ if __name__ == "__main__":
             ftname = 'Top256' if USE_TOP256 else 'All_features'
             ftname = ftname + '_noSize' if FILTER_SIZE_FEATS else ftname
             ftname = ftname + '_norm' if NORM_FEATS_ONLY else ftname
-            stats_dir = results_dir / "Stats" / "Run_{}".format(run) /\
+            stats_dir = save_dir / "Stats" / "Run_{}".format(run) /\
                         (GROUPING_VAR + '_variation') / ftname
-            plot_dir = results_dir / "Plots" / "Run_{}".format(run) /\
+            plot_dir = save_dir / "Plots" / "Run_{}".format(run) /\
                        (GROUPING_VAR + '_variation') / ftname
 
             #%% Check normality: Look to see if response data are 
@@ -230,69 +241,103 @@ if __name__ == "__main__":
             else:
                 is_normal = False # Default non-parametric
             
-            #%% Do ANOVA first if >2 groups
+            #%%     One-way ANOVA/Kruskal-Wallis tests for significantly different 
+            #       features across groups (e.g. strains)
+        
+            # When comparing more than 2 groups, perform ANOVA and proceed only to 
+            # pairwise two-sample t-tests if there is significant variability among 
+            # all groups for any feature
+            var_list = list(meta_df[GROUPING_VAR].unique())
             
-            #%% t-tests/rank-sum tests
-            #   for significantly different features between each strain vs control
-         
-            # Record name of statistical test
-            TEST = ttest_ind if is_normal else ranksumtest
-            test_name = str(TEST).split(' ')[1].split('.')[-1].split('(')[0].split('\'')[0]
-            
-            (pvalues_ttest, 
-             sigfeats_table, 
-             sigfeats_list) = ttest_by_feature(feat_df, 
-                                               meta_df, 
-                                               group_by=GROUPING_VAR, 
-                                               control_strain=control, 
-                                               is_normal=is_normal, 
-                                               p_value_threshold=P_VALUE_THRESHOLD,
-                                               fdr_method='fdr_by')
-            
-            # Print number of significant features
-            print("%d significant features for (run %d, %s, %s, p<%.2f)"\
-                  % (len(sigfeats_list), run, GROUPING_VAR, 
-                     test_name, P_VALUE_THRESHOLD))
-            # Save test statistics to file
-            stats_outpath = stats_dir / '{}_results.csv'.format(test_name)
-            sigfeats_outpath = Path(str(stats_outpath).replace('_results.csv',
-                                                               '_significant_features.csv'))
-            stats_outpath.parent.mkdir(exist_ok=True, parents=True) # Create save directory if it does not exist
-            pvalues_ttest.to_csv(stats_outpath) # Save test results to CSV
-            sigfeats_list.to_csv(sigfeats_outpath, index=False) # Save feature list to text file
-            
-            # Barplot of number of significantly different features for each strain   
-            prop_sigfeats = barplot_sigfeats_ttest(test_pvalues_df=pvalues_ttest, 
-                                                   saveDir=plot_dir,
-                                                   p_value_threshold=P_VALUE_THRESHOLD)
-    
-            #%% Boxplots of most significantly different features for each strain vs control
-            #   features ranked by t-test pvalue significance (lowest first)
-                
-            # Load test results (pvalues) for plotting
-            # NB: Non-parametric ranksum test preferred over t-test as many features may not be normally distributed
-            test_name = 'ttest_ind' if is_normal else 'ranksumtest'    
-            stats_inpath = stats_dir / '{}_results.csv'.format(test_name)
-            pvalues_ttest = pd.read_csv(stats_inpath, index_col=0)
-            print("Loaded '%s' results." % test_name)
+            if len(var_list) > 2:
+                pvalues_anova, anova_sigfeats_list = anova_by_feature(feat_df=feat_df, 
+                                                                      meta_df=meta_df, 
+                                                                      group_by=GROUPING_VAR, 
+                                                                      strain_list=var_list, 
+                                                                      p_value_threshold=P_VALUE_THRESHOLD, 
+                                                                      is_normal=is_normal, 
+                                                                      fdr_method='fdr_by')
+                            
+                # Record name of statistical test used (kruskal/f_oneway)
+                TEST = f_oneway if is_normal else kruskal
+                test_name = str(TEST).split(' ')[1].split('.')[-1].split('(')[0].split('\'')[0]
                     
-            # from tierpsytools.analysis.significant_features import plot_feature_boxplots
-            # plot_feature_boxplots(feat_to_plot=fset,
-            #                       y_class=GROUPING_VAR,
-            #                       scores=pvalues_ttest.rank(axis=1),
-            #                       feat_df=feat_df,
-            #                       pvalues=np.asarray(pvalues_ttest).flatten(),
-            #                       saveto=None,
-            #                       close_after_plotting=False)
-            
-            boxplots_top_feats(feat_meta_df=meta_df.join(feat_df), 
-                               test_pvalues_df=pvalues_ttest, 
-                               group_by=GROUPING_VAR, 
-                               control_strain=control, 
-                               saveDir=plot_dir,
-                               n_top_features=50,
-                               p_value_threshold=P_VALUE_THRESHOLD)
-            
+                # Save test statistics to file
+                stats_outpath = stats_dir / '{}_results.csv'.format(test_name)
+                sigfeats_outpath = Path(str(stats_outpath).replace('_results.csv',
+                                                                       '_significant_features.csv'))
+                pvalues_anova.to_csv(stats_outpath) # Save test results as CSV
+                anova_sigfeats_list.to_csv(sigfeats_outpath, index=False) # Save feature list as text file
+                
+                # Record number of signficant features by ANOVA
+                n_sigfeats_anova = len(anova_sigfeats_list)    
+            else:
+                n_sigfeats_anova = 0
+                    
+                
+            #%%     t-tests/rank-sum tests for significantly different features between 
+            #       each strains vs control
+         
+            if n_sigfeats_anova > 0 or len(var_list) == 2:
+         
+                # Record name of statistical test
+                TEST = ttest_ind if is_normal else ranksumtest
+                test_name = str(TEST).split(' ')[1].split('.')[-1].split('(')[0].split('\'')[0]
+                
+                (pvalues_ttest, 
+                 sigfeats_table, 
+                 sigfeats_list) = ttest_by_feature(feat_df, 
+                                                   meta_df, 
+                                                   group_by=GROUPING_VAR, 
+                                                   control_strain=control, 
+                                                   is_normal=is_normal, 
+                                                   p_value_threshold=P_VALUE_THRESHOLD,
+                                                   fdr_method='fdr_by')
+                
+                # Print number of significant features
+                print("%d significant features for (run %d, %s, %s, p<%.2f)"\
+                      % (len(sigfeats_list), run, GROUPING_VAR, 
+                         test_name, P_VALUE_THRESHOLD))
+                # Save test statistics to file
+                stats_outpath = stats_dir / '{}_results.csv'.format(test_name)
+                sigfeats_outpath = Path(str(stats_outpath).replace('_results.csv',
+                                                                   '_significant_features.csv'))
+                stats_outpath.parent.mkdir(exist_ok=True, parents=True) # Create save directory if it does not exist
+                pvalues_ttest.to_csv(stats_outpath) # Save test results to CSV
+                sigfeats_list.to_csv(sigfeats_outpath, index=False) # Save feature list to text file
+                
+                # Barplot of number of significantly different features for each strain   
+                prop_sigfeats = barplot_sigfeats_ttest(test_pvalues_df=pvalues_ttest, 
+                                                       saveDir=plot_dir,
+                                                       p_value_threshold=P_VALUE_THRESHOLD)
+        
+                #%% Boxplots of most significantly different features for each strain vs control
+                #   features ranked by t-test pvalue significance (lowest first)
+                    
+                # Load test results (pvalues) for plotting
+                # NB: Non-parametric ranksum test preferred over t-test as many features may not be normally distributed
+                test_name = 'ttest_ind' if is_normal else 'ranksumtest'    
+                stats_inpath = stats_dir / '{}_results.csv'.format(test_name)
+                pvalues_ttest = pd.read_csv(stats_inpath, index_col=0)
+                print("Loaded '%s' results." % test_name)
+                        
+                # from tierpsytools.analysis.significant_features import plot_feature_boxplots
+                # plot_feature_boxplots(feat_to_plot=fset,
+                #                       y_class=GROUPING_VAR,
+                #                       scores=pvalues_ttest.rank(axis=1),
+                #                       feat_df=feat_df,
+                #                       pvalues=np.asarray(pvalues_ttest).flatten(),
+                #                       saveto=None,
+                #                       close_after_plotting=False)
+                
+                boxplots_top_feats(feat_meta_df=meta_df.join(feat_df), 
+                                   test_pvalues_df=pvalues_ttest, 
+                                   group_by=GROUPING_VAR, 
+                                   control_strain=control, 
+                                   saveDir=plot_dir,
+                                   n_top_features=50,
+                                   p_value_threshold=P_VALUE_THRESHOLD)
+                
             #%% K significant features
     
             k_sigfeat_dir = plot_dir / 'k_sig_feats'
@@ -353,28 +398,31 @@ if __name__ == "__main__":
             if n_dropped > 0:
                 print("Dropped %d features after normalisation (NaN)" % n_dropped)
 
-            # plot clustermap 
-            # cluster methods: linkage, complete, average, weighted, centroid
-            heatmap_path = plot_dir / 'HCA' / 'hierarchical_clustermap.eps'
-            assert set(pvalues_ttest.columns) == set(featZ_df.columns)
-            
-            # FIXME: Use anova pvalues for heatmap comparison if comparing multiple strains, else use ttest
+            # plot clustermap, methods=[linkage, complete, average, weighted, centroid]
+            heatmap_path = plot_dir / 'HCA' / 'hierarchical_clustermap.eps'                
             clustered_features = plot_clustermap(featZ=featZ_df, 
                                                  meta=meta_df, 
                                                  group_by=GROUPING_VAR,
-                                                 test_pvalues_df=pvalues_ttest,
                                                  saveto=heatmap_path)
             
-            ranked_pvals = pvalues_ttest.loc[pvalues_ttest.index[0]].sort_values(ascending=True)
+            # Use anova pvalues for heatmap comparison if comparing multiple strains, else use ttest
+            if len(var_list) > 2:
+                pvalues_heatmap = pvalues_anova.loc['pval',:]
+            elif len(var_list) == 2:
+                pvalues_heatmap = pvalues_ttest.iloc[0]
+            pvalues_heatmap.name = 'p<{}'.format(P_VALUE_THRESHOLD)
+            
+            assert set(pvalues_heatmap.index) == set(featZ_df.columns)
+
+            ranked_pvals = pvalues_heatmap.sort_values(ascending=True)
             selected_features = ranked_pvals[ranked_pvals < P_VALUE_THRESHOLD].index
             
             # Plot barcode clustermap
-            heatmap_path = heatmap_path.replace('.eps', '_barcode.eps')
+            heatmap_path = Path(str(heatmap_path).replace('.eps', '_barcode.eps'))
             plot_barcode_clustermap(featZ=featZ_df, 
                                     meta=meta_df, 
                                     group_by=GROUPING_VAR, 
-                                    control=control,
-                                    test_pvalues_df=pvalues_ttest,
+                                    pvalues_series=pvalues_heatmap,
                                     p_value_threshold=P_VALUE_THRESHOLD,
                                     selected_feats=selected_features,
                                     saveto=heatmap_path,
