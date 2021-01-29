@@ -12,13 +12,14 @@ Analyse between strain variation
 import sys
 import argparse
 import pandas as pd
+import numpy as np
 from pathlib import Path
 from scipy.stats import (ttest_ind,
                          f_oneway,
                          kruskal,
                          zscore)
 
-# custom helper functions
+# Custom functions
 from helper import (process_metadata, 
                     process_feature_summaries,
                     clean_features_summaries,
@@ -27,8 +28,10 @@ from helper import (process_metadata,
                     ranksumtest,
                     ttest_by_feature,
                     anova_by_feature,
-                    barplot_sigfeats_ttest,
-                    boxplots_top_feats,
+                    linear_mixed_model,
+                    swarmplot_random_effect_variation,
+                    barplot_sigfeats,
+                    boxplots_sigfeats,
                     boxplots_by_strain,
                     plot_clustermap,
                     plot_barcode_clustermap,
@@ -44,7 +47,7 @@ for sysPath in PATH_LIST:
         sys.path.insert(0, sysPath)
 
 from tierpsytools.analysis.significant_features import k_significant_feat
-        
+
 #%% Globals
 
 control_dict = {'worm_strain': 'N2',
@@ -68,7 +71,12 @@ if __name__ == "__main__":
     parser.add_argument('--analyse_variables', help="List of categorical \
                         variables that you wish to investigate", nargs='+',
                         default=['worm_strain','instrument_name']) #['food_type','instrument_name']
+    parser.add_argument('--compile_day_summaries', help="Compile full feature summaries from \
+                        day feature summary results", default=False, action='store_true')
     # Keio = ['food_type','instrument_name','lawn_growth_duration_hours','lawn_storage_type']
+    parser.add_argument('--add_well_annotations', help="Add 'is_bad_well' labels \
+                        from WellAnnotator GUI", default=True,
+                        action='store_false')
     parser.add_argument('--omit_strains', help="List of strains in 'analyse_variables' \
                         to omit from the analysis", nargs='+', default=None)
     parser.add_argument('--dates', help="List of imaging dates to use for analysis.\
@@ -85,12 +93,11 @@ if __name__ == "__main__":
     parser.add_argument('--norm_features_only', help="Use only normalised \
                         size-invariant features ('_norm') for analysis",
                         default=False, action='store_true')
-    parser.add_argument('--add_well_annotations', help="Add 'is_bad_well' labels \
-                        from WellAnnotator GUI", default=True,
-                        action='store_false')
     parser.add_argument('--check_normal', help="Perform Shapiro-Wilks test for \
                         normality to decide between parametric/non-parametric \
                         statistics", default=True, action='store_false')
+    parser.add_argument('--feature_means_only', help="Use feature summaries for distribution means \
+                        only", default=False, action='store_true')
     parser.add_argument('--remove_outliers', help="Use Mahalanobis distance to \
                         exclude outliers from analysis", default=False, 
                         action='store_true')  
@@ -101,6 +108,7 @@ if __name__ == "__main__":
     parser.add_argument('--k_sig_features', help="Number of most significantly \
                         different features to plot", default=100, type=int)  
     args = parser.parse_args()
+    # FIXME: Add optional args for feature means only from feeature summaries -- see discussion about percentile testing
     
     print("\nInputs:\n")
     for arg in list(args._get_kwargs()):
@@ -109,12 +117,14 @@ if __name__ == "__main__":
         
     PROJECT_DIR = Path(args.project_dir)                        # str
     IMAGING_DATES = args.dates                                  # list
+    COMPILE_DAY_SUMMARIES = args.compile_day_summaries          # bool
     IMAGING_RUNS = args.runs                                    # list
     VARIABLES_TO_INVESTIGATE = args.analyse_variables           # list
     OMIT_STRAIN_LIST = args.omit_strains                        # list
     USE_TOP256 = args.use_top256                                # bool
     FILTER_SIZE_FEATS = args.drop_size_features                 # bool
     NORM_FEATS_ONLY = args.norm_features_only                   # bool
+    FEAT_MEANS_ONLY = args.feature_means_only                   # bool
     ADD_WELL_ANNOTATIONS = args.add_well_annotations            # bool
     CHECK_NORMAL = args.check_normal                            # bool
     REMOVE_OUTLIERS = args.remove_outliers                      # bool
@@ -125,7 +135,7 @@ if __name__ == "__main__":
     # IO paths
     aux_dir = PROJECT_DIR / "AuxiliaryFiles"
     results_dir = PROJECT_DIR / "Results"
-    save_dir = results_dir # Path('/Users/sm5911/Documents/tmp_analysis/Filipe')
+    save_dir = Path('/Users/sm5911/Documents/tmp_analysis/Filipe') #  = results_dir
 
     #%% Compile and clean results
     
@@ -137,6 +147,7 @@ if __name__ == "__main__":
     # Process feature summary results
     features, metadata = process_feature_summaries(metadata, 
                                                    results_dir,
+                                                   compile_day_summaries=COMPILE_DAY_SUMMARIES,
                                                    imaging_dates=IMAGING_DATES,
                                                    add_bluelight=True)
     
@@ -146,8 +157,8 @@ if __name__ == "__main__":
                                                   feature_columns=None,
                                                   imputeNaN=True,
                                                   nan_threshold=NAN_THRESHOLD,
+                                                  max_value_cap=1e15,
                                                   drop_size_related_feats=FILTER_SIZE_FEATS,
-                                                  # FIXME: keep all feats here, but plot only norm
                                                   norm_feats_only=NORM_FEATS_ONLY)
     # Save full results to file
     full_results_path = save_dir / 'full_results.csv' 
@@ -169,35 +180,59 @@ if __name__ == "__main__":
         # Select features for analysis
         features = features[top256_feat_list]
     
-    # Subset results for imaging dates of interest
+    # Subset results (rows) for imaging dates of interest
     if IMAGING_DATES:
         metadata = metadata[metadata['date_yyyymmdd'].isin(IMAGING_DATES)]
         features = features.reindex(metadata.index)
     
-    # Subset results for imaging run of interest
+    # Subset results (rows) for imaging run of interest
     if IMAGING_RUNS:
         imaging_run_list = IMAGING_RUNS if type(IMAGING_RUNS) == list else [IMAGING_RUNS]
     else:
         imaging_run_list = list(metadata['imaging_run_number'].unique().astype(int))
         print("Found %d imaging runs to analyse: %s" % (len(imaging_run_list), imaging_run_list))
         
-    # Subset results for strains of interest (check case-sensitive)
+    # Subset results (rows) for strains of interest (check case-sensitive)
     assert len(metadata['worm_strain'].unique()) == len(metadata['worm_strain'].str.upper().unique())
     if OMIT_STRAIN_LIST:
         OMIT_STRAIN_LIST = [o.upper() for o in OMIT_STRAIN_LIST]
         strain_list = [s for s in metadata['worm_strain'].unique() if s.upper() not in OMIT_STRAIN_LIST]
     else:
         strain_list = list(metadata['worm_strain'].unique())
+        
     metadata = metadata[metadata['worm_strain'].isin(strain_list)]
     features = features.reindex(metadata.index)
     
-    # Subset results for '_norm' features only
+    # Subset results (cols) for '_norm' features only
     if NORM_FEATS_ONLY:
-        norm_feats = [f for f in features.columns if '_norm' in f]
-        features = features[norm_feats]
+        norm_feat_list = [f for f in features.columns if '_norm' in f]
+        features = features[norm_feat_list]
+    
+    # feature sets for each stimulus type
+    featsets = {}
+    for stim in ['_prestim','_bluelight','_poststim']:
+        featsets[stim] = [f for f in features.columns if stim in f]
+        
+    # Subset results (cols) for mean feature summaries only
+    # FIXME
+    # if FEAT_MEANS_ONLY:
+    #     mean_feats_list = []
+    #     for stim, fset in featsets.items():
+    #         omit_parts = ['10th','']
+            
+    #         [f for f in fset if]
+    #         split_stems = [f.split('_').split('_bluelight').split('_prestim') for f in fset]
+    #         fstem_list = ['_'.join(fstem) for fstem in ]
+    #         fstem_list = list(np.unique(fstem_list))
+    #         for fstem in fstem_list:
+    #             _fset = [f for f in fset if f.startswith(fstem)]
+    #             print(_fset)
+    #             features[(fstem + stim)] = features[_fset].mean(axis=1)
+    #             mean_feats_list.append((fstem + stim))
+    #     features = features[list(np.unique(mean_feats_list))]
 
     #%% Analyse variables
-    
+
     for GROUPING_VAR in VARIABLES_TO_INVESTIGATE:
         print("\nInvestigating '%s' variation" % GROUPING_VAR)
         
@@ -211,12 +246,15 @@ if __name__ == "__main__":
             feat_df = features.reindex(meta_df.index)
             
             # Clean subsetted data: drop NaNs, zero std, etc
-            feat_df, meta_df = clean_features_summaries(feat_df, meta_df, imputeNaN=False)
-            
+            feat_df, meta_df = clean_features_summaries(feat_df, 
+                                                        meta_df, 
+                                                        max_value_cap=False,
+                                                        imputeNaN=False)
             # Save paths
             ftname = 'Top256' if USE_TOP256 else 'All_features'
             ftname = ftname + '_noSize' if FILTER_SIZE_FEATS else ftname
             ftname = ftname + '_norm' if NORM_FEATS_ONLY else ftname
+            ftname = ftname + '_noOutliers' if REMOVE_OUTLIERS else ftname
             stats_dir = save_dir / "Stats" / "Run_{}".format(run) /\
                         (GROUPING_VAR + '_variation') / ftname
             plot_dir = save_dir / "Plots" / "Run_{}".format(run) /\
@@ -274,7 +312,7 @@ if __name__ == "__main__":
             else:
                 n_sigfeats_anova = 0
                     
-                
+        
             #%%     t-tests/rank-sum tests for significantly different features between 
             #       each strains vs control
          
@@ -299,18 +337,19 @@ if __name__ == "__main__":
                       % (len(sigfeats_list), run, GROUPING_VAR, 
                          test_name, P_VALUE_THRESHOLD))
                 # Save test statistics to file
-                stats_outpath = stats_dir / '{}_results.csv'.format(test_name)
                 sigfeats_outpath = Path(str(stats_outpath).replace('_results.csv',
                                                                    '_significant_features.csv'))
-                stats_outpath.parent.mkdir(exist_ok=True, parents=True) # Create save directory if it does not exist
-                pvalues_ttest.to_csv(stats_outpath) # Save test results to CSV
-                sigfeats_list.to_csv(sigfeats_outpath, index=False) # Save feature list to text file
+                sigfeats_list.to_csv(sigfeats_outpath, index=False) # Save feature list to file
                 
+                stats_outpath = stats_dir / '{}_results.csv'.format(test_name)
+                stats_outpath.parent.mkdir(exist_ok=True, parents=True)
+                pvalues_ttest.to_csv(stats_outpath) # Save test results to CSV
+                                
                 # Barplot of number of significantly different features for each strain   
-                prop_sigfeats = barplot_sigfeats_ttest(test_pvalues_df=pvalues_ttest, 
-                                                       saveDir=plot_dir,
-                                                       p_value_threshold=P_VALUE_THRESHOLD)
-        
+                prop_sigfeats = barplot_sigfeats(test_pvalues_df=pvalues_ttest, 
+                                                 saveDir=plot_dir,
+                                                 p_value_threshold=P_VALUE_THRESHOLD)
+
                 #%% Boxplots of most significantly different features for each strain vs control
                 #   features ranked by t-test pvalue significance (lowest first)
                     
@@ -320,6 +359,14 @@ if __name__ == "__main__":
                 stats_inpath = stats_dir / '{}_results.csv'.format(test_name)
                 pvalues_ttest = pd.read_csv(stats_inpath, index_col=0)
                 print("Loaded '%s' results." % test_name)
+                
+                boxplots_sigfeats(feat_meta_df=meta_df.join(feat_df), 
+                                  test_pvalues_df=pvalues_ttest, 
+                                  group_by=GROUPING_VAR, 
+                                  control_strain=control, 
+                                  saveDir=plot_dir,
+                                  n_sig_feats_to_plot=50,
+                                  p_value_threshold=P_VALUE_THRESHOLD)
                         
                 # from tierpsytools.analysis.significant_features import plot_feature_boxplots
                 # plot_feature_boxplots(feat_to_plot=fset,
@@ -329,15 +376,41 @@ if __name__ == "__main__":
                 #                       pvalues=np.asarray(pvalues_ttest).flatten(),
                 #                       saveto=None,
                 #                       close_after_plotting=False)
-                
-                boxplots_top_feats(feat_meta_df=meta_df.join(feat_df), 
-                                   test_pvalues_df=pvalues_ttest, 
-                                   group_by=GROUPING_VAR, 
-                                   control_strain=control, 
-                                   saveDir=plot_dir,
-                                   n_top_features=50,
-                                   p_value_threshold=P_VALUE_THRESHOLD)
-                
+
+            #%% Linear Mixed Models (LMMs) to account for day-to-day variation when comparing 
+            #   between groups
+            RANDOM_EFFECT = 'date_yyyymmdd'
+            pvalues_lmm = linear_mixed_model(feat_df=feat_df,
+                                             meta_df=meta_df,
+                                             group_by=GROUPING_VAR,
+                                             control=control,
+                                             random_effect=RANDOM_EFFECT,
+                                             fdr=P_VALUE_THRESHOLD,
+                                             fdr_method='fdr_by',
+                                             comparison_type='infer',
+                                             n_jobs=-1)
+            
+            # Save LMM significant features
+            lmm_path = stats_dir / 'LMM_{}.csv'.format(RANDOM_EFFECT)
+            lmm_path.parent.mkdir(exist_ok=True, parents=True)
+            pvalues_lmm.to_csv(lmm_path, header=True, index=True)
+            
+            # FIXME: Determine correct way of selecting reduced set of significant features
+            fset = pvalues_lmm[pvalues_lmm.columns[np.where(pvalues_lmm < P_VALUE_THRESHOLD)[1]]]
+            fset = fset.iloc[0].sort_values(ascending=True).index.to_list()
+            
+            swarmDir = plot_dir / 'swarmplots_by_{}'.format(RANDOM_EFFECT)
+            swarmplot_random_effect_variation(feat_df=feat_df,
+                                              meta_df=meta_df,
+                                              group_by=GROUPING_VAR,
+                                              test_pvalues_df=pvalues_lmm,
+                                              control=control,
+                                              features2plot=fset[:K_SIG_FEATS],
+                                              p_value_threshold=0.05,
+                                              saveDir=swarmDir,
+                                              sns_colour_palette="tab10",
+                                              dodge=False)
+                    
             #%% K significant features
     
             k_sigfeat_dir = plot_dir / 'k_sig_feats'
@@ -357,38 +430,67 @@ if __name__ == "__main__":
                                                                   figsize=None, 
                                                                   title=None, 
                                                                   xlabel=None)
-  
+            pvalues_ksig = pd.Series(data=pvalues, index=fset, name='k_significant_features')
+ 
+            # Save k most significant features
+            fset_out = pd.DataFrame(pvalues_ksig).reset_index(drop=False)
+            fset_out.columns = ['feature','p_value']
+            fset_out.to_csv(stats_dir / 'k_significant_features.csv', header=True, index=False)   
+   
             # OPTIONAL: Plot cherry-picked features
             #fset = ['speed_50th','curvature_neck_abs_50th','major_axis_50th','angular_velocity_neck_abs_50th']
-            #fset = pvalues_ttest.columns[np.where((pvalues_ttest < P_VALUE_THRESHOLD).any(axis=0))]
+            #fset = pvalues_ttest.columns[np.where((pvalues_ttest < P_VALUE_THRESHOLD).any(axis=0))]            
             
-            # FIXME: Increase axis label fontsize, decrease box sizes, set whitegrid
             boxplots_by_strain(df=meta_df.join(feat_df), 
                                group_by=GROUPING_VAR,
                                test_pvalues_df=pvalues_ttest,
-                               control_strain=control,
+                               control_group=control,
                                features2plot=fset,
                                saveDir=k_sigfeat_dir,
                                max_features_plot_cap=K_SIG_FEATS, 
-                               max_groups_plot_cap=48,
-                               p_value_threshold=0.05)    
-            
-            # Save k most significant features
-            fset_out = pd.Series(fset)
-            fset_out.name = 'k_significant_features'
-            fset_out = pd.DataFrame(fset_out)
-            fset_out.to_csv(stats_dir / 'k_significant_features.csv', header=0, 
-                            index=None)   
-            
+                               p_value_threshold=0.05,
+                               figsize=[8,12])    
+                  
             #%% Hierarchical Clustering Analysis
-            #   Clustermap of features by strain, to see if data cluster into groups
+            #   - Clustermap of features by strain, to see if data cluster into groups
+            #   - Control data is clustered first, feature order is stored and ordering applied to 
+            #     full data for comparison
+            
+            # Extract data for control
+            control_feat_df = feat_df[meta_df[GROUPING_VAR]==control]
+            control_meta_df = meta_df.reindex(control_feat_df.index)
             
             # Ensure no NaNs or features with zero standard deviation before normalisation
+            assert not control_feat_df.isna().sum(axis=0).any()
+            assert not (control_feat_df.std(axis=0) == 0).any()
+            
+            #zscores = (df-df.mean())/df.std() # minus mean, divide by std
+            controlZ_feat_df = control_feat_df.apply(zscore, axis=0)
+            
+            # Drop features with NaN values after normalising
+            n_cols = len(controlZ_feat_df.columns)
+            controlZ_feat_df.dropna(axis=1, inplace=True)
+            n_dropped = n_cols - len(controlZ_feat_df.columns)
+            if n_dropped > 0:
+                print("Dropped %d features after normalisation (NaN)" % n_dropped)
+
+            # plot clustermap for control
+            # NB: methods=[linkage, complete, average, weighted, centroid]
+            control_heatmap_path = plot_dir / 'HCA' / '{}_cluster_heatmap.eps'.format(control)               
+            cg = plot_clustermap(featZ=controlZ_feat_df, 
+                                 meta=control_meta_df, 
+                                 group_by=[GROUPING_VAR, 'date_yyyymmdd'],
+                                 figsize=[18,6],
+                                 saveto=control_heatmap_path)
+
+            # Extract linkage + clustered features
+            col_linkage = cg.dendrogram_col.calculated_linkage
+            clustered_features = np.array(fset)[cg.dendrogram_col.reordered_ind]
+            
+            # Clustermap of full data using control clustered features order
             assert not feat_df.isna().sum(axis=0).any()
             assert not (feat_df.std(axis=0) == 0).any()
             
-            # Normalise features results 
-            #zscores = (feat_df-feat_df.mean())/feat_df.std() # minus mean, divide by std
             featZ_df = feat_df.apply(zscore, axis=0)
             
             # Drop features with NaN values after normalising
@@ -397,20 +499,21 @@ if __name__ == "__main__":
             n_dropped = n_cols - len(featZ_df.columns)
             if n_dropped > 0:
                 print("Dropped %d features after normalisation (NaN)" % n_dropped)
-
-            # plot clustermap, methods=[linkage, complete, average, weighted, centroid]
-            heatmap_path = plot_dir / 'HCA' / 'hierarchical_clustermap.eps'                
+                
+            full_heatmap_path = plot_dir / 'HCA' / '{}_cluster_heatmap.eps'.format(GROUPING_VAR)                             
             clustered_features = plot_clustermap(featZ=featZ_df, 
                                                  meta=meta_df, 
                                                  group_by=GROUPING_VAR,
-                                                 saveto=heatmap_path)
-            
-            # Use anova pvalues for heatmap comparison if comparing multiple strains, else use ttest
+                                                 col_linkage=col_linkage,
+                                                 figsize=[20,5],
+                                                 saveto=full_heatmap_path)
+                
+            # FIXME: Use lmm/anova pvalues for heatmap comparison if comparing 2 or >2 groups
             if len(var_list) > 2:
                 pvalues_heatmap = pvalues_anova.loc['pval',:]
             elif len(var_list) == 2:
-                pvalues_heatmap = pvalues_ttest.iloc[0]
-            pvalues_heatmap.name = 'p<{}'.format(P_VALUE_THRESHOLD)
+                pvalues_heatmap = pvalues_lmm.iloc[0]
+            pvalues_heatmap.name = 'P<{}'.format(P_VALUE_THRESHOLD)
             
             assert set(pvalues_heatmap.index) == set(featZ_df.columns)
 
@@ -418,14 +521,15 @@ if __name__ == "__main__":
             selected_features = ranked_pvals[ranked_pvals < P_VALUE_THRESHOLD].index
             
             # Plot barcode clustermap
-            heatmap_path = Path(str(heatmap_path).replace('.eps', '_barcode.eps'))
+            barcode_heatmap_path = Path(str(full_heatmap_path).replace('.eps', '_barcode.eps'))
             plot_barcode_clustermap(featZ=featZ_df, 
                                     meta=meta_df, 
                                     group_by=GROUPING_VAR, 
                                     pvalues_series=pvalues_heatmap,
                                     p_value_threshold=P_VALUE_THRESHOLD,
                                     selected_feats=selected_features,
-                                    saveto=heatmap_path,
+                                    saveto=barcode_heatmap_path,
+                                    figsize=[18,6],
                                     sns_colour_palette="tab10")
     
             #%% Principal Components Analysis (PCA)
@@ -435,9 +539,10 @@ if __name__ == "__main__":
                 feat_df, inds = remove_outliers_pca(df=feat_df, 
                                                             features_to_analyse=None, 
                                                             saveto=outlier_path)
-                meta_df = meta_df.loc[feat_df.index]
+                meta_df = meta_df.reindex(feat_df.index)
     
             # plot PCA
+            #from tierpsytools.analysis.decomposition import plot_pca
             pca_dir = plot_dir / 'PCA'
             projected_df = plot_pca(featZ=featZ_df, 
                                     meta=meta_df, 
@@ -450,7 +555,7 @@ if __name__ == "__main__":
              
             #%%     t-distributed Stochastic Neighbour Embedding (tSNE)
     
-            perplexities = [5,10,20,50,100] # tSNE: Perplexity parameter for tSNE mapping
+            perplexities = [5,10,20,50] # tSNE: Perplexity parameter for tSNE mapping
     
             tsne_dir = plot_dir / 'tSNE'
             tSNE_df = plot_tSNE(featZ=featZ_df,
@@ -462,7 +567,7 @@ if __name__ == "__main__":
             
             #%%     Uniform Manifold Projection (UMAP)
     
-            n_neighbours = [5,10,20,50,100] # UMAP: N-neighbours parameter for UMAP projections                                            
+            n_neighbours = [5,10,20,50] # UMAP: N-neighbours parameter for UMAP projections                                            
             min_dist = 0.3 # Minimum distance parameter for UMAP projections    
             
             umap_dir = plot_dir / 'UMAP'
@@ -474,5 +579,8 @@ if __name__ == "__main__":
                                 n_neighbours=n_neighbours,
                                 min_dist=min_dist)
          
+    # Select features to investigate
+    n_features_to_investigate = 10
 
-# TODO: sns.relplot and sns.jointplot and sns.lineplot for visualising covariance/corrrelation between two features
+    # TODO: sns.relplot and sns.jointplot and sns.lineplot for visualising covariance/corrrelation between selected features
+

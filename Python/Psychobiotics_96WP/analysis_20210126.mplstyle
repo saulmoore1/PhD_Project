@@ -1,0 +1,75 @@
+
+# Figure properties
+
+#figure.figsize: 4, 4
+figure.facecolor: w
+
+
+# Font properties
+
+font.family: DejaVu Sans
+svg.fonttype: none
+#axes.unicode_minus: False
+font.size: 20
+
+
+# Axes properties
+
+axes.linewidth: 1.5
+axes.labelpad: 10
+axes.titlesize: 24
+axes.labelsize: 20
+
+# x
+xtick.major.size: 7
+xtick.major.width: 1.5
+xtick.minor.size: 5
+xtick.minor.width: 1.5
+
+# y
+ytick.major.size: 7
+ytick.major.width: 1.5
+ytick.minor.size: 5
+ytick.minor.width: 1.5
+
+# Tick properties
+
+# x
+xtick.labelsize: 20
+#xtick.top: True
+#xtick.direction: in
+
+# y
+ytick.labelsize: 20
+#ytick.right: True
+#ytick.direction: in
+
+
+# Line properties
+
+lines.linewidth: 2.5
+lines.markersize: 10
+
+
+## LEGEND PROPERTIES    
+
+legend.loc: 		   upper right
+legend.frameon:       True     # if True, draw the legend on a background patch
+legend.framealpha:    1      # legend patch transparency
+legend.facecolor:     w  	# default=inherit, inherit from axes.facecolor; or color spec
+legend.edgecolor:     k      # background patch boundary color
+legend.fancybox:      False     # if True, use a rounded bbox for legend, else a rectangle
+#legend.shadow:        False    # if True, give background a shadow effect
+#legend.numpoints:     1        # the number of marker points in the legend line
+#legend.scatterpoints: 1        # number of scatter points
+legend.markerscale:   0.75      # the relative size of legend markers vs. original
+legend.fontsize:      13
+legend.title_fontsize: 15    # None sets to the same as the default axes.
+legend.borderpad:     0.25  # border whitespace
+legend.labelspacing:  0.5  # the vertical space between the legend entries
+#legend.handlelength:  2.0  # the length of the legend lines
+#legend.handleheight:  0.7  # the height of the legend handle
+legend.handletextpad: 0  # the space between the legend line and legend text
+legend.borderaxespad: 0.25  # the border between the axes and legend edge
+#legend.columnspacing: 2.0  # column separation
+
