@@ -132,6 +132,8 @@ if __name__ == "__main__":
     P_VALUE_THRESHOLD = args.pval_threshold                     # float
     K_SIG_FEATS = args.k_sig_features                           # int
     
+    FDR_METHOD = 'fdr_by' # Benjamini-Yekutieli correction for multiple testing
+    
     # IO paths
     aux_dir = PROJECT_DIR / "AuxiliaryFiles"
     results_dir = PROJECT_DIR / "Results"
@@ -294,7 +296,7 @@ if __name__ == "__main__":
                                                                       strain_list=var_list, 
                                                                       p_value_threshold=P_VALUE_THRESHOLD, 
                                                                       is_normal=is_normal, 
-                                                                      fdr_method='fdr_by')
+                                                                      fdr_method=FDR_METHOD)
                             
                 # Record name of statistical test used (kruskal/f_oneway)
                 TEST = f_oneway if is_normal else kruskal
@@ -303,7 +305,7 @@ if __name__ == "__main__":
                 # Save test statistics to file
                 stats_outpath = stats_dir / '{}_results.csv'.format(test_name)
                 sigfeats_outpath = Path(str(stats_outpath).replace('_results.csv',
-                                                                       '_significant_features.csv'))
+                                                                   '_significant_features.csv'))
                 pvalues_anova.to_csv(stats_outpath) # Save test results as CSV
                 anova_sigfeats_list.to_csv(sigfeats_outpath, index=False) # Save feature list as text file
                 
@@ -330,19 +332,18 @@ if __name__ == "__main__":
                                                    control_strain=control, 
                                                    is_normal=is_normal, 
                                                    p_value_threshold=P_VALUE_THRESHOLD,
-                                                   fdr_method='fdr_by')
+                                                   fdr_method=FDR_METHOD)
                 
                 # Print number of significant features
                 print("%d significant features for (run %d, %s, %s, p<%.2f)"\
                       % (len(sigfeats_list), run, GROUPING_VAR, 
                          test_name, P_VALUE_THRESHOLD))
                 # Save test statistics to file
+                stats_outpath = stats_dir / '{}_results.csv'.format(test_name)
+                stats_outpath.parent.mkdir(exist_ok=True, parents=True)
                 sigfeats_outpath = Path(str(stats_outpath).replace('_results.csv',
                                                                    '_significant_features.csv'))
                 sigfeats_list.to_csv(sigfeats_outpath, index=False) # Save feature list to file
-                
-                stats_outpath = stats_dir / '{}_results.csv'.format(test_name)
-                stats_outpath.parent.mkdir(exist_ok=True, parents=True)
                 pvalues_ttest.to_csv(stats_outpath) # Save test results to CSV
                                 
                 # Barplot of number of significantly different features for each strain   
@@ -365,7 +366,7 @@ if __name__ == "__main__":
                                   group_by=GROUPING_VAR, 
                                   control_strain=control, 
                                   saveDir=plot_dir,
-                                  n_sig_feats_to_plot=50,
+                                  n_sig_feats_to_plot=K_SIG_FEATS,
                                   p_value_threshold=P_VALUE_THRESHOLD)
                         
                 # from tierpsytools.analysis.significant_features import plot_feature_boxplots
@@ -386,7 +387,7 @@ if __name__ == "__main__":
                                              control=control,
                                              random_effect=RANDOM_EFFECT,
                                              fdr=P_VALUE_THRESHOLD,
-                                             fdr_method='fdr_by',
+                                             fdr_method=FDR_METHOD,
                                              comparison_type='infer',
                                              n_jobs=-1)
             
@@ -409,7 +410,7 @@ if __name__ == "__main__":
                                               p_value_threshold=0.05,
                                               saveDir=swarmDir,
                                               sns_colour_palette="tab10",
-                                              dodge=False)
+                                              dodge=None)
                     
             #%% K significant features
     
@@ -450,7 +451,7 @@ if __name__ == "__main__":
                                max_features_plot_cap=K_SIG_FEATS, 
                                p_value_threshold=0.05,
                                figsize=[8,12])    
-                  
+            
             #%% Hierarchical Clustering Analysis
             #   - Clustermap of features by strain, to see if data cluster into groups
             #   - Control data is clustered first, feature order is stored and ordering applied to 
@@ -459,6 +460,9 @@ if __name__ == "__main__":
             # Extract data for control
             control_feat_df = feat_df[meta_df[GROUPING_VAR]==control]
             control_meta_df = meta_df.reindex(control_feat_df.index)
+            
+            control_feat_df, control_meta_df = clean_features_summaries(features=control_feat_df,
+                                                                        metadata=control_meta_df)
             
             # Ensure no NaNs or features with zero standard deviation before normalisation
             assert not control_feat_df.isna().sum(axis=0).any()
@@ -479,13 +483,13 @@ if __name__ == "__main__":
             control_heatmap_path = plot_dir / 'HCA' / '{}_cluster_heatmap.eps'.format(control)               
             cg = plot_clustermap(featZ=controlZ_feat_df, 
                                  meta=control_meta_df, 
-                                 group_by=[GROUPING_VAR, 'date_yyyymmdd'],
+                                 group_by=[GROUPING_VAR,'date_yyyymmdd'],
                                  figsize=[18,6],
                                  saveto=control_heatmap_path)
 
             # Extract linkage + clustered features
             col_linkage = cg.dendrogram_col.calculated_linkage
-            clustered_features = np.array(fset)[cg.dendrogram_col.reordered_ind]
+            clustered_features = np.array(controlZ_feat_df.columns)[cg.dendrogram_col.reordered_ind]
             
             # Clustermap of full data using control clustered features order
             assert not feat_df.isna().sum(axis=0).any()
@@ -507,13 +511,13 @@ if __name__ == "__main__":
                                                  col_linkage=col_linkage,
                                                  figsize=[20,5],
                                                  saveto=full_heatmap_path)
-                
-            # FIXME: Use lmm/anova pvalues for heatmap comparison if comparing 2 or >2 groups
+
+            # Use lmm/anova pvalues for heatmap comparison if comparing 2/>2 groups, respectively
             if len(var_list) > 2:
                 pvalues_heatmap = pvalues_anova.loc['pval',:]
             elif len(var_list) == 2:
                 pvalues_heatmap = pvalues_lmm.iloc[0]
-            pvalues_heatmap.name = 'P<{}'.format(P_VALUE_THRESHOLD)
+            pvalues_heatmap.name = 'P < {}'.format(P_VALUE_THRESHOLD)
             
             assert set(pvalues_heatmap.index) == set(featZ_df.columns)
 
@@ -524,22 +528,25 @@ if __name__ == "__main__":
             barcode_heatmap_path = Path(str(full_heatmap_path).replace('.eps', '_barcode.eps'))
             plot_barcode_clustermap(featZ=featZ_df, 
                                     meta=meta_df, 
-                                    group_by=GROUPING_VAR, 
+                                    group_by=[GROUPING_VAR,'date_yyyymmdd'], 
                                     pvalues_series=pvalues_heatmap,
                                     p_value_threshold=P_VALUE_THRESHOLD,
                                     selected_feats=selected_features,
                                     saveto=barcode_heatmap_path,
                                     figsize=[18,6],
                                     sns_colour_palette="tab10")
-    
+            plt.show()
+
             #%% Principal Components Analysis (PCA)
     
             if REMOVE_OUTLIERS:
                 outlier_path = plot_dir / 'mahalanobis_outliers.eps'
                 feat_df, inds = remove_outliers_pca(df=feat_df, 
-                                                            features_to_analyse=None, 
-                                                            saveto=outlier_path)
+                                                    features_to_analyse=None, 
+                                                    saveto=outlier_path)
                 meta_df = meta_df.reindex(feat_df.index)
+                featZ_df = feat_df.apply(zscore, axis=0)
+
     
             # plot PCA
             #from tierpsytools.analysis.decomposition import plot_pca
@@ -578,9 +585,12 @@ if __name__ == "__main__":
                                 saveDir=umap_dir,
                                 n_neighbours=n_neighbours,
                                 min_dist=min_dist)
-         
-    # Select features to investigate
-    n_features_to_investigate = 10
-
+   
+    #%% Investigate selected features
+    #   - Read in selected features list
+    
+    # TODO: Timeseries analysis of feature across timepoints/stimulus windows/on-off food/etc
+    
     # TODO: sns.relplot and sns.jointplot and sns.lineplot for visualising covariance/corrrelation between selected features
+
 

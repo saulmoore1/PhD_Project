@@ -340,11 +340,10 @@ def clean_features_summaries(features,
     if imputeNaN:
         n_nans = features.isna().sum(axis=0).sum()
         if n_nans > 0:
-            print("Imputing %d missing values (%.2f%% data), using global mean value for each \
-                  feature.." % (n_nans, n_nans/features.count().sum()*100)) 
+            print("Imputing %d missing values (%.2f%% data)" % (n_nans, 
+                                                                n_nans/features.count().sum()*100)
+                  + "using global mean value for each feature..") 
             features = features.fillna(features.mean(axis=0))
-        else:
-            print("No need to impute! No remaining NaN values found in feature summary results.")
 
     # Drop ventrally-signed features
     # In general, for the curvature and angular velocity features we should only 
@@ -465,9 +464,9 @@ def shapiro_normality_test(features_df,
     else:
         is_normal = False
         if verbose:
-            print("""Less than %d%% of features (%.1f%%) were found to obey a normal distribution, 
-                  so non-parametric analyses will be preferred.""" % (is_normal_threshold*100, 
-                                                                      total_prop_normal*100))
+            print('Less than %d%% of features (%.1f%%) were found to obey a normal distribution '\
+                  % (is_normal_threshold*100, total_prop_normal*100)
+                  + 'so non-parametric analyses will be preferred.')
     
     return prop_features_normal, is_normal
 
@@ -737,7 +736,7 @@ def linear_mixed_model(feat_df,
     df = df[np.isin(df['random_effect'], groups)]
 
     # Convert fixed effect variable to categorical if you want to compare by group
-    fixed_effect_type = type(df['fixed_effect'][0])
+    fixed_effect_type = type(df['fixed_effect'].iloc[0])
     if comparison_type == 'infer':
         if fixed_effect_type in [float, int, np.int64]:
             comparison_type = 'continuous'
@@ -969,7 +968,7 @@ def swarmplot_random_effect_variation(feat_df,
                                       p_value_threshold=0.05,
                                       saveDir=None,
                                       sns_colour_palette="tab10",
-                                      **kwargs):
+                                      dodge=False):
     """
     Parameters
     ----------
@@ -1006,7 +1005,7 @@ def swarmplot_random_effect_variation(feat_df,
                       palette=date_dict,
                       order=groups, 
                       data=df,
-                      **kwargs)
+                      dodge=dodge)
         ax = sns.swarmplot(x=group_by, 
                            y=f, 
                            hue=random_effect, 
@@ -1016,7 +1015,7 @@ def swarmplot_random_effect_variation(feat_df,
                            edgecolor='k',
                            linewidth=2, 
                            data=RepAverage,
-                           **kwargs)
+                           dodge=dodge)
         handles, labels = ax.get_legend_handles_labels()
         n_labs = len(meta_df[random_effect].unique())
         ax.legend(handles[:n_labs], labels[:n_labs])
@@ -1031,7 +1030,7 @@ def swarmplot_random_effect_variation(feat_df,
                 h = (y - df[f].min()) / 25
                 plt.plot([0, 0, i+1, i+1], [y+h, y+2*h, y+2*h, y+h], lw=1.5, c='k')
                 pval_text = 'P < 0.001' if pval < 0.001 else 'P = %.3f' % pval
-                ax.text((i+1)/2, y+2*h, pval_text, fontsize=2, ha='center', va='bottom')
+                ax.text((i+1)/2, y+2*h, pval_text, fontsize=15, ha='center', va='bottom')
         if saveDir is not None:
             Path(saveDir).mkdir(exist_ok=True, parents=True)
             savePath = Path(saveDir) / ('{}.png'.format(f))
@@ -1153,13 +1152,9 @@ def plot_clustermap(featZ,
     if type(group_by) != list:
         group_by = [group_by]
     n = len(group_by)
-    if n == 2:
-        g2 = 
-    else:
+    if not (n == 1 or n == 2):
         raise IOError("Must provide either 1 or 2 'group_by' parameters")        
         
-    print(group_by, g2)
-    
     # Store feature names
     fset = featZ.columns
         
@@ -1170,18 +1165,17 @@ def plot_clustermap(featZ,
     
     # Row colors
     row_colours = []
-    if len(var_list) > 2:
+    if len(var_list) > 1 or n == 1:
         var_colour_dict = dict(zip(var_list, sns.color_palette(sns_colour_palette, len(var_list))))
         row_cols_var = featZ_grouped[group_by[0]].map(var_colour_dict)
         row_colours.append(row_cols_var)
-    if g2:
-        date_list = list(featZ_grouped[g2].unique())
+    if n == 2:
+        date_list = list(featZ_grouped[group_by[1]].unique())
         date_colour_dict = dict(zip(date_list, sns.color_palette("Blues", len(date_list))))
         #date_colour_dict = dict(zip(set(date_list), sns.hls_palette(len(set(date_list)), l=0.5, s=0.8)))
-        row_cols_date = featZ_grouped[g2].map(date_colour_dict)
+        row_cols_date = featZ_grouped[group_by[1]].map(date_colour_dict)
         row_cols_date.name = None
         row_colours.append(row_cols_date)  
-    print(row_colours)
 
     # Column colors
     bluelight_colour_dict = dict(zip(['prestim','bluelight','poststim'], sns.color_palette("Set2", 3)))
@@ -1192,7 +1186,7 @@ def plot_clustermap(featZ,
     plt.close('all')
     sns.set(font_scale=0.6)
     cg = sns.clustermap(data=featZ_grouped[fset], 
-                        row_colors=row_colours[0] if not g2 else row_colours,
+                        row_colors=row_colours,
                         col_colors=fset.map(feat_colour_dict),
                         #standard_scale=1, z_score=1,
                         col_linkage=col_linkage,
@@ -1201,8 +1195,8 @@ def plot_clustermap(featZ,
                         vmin=-2, vmax=2,
                         figsize=figsize,
                         xticklabels=fset if len(fset) < 256 else False,
-                        yticklabels=featZ_grouped[g2 if g2 else group_by[0]],
-                        #cbar_pos=(0.98, 0.02, 0.05, 0.5), #None
+                        yticklabels=featZ_grouped[group_by].astype(str).agg('-'.join, axis=1),
+                        cbar_pos=(0.98, 0.02, 0.05, 0.5), #None
                         cbar_kws={'orientation': 'horizontal',
                                   'label': None, #'Z-value'
                                   'shrink': 1,
@@ -1230,7 +1224,7 @@ def plot_clustermap(featZ,
     lg.get_title().set_fontsize(15)
     
     plt.subplots_adjust(top=0.98, bottom=0.02, 
-                        left=0.01, right=0.92, 
+                        left=0.02, right=0.9, 
                         hspace=0.01, wspace=0.01)
     #plt.tight_layout(rect=[0, 0, 1, 1], w_pad=0.5)
     
@@ -1270,7 +1264,9 @@ def plot_barcode_clustermap(featZ,
                             sns_colour_palette="tab10"):
     
     assert set(featZ.index) == set(meta.index)
-    
+    if type(group_by) != list:
+        group_by = [group_by]
+        
     # Store feature names
     fset = featZ.columns
         
@@ -1291,8 +1287,8 @@ def plot_barcode_clustermap(featZ,
         heatmap_df = heatmap_df.append(-np.log10(pvalues_series.astype(float)))
     
     # Map colors for stimulus type
-    _stim = pd.DataFrame(data=[f.split('_')[-1] for f in fset], columns=['stim_type'])
-    _stim['stim_type'] = _stim['stim_type'].map({'prestim':1,'bluelight':2,'poststim':3})
+    _stim = pd.DataFrame(data=[f.split('_')[-1] for f in fset], columns=['stimulus'])
+    _stim['stimulus'] = _stim['stimulus'].map({'prestim':1,'bluelight':2,'poststim':3})
     _stim = _stim.transpose().rename(columns={c:v for c,v in enumerate(fset)})
     heatmap_df = heatmap_df.append(_stim)
     
@@ -1301,14 +1297,21 @@ def plot_barcode_clustermap(featZ,
     cm.extend(['Greys', 'Pastel1'])
     vmin_max = [(-2,2) for i in range(len(var_list))]
     vmin_max.extend([(0,20), (1,3)])
+    plt.style.use(CUSTOM_STYLE) 
     sns.set_style('ticks')
-    plt.style.use(CUSTOM_STYLE)  
     
     f = plt.figure(figsize= (20,len(var_list)+1))
     height_ratios = list(np.repeat(3,len(var_list)))
     height_ratios.extend([1,1])
     gs = GridSpec(len(var_list)+2, 1, wspace=0, hspace=0, height_ratios=height_ratios)
     cbar_ax = f.add_axes([.91, .3, .03, .4])
+    
+    # Stimulus colors
+    stim_order = ['prestim','bluelight','poststim']
+    bluelight_colour_dict = dict(zip(stim_order, sns.color_palette("Set2", 3)))
+    
+    # TODO: Order features by stim_type + make bluelight blue
+    # TODO: Sort out row names (yticklabels) get rid of None-None, rotatwe stim_type label
     
     for n, ((ix, r), c, v) in enumerate(zip(heatmap_df.iterrows(), cm, vmin_max)):
         axis = f.add_subplot(gs[n])
@@ -1320,7 +1323,6 @@ def plot_barcode_clustermap(featZ,
                     cbar=n==0, #only plots colorbar for first plot
                     cbar_ax=None if n else cbar_ax,
                     vmin=v[0], vmax=v[1])
-        axis.set_yticklabels(labels=[ix], rotation=0, fontsize=20)
         
         if n > len(var_list):
             c = sns.color_palette('Pastel1',3)
@@ -1332,14 +1334,38 @@ def plot_barcode_clustermap(featZ,
                         cbar=n==0, 
                         cbar_ax=None if n else cbar_ax,
                         vmin=v[0], vmax=v[1])
-            axis.set_yticklabels(labels=[ix], rotation=0, fontsize=20)
-        cbar_ax.set_yticklabels(labels = cbar_ax.get_yticklabels())#, fontdict=font_settings)
+            
+        #cbar_ax.set_yticklabels(labels = cbar_ax.get_yticklabels())#, fontdict=font_settings)
+        # if n < len(var_list):
+        #     axis.set_yticklabels(labels=(str(ix[0])+' - '+str(ix[1])), rotation=0)
+        axis.set_yticklabels(labels=[ix], rotation=0, fontsize=15)
+
+        # if n == len(heatmap_df)-1:
+        #     axis.set_yticklabels(labels=[ix], rotation=0) # fontsize=15
+            
+        patch_list = []
+        for l, key in enumerate(bluelight_colour_dict.keys()):
+            patch = patches.Patch(color=bluelight_colour_dict[key], label=key)
+            patch_list.append(patch)
+        lg = plt.legend(handles=patch_list, 
+                        labels=bluelight_colour_dict.keys(), 
+                        title="Stimulus",
+                        frameon=True,
+                        loc='upper right',
+                        bbox_to_anchor=(0.99, 0.99), 
+                        bbox_transform=plt.gcf().transFigure,
+                        fontsize=12, handletextpad=0.2)
+        lg.get_title().set_fontsize(15)
+
+        plt.subplots_adjust(top=0.95, bottom=0.05, 
+                            left=0.1*len(group_by), right=0.9, 
+                            hspace=0.01, wspace=0.01)
         #f.tight_layout(rect=[0, 0, 0.89, 1], w_pad=0.5)
     
     if selected_feats is not None:
         for feat in selected_feats:
             try:
-                axis.text(heatmap_df.columns.get_loc(feat), 1, '*')
+                axis.text(heatmap_df.columns.get_loc(feat), 1, '*', ha='center')
             except KeyError:
                 print('{} not in featureset'.format(feat))
     
@@ -1357,6 +1383,8 @@ def pcainfo(pca, zscores, PC=0, n_feats2print=10):
     cum_expl_var_frac = np.cumsum(pca.explained_variance_ratio_)
 
     # Plot explained variance
+    plt.style.use(CUSTOM_STYLE) 
+    sns.set_style('ticks')
     fig, ax = plt.subplots()
     plt.plot(range(1,len(cum_expl_var_frac)+1),
              cum_expl_var_frac,
@@ -1391,13 +1419,15 @@ def plot_pca(featZ,
              PCs_to_keep=10,
              n_feats2print=10,
              sns_colour_palette="tab10"):
-    """ Perform principal components analysis 
+    """ 
+    Perform principal components analysis 
         - group_by : column in metadata to group by for plotting (colours) 
         - n_dims : number of principal component dimensions to plot (2 or 3)
         - var_subset : subset list of categorical names in featZ[group_by]
         - saveDir : directory to save PCA results
         - PCs_to_keep : number of PCs to project
-        - n_feats2print : number of top features influencing PCs to store """
+        - n_feats2print : number of top features influencing PCs to store 
+    """
     
     assert (featZ.index == meta.index).all()
     if var_subset is not None:
@@ -1409,7 +1439,7 @@ def plot_pca(featZ,
     print("\nPerforming Principal Components Analysis (PCA)...")
 
     # Fit the PCA model with the normalised data
-    pca = PCA()
+    pca = PCA() # OPTIONAL: pca = PCA(n_components=n_dims) 
     pca.fit(featZ)
 
     # Plot summary data from PCA: explained variance (most important features)
@@ -1418,9 +1448,8 @@ def plot_pca(featZ,
                                    zscores=featZ, 
                                    PC=0, 
                                    n_feats2print=n_feats2print)
-           
-    # Save plot of PCA explained variance
     if saveDir:
+        # Save plot of PCA explained variance
         pca_path = Path(saveDir) / 'PCA_explained.eps'
         pca_path.parent.mkdir(exist_ok=True, parents=True)
         plt.tight_layout()
@@ -1436,6 +1465,10 @@ def plot_pca(featZ,
     projected = pca.transform(featZ) # A matrix is produced
     # NB: Could also have used pca.fit_transform() OR decomposition.TruncatedSVD().fit_transform()
 
+    # Compute explained variance ratio of component axes
+    ex_variance=np.var(projected, axis=0) # PCA(n_components=n_dims).fit_transform(featZ)
+    ex_variance_ratio = ex_variance/np.sum(ex_variance)
+    
     # Store the results for first few PCs in dataframe
     projected_df = pd.DataFrame(data=projected[:,:PCs_to_keep],
                                 columns=['PC' + str(n+1) for n in range(PCs_to_keep)],
@@ -1459,10 +1492,11 @@ def plot_pca(featZ,
             gray_strains = [var for var in meta[group_by].unique() if var not in var_subset]
             gray_palette = {var:'darkgray' for var in gray_strains}
             palette.update(gray_palette)
-        
+            
     plt.close('all')
+    plt.style.use(CUSTOM_STYLE) 
+    sns.set_style('ticks')
     if n_dims == 2:
-        # OPTION 1: Plot PCA - 2 principal components
         plt.rc('xtick',labelsize=15)
         plt.rc('ytick',labelsize=15)
         fig, ax = plt.subplots(figsize=[9,8])
@@ -1485,19 +1519,20 @@ def plot_pca(featZ,
                     levels=1,
                     bw_method="scott", 
                     bw_adjust=1)        
-        ax.set_xlabel('Principal Component 1', fontsize=20, labelpad=12)
-        ax.set_ylabel('Principal Component 2', fontsize=20, labelpad=12)
-        ax.set_title("PCA by '{}'".format(group_by), fontsize=20)
-        sns.set_style("whitegrid")
+        ax.set_xlabel('Principal Component 1 (%.1f%%)' % (ex_variance_ratio[0]*100), 
+                      fontsize=20, labelpad=12)
+        ax.set_ylabel('Principal Component 2 (%.1f%%)' % (ex_variance_ratio[1]*100), 
+                      fontsize=20, labelpad=12)
+        #ax.set_title("PCA by '{}'".format(group_by), fontsize=20)
+        #sns.set_style("whitegrid")
         if len(var_subset) <= 15:
             plt.tight_layout(rect=[0.04, 0, 0.84, 0.96])
-            ax.legend(var_subset, frameon=False, loc='upper right', fontsize=15)
-        ax.grid()
+            ax.legend(var_subset, frameon=True, loc='upper right', fontsize=15, markerscale=1.5)
+        ax.grid(False)
         plt.tight_layout()
         plt.show()
         
     elif n_dims == 3:
-        # OPTION 2: Plot PCA - 3 principal components  
         plt.rc('xtick',labelsize=12)
         plt.rc('ytick',labelsize=12)
         fig = plt.figure(figsize=[10,10])
@@ -1510,21 +1545,23 @@ def plot_pca(featZ,
                        ys=g_var_projected_df['PC2'], 
                        zs=g_var_projected_df['PC3'],
                        zdir='z', s=30, c=palette[g_var], depthshade=False)
-        ax.set_xlabel('Principal Component 1', fontsize=15, labelpad=12)
-        ax.set_ylabel('Principal Component 2', fontsize=15, labelpad=12)
-        ax.set_zlabel('Principal Component 3', fontsize=15, labelpad=12)
-        ax.set_title("PCA by '{}'".format(group_by), fontsize=20)
+        ax.set_xlabel('Principal Component 1 (%.1f%%)' % (ex_variance_ratio[0]*100),
+                      fontsize=15, labelpad=12)
+        ax.set_ylabel('Principal Component 2 (%.1f%%)' % (ex_variance_ratio[1]*100), 
+                      fontsize=15, labelpad=12)
+        ax.set_zlabel('Principal Component 3 (%.1f%%)' % (ex_variance_ratio[2]*100),
+                      fontsize=15, labelpad=12)
+        #ax.set_title("PCA by '{}'".format(group_by), fontsize=20)
         if len(var_subset) <= 15:
-            ax.legend(var_subset, frameon=False, fontsize=12)
-            #ax.set_rasterized(True)
-        ax.grid()
+            ax.legend(var_subset, frameon=True, fontsize=12)
+        ax.grid(False)
     else:
         raise ValueError("Value for 'n_dims' must be either 2 or 3")
 
     # Save PCA plot
     if saveDir:
-        pca_path = Path(saveDir) / ('pca_by_{}'.format(group_by) 
-                                    + ('.png' if n_dims == 3 else '.eps'))
+        pca_path = Path(saveDir) / ('pca_by_{}'.format(group_by) + 
+                                   ('.png' if n_dims == 3 else '.eps'))
         plt.savefig(pca_path, format='png' if n_dims == 3 else 'eps', 
                     dpi=600 if n_dims == 3 else 300) # rasterized=True
     else:
@@ -1560,6 +1597,8 @@ def find_outliers_mahalanobis(featMatProjected, extremeness=2., saveto=None):
 
     plt.ioff() if saveto else plt.ion()
     plt.close('all')
+    plt.style.use(CUSTOM_STYLE) 
+    sns.set_style('ticks')
     plt.rc('xtick',labelsize=15)
     plt.rc('ytick',labelsize=15)
     fig, ax = plt.subplots(figsize=[10,10])
@@ -1569,6 +1608,7 @@ def find_outliers_mahalanobis(featMatProjected, extremeness=2., saveto=None):
                 c=MahalanobisDist) # colour PCA by Mahalanobis distance
     plt.title('Mahalanobis Distance for Outlier Detection', fontsize=20)
     plt.colorbar()
+    ax.grid(False)
     
     if saveto:
         saveto.parent.mkdir(exist_ok=True, parents=True)
@@ -1665,6 +1705,8 @@ def plot_tSNE(featZ,
         # Plot 2-D tSNE
         plt.ioff() if saveDir else plt.ion()
         plt.close('all')
+        plt.style.use(CUSTOM_STYLE) 
+        sns.set_style('ticks')
         plt.rc('xtick',labelsize=12)
         plt.rc('ytick',labelsize=12)
         fig = plt.figure(figsize=[10,10])
@@ -1681,7 +1723,7 @@ def plot_tSNE(featZ,
             sns.scatterplot(x='tSNE_1', y='tSNE_2', data=tSNE_var, color=palette[var], s=100)
         plt.tight_layout(rect=[0.04, 0, 0.84, 0.96])
         ax.legend(var_subset, frameon=False, loc=(1, 0.1), fontsize=15)
-        ax.grid()
+        ax.grid(False)   
         
         if saveDir:
             saveDir.mkdir(exist_ok=True, parents=True)
@@ -1722,7 +1764,8 @@ def plot_umap(featZ,
         
         # Plot 2-D UMAP
         plt.close('all')
-        sns.set_style('whitegrid')
+        plt.style.use(CUSTOM_STYLE) 
+        sns.set_style('ticks')
         plt.rc('xtick',labelsize=12)
         plt.rc('ytick',labelsize=12)
         fig = plt.figure(figsize=[11,10])

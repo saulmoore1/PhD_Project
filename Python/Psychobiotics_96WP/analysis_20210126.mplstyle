@@ -1,11 +1,10 @@
-
-# Figure properties
+## Figure properties
 
 #figure.figsize: 4, 4
 figure.facecolor: w
 
 
-# Font properties
+## Font properties
 
 font.family: DejaVu Sans
 svg.fonttype: none
@@ -13,39 +12,37 @@ svg.fonttype: none
 font.size: 20
 
 
-# Axes properties
+## Axes properties
 
 axes.linewidth: 1.5
 axes.labelpad: 10
 axes.titlesize: 24
 axes.labelsize: 20
-
 # x
 xtick.major.size: 7
 xtick.major.width: 1.5
 xtick.minor.size: 5
 xtick.minor.width: 1.5
-
 # y
 ytick.major.size: 7
 ytick.major.width: 1.5
 ytick.minor.size: 5
 ytick.minor.width: 1.5
 
-# Tick properties
+
+## Tick properties
 
 # x
-xtick.labelsize: 20
+xtick.labelsize: 12
 #xtick.top: True
 #xtick.direction: in
-
 # y
-ytick.labelsize: 20
+ytick.labelsize: 12
 #ytick.right: True
 #ytick.direction: in
 
 
-# Line properties
+## Line properties
 
 lines.linewidth: 2.5
 lines.markersize: 10
@@ -72,4 +69,6 @@ legend.labelspacing:  0.5  # the vertical space between the legend entries
 legend.handletextpad: 0  # the space between the legend line and legend text
 legend.borderaxespad: 0.25  # the border between the axes and legend edge
 #legend.columnspacing: 2.0  # column separation
+
+##
 
