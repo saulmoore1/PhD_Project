@@ -33,11 +33,11 @@ ytick.minor.width: 1.5
 ## Tick properties
 
 # x
-xtick.labelsize: 12
+xtick.labelsize: 15
 #xtick.top: True
 #xtick.direction: in
 # y
-ytick.labelsize: 12
+ytick.labelsize: 15
 #ytick.right: True
 #ytick.direction: in
 

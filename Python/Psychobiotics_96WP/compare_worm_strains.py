@@ -67,10 +67,10 @@ if __name__ == "__main__":
     parser.add_argument('--project_dir', help="Project root directory,\
                         containing 'AuxiliaryFiles', 'RawVideos',\
                         'MaskedVideos' and 'Results' folders",
-                        default='/Volumes/hermes$/Filipe_Tests_96WP', type=str) # '/Volumes/hermes$/KeioScreen_96WP'
+                        default='/Volumes/hermes$/Filipe_Tests_96WP', type=str)
     parser.add_argument('--analyse_variables', help="List of categorical \
                         variables that you wish to investigate", nargs='+',
-                        default=['worm_strain','instrument_name']) #['food_type','instrument_name']
+                        default=['worm_strain','instrument_name']) #'food_type'
     parser.add_argument('--compile_day_summaries', help="Compile full feature summaries from \
                         day feature summary results", default=False, action='store_true')
     # Keio = ['food_type','instrument_name','lawn_growth_duration_hours','lawn_storage_type']
@@ -108,7 +108,8 @@ if __name__ == "__main__":
     parser.add_argument('--k_sig_features', help="Number of most significantly \
                         different features to plot", default=100, type=int)  
     args = parser.parse_args()
-    # FIXME: Add optional args for feature means only from feeature summaries -- see discussion about percentile testing
+    # FIXME: Add optional args for feature means only from feeature summaries 
+    #        -- see discussion about percentile testing
     
     print("\nInputs:\n")
     for arg in list(args._get_kwargs()):
@@ -195,10 +196,11 @@ if __name__ == "__main__":
         print("Found %d imaging runs to analyse: %s" % (len(imaging_run_list), imaging_run_list))
         
     # Subset results (rows) for strains of interest (check case-sensitive)
-    assert len(metadata['worm_strain'].unique()) == len(metadata['worm_strain'].str.upper().unique())
+    assert len(metadata['worm_strain'].unique())==len(metadata['worm_strain'].str.upper().unique())
     if OMIT_STRAIN_LIST:
         OMIT_STRAIN_LIST = [o.upper() for o in OMIT_STRAIN_LIST]
-        strain_list = [s for s in metadata['worm_strain'].unique() if s.upper() not in OMIT_STRAIN_LIST]
+        strain_list = [s for s in metadata['worm_strain'].unique()
+                       if s.upper() not in OMIT_STRAIN_LIST]
     else:
         strain_list = list(metadata['worm_strain'].unique())
         
@@ -266,7 +268,7 @@ if __name__ == "__main__":
             #   homoscedastic / normally distributed
             if CHECK_NORMAL:
                 normtest_savepath = stats_dir / "shapiro_normality_test_results.csv"
-                normtest_savepath.parent.mkdir(exist_ok=True, parents=True) # make folder if it does not exist
+                normtest_savepath.parent.mkdir(exist_ok=True, parents=True)
                 (prop_features_normal, 
                  is_normal) = shapiro_normality_test(features_df=feat_df,
                                                      metadata_df=meta_df,
@@ -290,13 +292,14 @@ if __name__ == "__main__":
             var_list = list(meta_df[GROUPING_VAR].unique())
             
             if len(var_list) > 2:
-                pvalues_anova, anova_sigfeats_list = anova_by_feature(feat_df=feat_df, 
-                                                                      meta_df=meta_df, 
-                                                                      group_by=GROUPING_VAR, 
-                                                                      strain_list=var_list, 
-                                                                      p_value_threshold=P_VALUE_THRESHOLD, 
-                                                                      is_normal=is_normal, 
-                                                                      fdr_method=FDR_METHOD)
+                (pvalues_anova, 
+                anova_sigfeats_list) = anova_by_feature(feat_df=feat_df, 
+                                                        meta_df=meta_df, 
+                                                        group_by=GROUPING_VAR, 
+                                                        strain_list=var_list, 
+                                                        p_value_threshold=P_VALUE_THRESHOLD, 
+                                                        is_normal=is_normal, 
+                                                        fdr_method=FDR_METHOD)
                             
                 # Record name of statistical test used (kruskal/f_oneway)
                 TEST = f_oneway if is_normal else kruskal
@@ -306,8 +309,8 @@ if __name__ == "__main__":
                 stats_outpath = stats_dir / '{}_results.csv'.format(test_name)
                 sigfeats_outpath = Path(str(stats_outpath).replace('_results.csv',
                                                                    '_significant_features.csv'))
-                pvalues_anova.to_csv(stats_outpath) # Save test results as CSV
-                anova_sigfeats_list.to_csv(sigfeats_outpath, index=False) # Save feature list as text file
+                pvalues_anova.to_csv(stats_outpath)
+                anova_sigfeats_list.to_csv(sigfeats_outpath, index=False)
                 
                 # Record number of signficant features by ANOVA
                 n_sigfeats_anova = len(anova_sigfeats_list)    
@@ -355,7 +358,8 @@ if __name__ == "__main__":
                 #   features ranked by t-test pvalue significance (lowest first)
                     
                 # Load test results (pvalues) for plotting
-                # NB: Non-parametric ranksum test preferred over t-test as many features may not be normally distributed
+                # NB: Non-parametric ranksum test preferred over t-test as many features may not be
+                #     normally distributed -- see percentile stats discussion
                 test_name = 'ttest_ind' if is_normal else 'ranksumtest'    
                 stats_inpath = stats_dir / '{}_results.csv'.format(test_name)
                 pvalues_ttest = pd.read_csv(stats_inpath, index_col=0)
@@ -439,8 +443,8 @@ if __name__ == "__main__":
             fset_out.to_csv(stats_dir / 'k_significant_features.csv', header=True, index=False)   
    
             # OPTIONAL: Plot cherry-picked features
-            #fset = ['speed_50th','curvature_neck_abs_50th','major_axis_50th','angular_velocity_neck_abs_50th']
-            #fset = pvalues_ttest.columns[np.where((pvalues_ttest < P_VALUE_THRESHOLD).any(axis=0))]            
+            #fset = ['speed_50th','curvature_neck_abs_50th','angular_velocity_neck_abs_50th']
+            #fset = pvalues_ttest.columns[np.where((pvalues_ttest < P_VALUE_THRESHOLD).any(axis=0))]
             
             boxplots_by_strain(df=meta_df.join(feat_df), 
                                group_by=GROUPING_VAR,
@@ -480,9 +484,9 @@ if __name__ == "__main__":
 
             # plot clustermap for control
             # NB: methods=[linkage, complete, average, weighted, centroid]
-            control_heatmap_path = plot_dir / 'HCA' / '{}_cluster_heatmap.eps'.format(control)               
-            cg = plot_clustermap(featZ=controlZ_feat_df, 
-                                 meta=control_meta_df, 
+            control_heatmap_path = plot_dir / 'HCA' / '{}_cluster_heatmap.eps'.format(control)
+            cg = plot_clustermap(featZ=controlZ_feat_df,
+                                 meta=control_meta_df,
                                  group_by=[GROUPING_VAR,'date_yyyymmdd'],
                                  figsize=[18,6],
                                  saveto=control_heatmap_path)
@@ -504,7 +508,7 @@ if __name__ == "__main__":
             if n_dropped > 0:
                 print("Dropped %d features after normalisation (NaN)" % n_dropped)
                 
-            full_heatmap_path = plot_dir / 'HCA' / '{}_cluster_heatmap.eps'.format(GROUPING_VAR)                             
+            full_heatmap_path = plot_dir / 'HCA' / '{}_cluster_heatmap.eps'.format(GROUPING_VAR)
             clustered_features = plot_clustermap(featZ=featZ_df, 
                                                  meta=meta_df, 
                                                  group_by=GROUPING_VAR,
@@ -534,8 +538,7 @@ if __name__ == "__main__":
                                     selected_feats=selected_features,
                                     saveto=barcode_heatmap_path,
                                     figsize=[18,6],
-                                    sns_colour_palette="tab10")
-            plt.show()
+                                    sns_colour_palette="Pastel1")
 
             #%% Principal Components Analysis (PCA)
     
@@ -546,8 +549,7 @@ if __name__ == "__main__":
                                                     saveto=outlier_path)
                 meta_df = meta_df.reindex(feat_df.index)
                 featZ_df = feat_df.apply(zscore, axis=0)
-
-    
+  
             # plot PCA
             #from tierpsytools.analysis.decomposition import plot_pca
             pca_dir = plot_dir / 'PCA'
@@ -574,8 +576,8 @@ if __name__ == "__main__":
             
             #%%     Uniform Manifold Projection (UMAP)
     
-            n_neighbours = [5,10,20,50] # UMAP: N-neighbours parameter for UMAP projections                                            
-            min_dist = 0.3 # Minimum distance parameter for UMAP projections    
+            n_neighbours = [5,10,20,50] # N-neighbours parameter
+            min_dist = 0.3 # Minimum distance parameter
             
             umap_dir = plot_dir / 'UMAP'
             umap_df = plot_umap(featZ=featZ_df,
@@ -591,6 +593,7 @@ if __name__ == "__main__":
     
     # TODO: Timeseries analysis of feature across timepoints/stimulus windows/on-off food/etc
     
-    # TODO: sns.relplot and sns.jointplot and sns.lineplot for visualising covariance/corrrelation between selected features
+    # TODO: sns.relplot and sns.jointplot and sns.lineplot for visualising covariance/corrrelation
+    # between selected features
 
 
