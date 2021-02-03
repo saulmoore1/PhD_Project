@@ -18,12 +18,10 @@ import numpy as np
 import pandas as pd
 import seaborn as sns
 from tqdm import tqdm
-from joblib import Parallel, delayed
 from pathlib import Path, PosixPath
 from scipy.stats import (ttest_ind, ranksums, f_oneway, kruskal, zscore, shapiro)
-import scipy.spatial as sp
-import scipy.cluster.hierarchy as hc
-import statsmodels.formula.api as smf
+# import scipy.spatial as sp
+# import scipy.cluster.hierarchy as hc
 from statsmodels.stats import multitest as smm # AnovaRM
 from sklearn.decomposition import PCA
 from sklearn.manifold import TSNE
@@ -48,11 +46,11 @@ from tierpsytools.read_data.hydra_metadata import (read_hydra_metadata,
 from tierpsytools.hydra.match_wells_annotations import (import_wells_annoations_in_folder,
                                                         match_rawvids_annotations,
                                                         update_metadata)
-from tierpsytools.feature_processing.filter_features import (filter_nan_inf, 
-                                                             feat_filter_std, 
-                                                             drop_ventrally_signed,
-                                                             cap_feat_values,
-                                                             drop_bad_wells)
+from tierpsytools.preprocessing.filter_data import (filter_nan_inf, 
+                                                    feat_filter_std, 
+                                                    drop_ventrally_signed,
+                                                    cap_feat_values,
+                                                    drop_bad_wells)
 
 CUSTOM_STYLE = '/Users/sm5911/Documents/GitHub/PhD_Project/Python/Psychobiotics_96WP/analysis_20210126.mplstyle'
 
@@ -96,7 +94,7 @@ def duration_on_food(df):
     
     duration_required_columns = ['date_yyyymmdd','time_recording',
                                  'date_worms_on_test_food_yyyymmdd',
-                                 'time_worms_on_test_food_yyyymmdd']
+                                 'time_worms_on_test_food']
     
     if all(x in df.columns for x in duration_required_columns) and \
         all(df[x].any() for x in duration_required_columns):
@@ -104,7 +102,7 @@ def duration_on_food(df):
         dispense_datetime = [datetime.datetime.strptime(date_str + ' ' +\
                              time_str, '%Y%m%d %H:%M:%S') for date_str, time_str in
                              zip(df['date_worms_on_test_food_yyyymmdd'].astype(int).astype(str),
-                             df['time_worms_on_test_food_yyyymmdd'])]
+                             df['time_worms_on_test_food'])]
         # Extract imaging dates and times
         imaging_datetime = [datetime.datetime.strptime(date_str + ' ' +\
                             time_str, '%Y%m%d %H:%M:%S') for date_str, time_str in 
@@ -304,6 +302,7 @@ def clean_features_summaries(features,
                              imputeNaN=True,
                              nan_threshold=0.2, 
                              max_value_cap=1e15,
+                             mean_feats_only=True,
                              drop_size_related_feats=False,
                              norm_feats_only=False):
     """ Clean features summary results:
@@ -311,6 +310,10 @@ def clean_features_summaries(features,
         - Impute remaining NaN values with global mean value for each feature
         - Drop features with zero standard deviation
         - Drop features that are ventrally signed
+        - Drop features that are path curvature related
+        - Drop features that are size-related (OPTIONAL)
+        - Drop faetures that are not '_norm' (OPTIONAL)
+        - Drop features that are not '_50th' percentiles (OPTIONAL)
     """
 
     assert set(features.index) == set(metadata.index)
@@ -345,8 +348,8 @@ def clean_features_summaries(features,
     if imputeNaN:
         n_nans = features.isna().sum(axis=0).sum()
         if n_nans > 0:
-            print("Imputing %d missing values (%.2f%% data)" % (n_nans, 
-                                                                n_nans/features.count().sum()*100)
+            print("Imputing %d missing values (%.2f%% data) " % (n_nans, 
+                                                                 n_nans/features.count().sum()*100)
                   + "using global mean value for each feature..") 
             features = features.fillna(features.mean(axis=0))
 
@@ -356,7 +359,7 @@ def clean_features_summaries(features,
     # is on its left or right side and this is not known for the multiworm tracking data
     feature_columns = features.columns
     features = drop_ventrally_signed(features)
-    ventrally_signed_feats = [col for col in feature_columns if col not in features.columns]
+    ventrally_signed_feats = [f for f in feature_columns if f not in features.columns]
     if len(ventrally_signed_feats) > 0:
         print("Dropped %d features that are ventrally signed" % len(ventrally_signed_feats))
     
@@ -379,17 +382,24 @@ def clean_features_summaries(features,
             for key in size_feat_keys:
                 if key in feature:
                     size_features.append(feature)
-        feature_columns = [feat for feat in features.columns if feat not in size_features]
+        feature_columns = [f for f in features.columns if f not in size_features]
         features = features[feature_columns]
         print("Dropped %d features that are size-related" % len(size_features))
         
     # Use '_norm' features only
     if norm_feats_only:
         feature_columns = features.columns
-        norm_features = [feat for feat in feature_columns if '_norm' in feat]
-        features = features[norm_features]
-        print("Dropped %d features that are not '_norm' features"\
-              % (len(feature_columns) - len(features.columns)))
+        not_norm = [f for f in feature_columns if not '_norm' in f]
+        if len(not_norm) > 0:
+            features = features.drop(columns=not_norm)
+            print("Dropped %d features that are not '_norm' features" % len(not_norm))
+            
+    # Use '_50th' perrcentile data only
+    if mean_feats_only:
+        not_50th = [f for f in features.columns if not '_50th' in f]
+        if len(not_50th) > 0:
+            features = features.drop(columns=not_50th)
+            print("Dropped %d features that are not '_50th' features" % len(not_50th))
         
     return features, metadata
 
@@ -488,12 +498,12 @@ def anova_by_feature(feat_df,
     """ One-way ANOVA/Kruskal-Wallis tests for pairwise differences across 
         strains for each feature 
     """
-    # Drop columns that contain only zeros
+    # Drop features with zero std
     n_cols = len(feat_df.columns)
-    feat_df = feat_df.drop(columns=feat_df.columns[(feat_df == 0).all()])
-    zero_cols = n_cols - len(feat_df.columns)
-    if zero_cols > 0:
-        print("Dropped %d feature summaries (all zeros)" % zero_cols)
+    feat_df = feat_filter_std(feat_df)
+    zero_std = n_cols - len(feat_df.columns)
+    if zero_std > 0:
+        print("Dropped %d features with zero standard deviation" % zero_std)
   
     # Record name of statistical test used (kruskal/f_oneway)
     TEST = f_oneway if is_normal else kruskal
@@ -525,7 +535,7 @@ def anova_by_feature(feat_df,
     print("Complete!\n%d/%d (%.1f%%) features exhibit significant differences between strains "\
           % (len(sigfeats), len(test_pvalues_df.columns), 
              len(sigfeats) / len(test_pvalues_df.columns)*100) + 
-          '(%s test, %s)' % (test_name, fdr_method))
+          '(%s, P<%.2f, %s)' % (test_name, p_value_threshold, fdr_method))
     
     # Compile list to store names of significant features
     sigfeats_list = pd.Series(test_pvalues_df.columns[np.where(test_pvalues_df.loc['pval'] <
@@ -692,132 +702,97 @@ def multiple_test_correction(pvalues, fdr_method='fdr_by', fdr=0.05):
     
     return pvalues
 
-def linear_mixed_model(feat_df, 
+def plot_day_variation(feat_df,
                        meta_df,
                        group_by,
+                       test_pvalues_df,
                        control,
-                       random_effect='date_yyyymmdd', 
-                       fdr=0.05, 
-                       fdr_method='fdr_by', 
-                       comparison_type='infer',
-                       n_jobs=-1):
+                       day_var='date_yyyymmdd',
+                       fset=None,
+                       p_value_threshold=0.05,
+                       saveDir=None,
+                       figsize=[6,6],
+                       sns_colour_palette="tab10",
+                       dodge=False,
+                       ranked=False):
     """
-    Test whether a given group differs siginificantly from the control, taking into account one 
-    random effect, eg. date of experiment. Each feature is tested independently using a Linear 
-    Mixed Model with fixed slope and variable intercept to account for the random effect.
-    The pvalues from the different features are corrected for multiple comparisons using the
-    multitest methods of statsmodels.
-    
     Parameters
     ----------
-    feat_df :         TYPE - pd.DataFrame
-                      DESCRIPTION - Dataframe of feature summary results
-    group_by :        TYPE - str
-                      DESCRIPTION - fixed effect variable (grouping variable)
-    random_effect :   TYPE - str
-                      DESCRIPTION - random effect variable
-    control :         TYPE float, optional. The default is .0.
-                      DESCRIPTION - The dose of the control points in drug_dose.
-    fdr :             TYPE - float
-                      DESCRIPTION. False discovery rate threshold [0-1]. The default is 0.05.
-    fdr_method :      TYPE - str
-                      DESCRIPTION - Method for multitest correction. The default is 'fdr_by'.
-    comparison_type : TYPE - str
-                      DESCRIPTION - ['continuous', 'categorical', 'infer']. The default is 'infer'.
-    n_jobs :          TYPE - int
-                      DESCRIPTION - Number of jobs for parallelisation of model fit. 
-                                    The default is -1.
-             
-    Returns
-    -------
-    pvals :           TYPE - pd.Series or pd.DataFrame
-                      DESCRIPTION - P-values for each feature. If categorical, a dataframe is 
-                                    returned with each group compared separately
+    pvalues : pandas.Series
     """
-
-    assert type(group_by) == str and group_by in meta_df.columns
-    assert type(random_effect) == str and random_effect in meta_df.columns
     
-    feat_names = feat_df.columns.to_list()
-    df = feat_df.assign(fixed_effect=meta_df[group_by]).assign(random_effect=meta_df[random_effect])
-
-    # select only the control points that belong to groups that have non-control members
-    groups = np.unique(df['random_effect'][df['fixed_effect']!=control])
-    df = df[np.isin(df['random_effect'], groups)]
-
-    # Convert fixed effect variable to categorical if you want to compare by group
-    fixed_effect_type = type(df['fixed_effect'].iloc[0])
-    if comparison_type == 'infer':
-        if fixed_effect_type in [float, int, np.int64]:
-            comparison_type = 'continuous'
-            df['fixed_effect'] = df['fixed_effect'].astype(float)
-        elif fixed_effect_type == str:
-            comparison_type = 'categorical'
-        else:
-            raise TypeError('Cannot infer fixed effect dtype!')
-    elif comparison_type == 'continuous':
-        if not fixed_effect_type in [float, int, np.int64]:
-            raise TypeError('Cannot cast fixed effect dtype to float!')
-        else:
-            df['fixed_effect'] = df['fixed_effect'].astype(float)
-    elif comparison_type == 'categorical':
-        if not fixed_effect_type in [str, int, np.int64]:
-            raise TypeError('Cannot cast fixed effect type to str!')
-        else:
-            df['fixed_effect'] = df['fixed_effect'].astype(str)
+    if fset is not None:
+        assert all(f in feat_df.columns for f in fset)
     else:
-        raise ValueError('Comparison type not recognised!')
+        fset = [f for f in feat_df.columns if (test_pvalues_df[f] < p_value_threshold).any()]
 
-    # Intitialize pvals as series or dataframe (based on the number of comparisons per feature)
-    if comparison_type == 'continuous':
-        pvals = pd.Series(index=feat_names)
-    elif comparison_type == 'categorical':
-        groups = np.unique(df['fixed_effect'][df['fixed_effect']!=control])
-        pvals = pd.DataFrame(index=feat_names, columns=groups)
-
-    # Local function to perform LMM test for a single feature
-    def lmm_fit(feature, df):
-        # remove groups with fewer than 3 members
-        data = pd.concat([data for _, data in df.groupby(by=['fixed_effect', 'random_effect'])
-                          if data.shape[0] > 2])
-
-        # Define LMM
-        md = smf.mixedlm("{} ~ fixed_effect".format(feature), 
-                         data,
-                         groups=data['random_effect'].astype(str),
-                         re_formula="")
-        # Fit LMM
-        try:
-            mdf = md.fit()
-            pval = mdf.pvalues[[k for k in mdf.pvalues.keys() if k.startswith('fixed_effect')]]
-            pval = pval.min()
-        except:
-            pval = np.nan
-
-        return feature, pval
-
-    ## Fit LMMs for each feature
-    if n_jobs==1:
-        # Using a for loop is faster than launching a single job with joblib
-        for feature in tqdm (feat_names, desc="Testing features…", ascii=False):
-            _, pvals.loc[feature] = lmm_fit(feature, 
-                                            df[[feature,
-                                                'fixed_effect',
-                                                'random_effect']].dropna(axis=0))
-    else: 
-        # Parallelize jobs with joblib
-        parallel = Parallel(n_jobs=n_jobs, verbose=True)
-        func = delayed(lmm_fit)
-
-        res = parallel(func(feature, df[[feature,'fixed_effect','random_effect']].dropna(axis=0))
-                       for feature in feat_names)
-        for feature, pval in res:
-            pvals.loc[feature] = pval
+    assert all(f in test_pvalues_df.columns for f in fset)
     
-    # Benjamini-Yekutieli corrections for multiple comparisons
-    pvals_corrected = multiple_test_correction(pvals.T, fdr_method=fdr_method, fdr=fdr)
+    groups = list(meta_df[group_by].unique())
+    groups.remove(control)
+    assert all(g in list(test_pvalues_df.index) for g in groups)
+    groups.insert(0, control)
     
-    return pvals_corrected
+    plt.ioff() if saveDir else plt.ion()
+    for idx, f in enumerate(tqdm(fset)):
+                
+        df = meta_df[[group_by, day_var]].join(feat_df[f])
+        RepAverage = df.groupby([group_by, day_var], as_index=False).agg({f: "mean"})
+        #RepAvPivot = RepAverage.pivot_table(columns=group_by, values=f, index=random_effect)
+        #stat, pval = ttest_rel(RepAvPivot[control], RepAvPivot[g])
+        
+        date_colours = sns.color_palette(sns_colour_palette, len(df[day_var].unique()))
+        date_dict = dict(zip(df[day_var].unique(), date_colours))
+            
+        plt.close('all')
+        plt.style.use(CUSTOM_STYLE)
+        fig, ax = plt.subplots(figsize=figsize)
+        sns.swarmplot(x=group_by, 
+                      y=f, 
+                      hue=day_var, 
+                      palette=date_dict,
+                      order=groups, 
+                      size=5,
+                      data=df,
+                      ax=ax,
+                      dodge=dodge)
+        sns.swarmplot(x=group_by, 
+                      y=f, 
+                      hue=day_var, 
+                      palette=date_dict,
+                      order=groups, 
+                      size=13,
+                      edgecolor='k',
+                      linewidth=2,
+                      data=RepAverage,
+                      ax=ax,
+                      dodge=dodge)
+        handles, labels = ax.get_legend_handles_labels()
+        n_labs = len(meta_df[day_var].unique())
+        ax.legend(handles[:n_labs], labels[:n_labs], fontsize=10)
+        plt.title(f.replace('_',' '), fontsize=12, pad=20)
+        plt.xlim(right=len(groups)-0.4)
+        plt.ylabel(''); plt.xlabel('')
+        
+        # Add p-value to plot        
+        for ii, g in enumerate(groups[1:]):
+            pval = test_pvalues_df.loc[g, f]
+            text = ax.get_xticklabels()[ii+1]
+            assert text.get_text() == g
+            if isinstance(pval, float) and pval < p_value_threshold:
+                y = df[f].max() 
+                h = (y - df[f].min()) / 50
+                plt.plot([0, 0, ii+1, ii+1], [y+h, y+2*h, y+2*h, y+h], lw=1.5, c='k')
+                pval_text = 'P < 0.001' if pval < 0.001 else 'P = %.3f' % pval
+                ax.text((ii+1)/2, y+2*h, pval_text, fontsize=12, ha='center', va='bottom')
+        plt.subplots_adjust(left=0.15) #top=0.9,bottom=0.1,left=0.2
+
+        if saveDir is not None:
+            Path(saveDir).mkdir(exist_ok=True, parents=True)
+            savePath = Path(saveDir) / (('{0}_'.format(idx + 1) + f if ranked else f) + '.png')
+            plt.savefig(savePath, dpi=300) # dpi=600
+        else:
+            plt.show(); plt.pause(2)
 
 def barplot_sigfeats(test_pvalues_df, saveDir=None, p_value_threshold=0.05):
     """ Plot barplot of number of significant features from test p-values """
@@ -880,12 +855,13 @@ def boxplots_sigfeats(feat_meta_df,
             # select top ranked p-values
             if not n_sig_feats_to_plot:
                 n_sig_feats_to_plot = n_sigfeats
+                
             if len(topfeats) < n_sig_feats_to_plot:
-                print("Only %d significant features found for %s" % (n_sigfeats, str(strain)))
+                print("%d significant features found for %s" % (n_sigfeats, str(strain)))
                 n_sig_feats_to_plot = len(topfeats)
             else:
                 topfeats = topfeats[:n_sig_feats_to_plot]
-                print("\nPlotting only the top %d features for %s:\n" % (len(topfeats), strain))
+                print("\nCapping plots for %s at %d features..\n" % (strain, len(topfeats)))
 
             # Subset feature summary results for test-strain + control only
             plot_df = feat_meta_df[np.logical_or(feat_meta_df[group_by]==control_strain,
@@ -936,10 +912,10 @@ def boxplots_sigfeats(feat_meta_df,
                               edgecolor='k',
                               linewidth=.3) #facecolors="none"
                 ax.axes.get_xaxis().get_label().set_visible(False) # remove x axis label
-                #ax.set_xlabel(group_by, fontsize=15, labelpad=12)
-                ax.set_ylabel(feature) #fontsize=15, labelpad=12
+                ax.set_ylabel('') #fontsize=15, labelpad=12
+                plt.xlim(right=len(order)-0.3)
                 plt.legend(loc='upper right', title='Date')
-                #ax.set_title(feature, fontsize=20, pad=40)
+                plt.title(feature.replace('_',' '), fontsize=18, pad=20)
                 
                 # Add p-value to plot
                 for i, strain in enumerate(order[1:]):
@@ -969,130 +945,50 @@ def boxplots_sigfeats(feat_meta_df,
                     plt.savefig(plot_path, dpi=300)
                 else:
                     plt.show(); plt.pause(2)
-
-def swarmplot_random_effect_variation(feat_df,
-                                      meta_df,
-                                      group_by,
-                                      test_pvalues_df,
-                                      control,
-                                      random_effect='date_yyyymmdd',
-                                      features2plot=None,
-                                      p_value_threshold=0.05,
-                                      saveDir=None,
-                                      sns_colour_palette="tab10",
-                                      dodge=False):
-    """
-    Parameters
-    ----------
-    pvalues : pandas.Series
-    """
-    
-    if features2plot is not None:
-        assert np.array([f in feat_df.columns for f in features2plot]).all()
-        fset = features2plot
-    else:
-        fset = feat_df.columns.to_list()
-    
-    groups = list(meta_df[group_by].unique())
-    groups.remove(control)
-    assert np.array([g in list(test_pvalues_df.index) for g in groups]).all()
-    groups.insert(0, control)
-    
-    plt.ioff() if saveDir else plt.ion()
-
-    for f in tqdm(fset):
-        df = meta_df[[group_by, random_effect]].join(feat_df[f])
-        RepAverage = df.groupby([group_by, random_effect], as_index=False).agg({f: "mean"})
-        #RepAvPivot = RepAverage.pivot_table(columns=group_by, values=f, index=random_effect)
-        #stat, pval = ttest_rel(RepAvPivot[control], RepAvPivot[g])
-        
-        date_colours = sns.color_palette(sns_colour_palette, len(df[random_effect].unique()))
-        date_dict = dict(zip(df[random_effect].unique(), date_colours))
-            
-        plt.close('all')
-        plt.style.use(CUSTOM_STYLE)
-        sns.swarmplot(x=group_by, 
-                      y=f, 
-                      hue=random_effect, 
-                      palette=date_dict,
-                      order=groups, 
-                      data=df,
-                      dodge=dodge)
-        ax = sns.swarmplot(x=group_by, 
-                           y=f, 
-                           hue=random_effect, 
-                           palette=date_dict,
-                           order=groups, 
-                           size=15,
-                           edgecolor='k',
-                           linewidth=2, 
-                           data=RepAverage,
-                           dodge=dodge)
-        handles, labels = ax.get_legend_handles_labels()
-        n_labs = len(meta_df[random_effect].unique())
-        ax.legend(handles[:n_labs], labels[:n_labs])
-        
-        # Add p-value to plot        
-        for i, g in enumerate(groups[1:]):
-            pval = test_pvalues_df.loc[g, f]
-            text = ax.get_xticklabels()[i+1]
-            assert text.get_text() == g
-            if isinstance(pval, float) and pval < p_value_threshold:
-                y = df[f].max() 
-                h = (y - df[f].min()) / 50
-                plt.plot([0, 0, i+1, i+1], [y+h, y+2*h, y+2*h, y+h], lw=1.5, c='k')
-                pval_text = 'P < 0.001' if pval < 0.001 else 'P = %.3f' % pval
-                ax.text((i+1)/2, y+2*h, pval_text, fontsize=12, ha='center', va='bottom')
-        if saveDir is not None:
-            Path(saveDir).mkdir(exist_ok=True, parents=True)
-            savePath = Path(saveDir) / ('{}.png'.format(f))
-            plt.savefig(savePath, dpi=300) # dpi=600
-        else:
-            plt.show(); plt.pause(2)
                      
-def boxplots_by_strain(df,
-                       group_by,
-                       control_group,
-                       test_pvalues_df,
-                       features2plot=None,
-                       saveDir=None,
-                       p_value_threshold=0.05,
-                       max_features_plot_cap=None, 
-                       max_groups_plot_cap=48,
-                       sns_colour_palette="tab10",
-                       figsize=[8,12],
-                       **kwargs):
+def boxplots_grouped(feat_meta_df,
+                     group_by,
+                     control_group,
+                     test_pvalues_df,
+                     fset=None,
+                     saveDir=None,
+                     p_value_threshold=0.05,
+                     max_features_plot_cap=None, 
+                     max_groups_plot_cap=48,
+                     sns_colour_palette="tab10",
+                     figsize=[8,12],
+                     saveFormat=None,
+                     **kwargs):
     """ Boxplots comparing all strains to control for a given feature """
         
-    if features2plot is not None:
-        assert all(feat in df.columns for feat in features2plot)
+    if fset is not None:
+        assert all(feat in feat_meta_df.columns for feat in fset)
         # Drop insignificant features
-        features2plot = [feature for feature in features2plot if \
-                         (test_pvalues_df[feature] < p_value_threshold).any()]
+        fset = [feature for feature in fset if (test_pvalues_df[feature] < p_value_threshold).any()]
         
-        if max_features_plot_cap and len(features2plot) > max_features_plot_cap:
+        if max_features_plot_cap and len(fset) > max_features_plot_cap:
             print("WARNING: Too many features to plot! Capping at %d plots"\
                   % max_features_plot_cap)
-            features2plot = features2plot[:max_features_plot_cap]
+            fset = fset[:max_features_plot_cap]
     else:
         # Plot all sig feats between any strain and control
-        features2plot = [feature for feature in test_pvalues_df.columns if \
+        fset = [feature for feature in test_pvalues_df.columns if \
                          (test_pvalues_df[feature] < p_value_threshold).any()]
     
     # OPTIONAL: Plot cherry-picked features
-    #features2plot = ['speed_50th','curvature_neck_abs_50th','angular_velocity_neck_abs_50th']
+    #fset = ['speed_50th','curvature_neck_abs_50th','angular_velocity_neck_abs_50th']
             
     # Seaborn boxplots with swarmplot overlay for each feature - saved to file
     plt.ioff() if saveDir else plt.ion()
-    for f, feature in enumerate(tqdm(features2plot)):
+    for f, feature in enumerate(tqdm(fset)):
         sortedPvals = test_pvalues_df[feature].sort_values(ascending=True)
         strains2plt = list(sortedPvals.index)
         if len(strains2plt) > max_groups_plot_cap:
-            print("Capping plot at %d strains" % max_groups_plot_cap)
+            print("Capping at %d strains" % max_groups_plot_cap)
             strains2plt = list(sortedPvals[:max_groups_plot_cap].index)
             
         strains2plt.insert(0, control_group)
-        plot_df = df[df[group_by].isin(strains2plt)]
+        plot_df = feat_meta_df[feat_meta_df[group_by].isin(strains2plt)]
         
         # Rank by median
         rankMedian = plot_df.groupby(group_by)[feature].median().sort_values(ascending=True)
@@ -1124,10 +1020,10 @@ def boxplots_by_strain(df,
                     meanprops={"marker":"x","markersize":10,"markeredgecolor":"k"},
                     flierprops={"marker":"x","markersize":15,"markeredgecolor":"r"},
                     palette=colour_dict) # **kwargs
-        ax.set_xlabel(feature, fontsize=18, labelpad=10)
+        ax.set_xlabel(feature.replace('_',' '), fontsize=18, labelpad=10)
         ax.axes.get_yaxis().get_label().set_visible(False) # remove y axis label
         #ax.set_ylabel(group_by, fontsize=18, labelpad=10)
-
+        
         # Add p-value to plot
         #c_pos = np.where(rankMedian.index == control_group)[0][0]
         for i, strain in enumerate(rankMedian.index):
@@ -1148,7 +1044,7 @@ def boxplots_by_strain(df,
         if saveDir:
             saveDir.mkdir(exist_ok=True, parents=True)
             plot_path = Path(saveDir) / (str(f + 1) + '_' + feature + '.eps')
-            plt.savefig(plot_path, format='eps', dpi=300)
+            plt.savefig(plot_path, format=saveFormat if saveFormat is not None else 'png', dpi=300)
         else:
             plt.show()
 
@@ -1156,6 +1052,8 @@ def plot_clustermap(featZ,
                     meta, 
                     group_by,
                     col_linkage=None,
+                    order=None,
+                    method='complete',
                     saveto=None,
                     figsize=[10,8],
                     sns_colour_palette="tab10"):
@@ -1170,7 +1068,11 @@ def plot_clustermap(featZ,
         raise IOError("Must provide either 1 or 2 'group_by' parameters")        
         
     # Store feature names
-    fset = featZ.columns
+    if order is not None:
+        fset = order
+        assert all(f in featZ.columns for f in fset)
+    else:
+        fset = featZ.columns
         
     # Compute average value for strain for each feature (not each well)
     featZ_grouped = featZ.join(meta).groupby(group_by).mean().reset_index()
@@ -1206,7 +1108,7 @@ def plot_clustermap(featZ,
                         #standard_scale=1, z_score=1,
                         col_linkage=col_linkage,
                         metric='euclidean', 
-                        method='complete',
+                        method=method,
                         vmin=-2, vmax=2,
                         figsize=figsize,
                         xticklabels=fset if len(fset) < 256 else False,
@@ -1270,13 +1172,13 @@ def plot_clustermap(featZ,
 def plot_barcode_clustermap(featZ, 
                             meta, 
                             group_by,
-                            col_linkage=None,
                             pvalues_series=None,
                             p_value_threshold=0.05,
                             selected_feats=None,
                             figsize=[18,6],
                             saveto=None,
                             sns_colour_palette="Pastel1"):
+    """  """
     
     assert set(featZ.index) == set(meta.index)
     if type(group_by) != list:
@@ -1429,8 +1331,7 @@ def plot_pca(featZ,
              PCs_to_keep=10,
              n_feats2print=10,
              sns_colour_palette="tab10"):
-    """ 
-    Perform principal components analysis 
+    """ Perform principal components analysis 
         - group_by : column in metadata to group by for plotting (colours) 
         - n_dims : number of principal component dimensions to plot (2 or 3)
         - var_subset : subset list of categorical names in featZ[group_by]
@@ -1526,7 +1427,9 @@ def plot_pca(featZ,
                     thresh=0.05,
                     levels=1,
                     bw_method="scott", 
-                    bw_adjust=1)        
+                    bw_adjust=1)  
+        # TODO: check sns.jointplot
+        
         ax.set_xlabel('Principal Component 1 (%.1f%%)' % (ex_variance_ratio[0]*100), 
                       fontsize=20, labelpad=12)
         ax.set_ylabel('Principal Component 2 (%.1f%%)' % (ex_variance_ratio[1]*100), 
@@ -1705,9 +1608,9 @@ def plot_tSNE(featZ,
                              random_state=42,\
                              perplexity=perplex, 
                              n_iter=3000).fit_transform(featZ)
-        tSNE_df = pd.DataFrame(tSNE_embedded, columns=['tSNE_1', 'tSNE_2']).set_index(featZ.index)
+        tSNE_df = pd.DataFrame(tSNE_embedded, 
+                               columns=['tSNE_1','tSNE_2']).set_index(featZ.index)
         
-        # Plot 2-D tSNE
         plt.ioff() if saveDir else plt.ion()
         plt.close('all')
         plt.style.use(CUSTOM_STYLE) 
@@ -1716,7 +1619,7 @@ def plot_tSNE(featZ,
         ax = fig.add_subplot(1,1,1) 
         ax.set_xlabel('tSNE Component 1', fontsize=15, labelpad=12)
         ax.set_ylabel('tSNE Component 2', fontsize=15, labelpad=12)
-        ax.set_title('2-component tSNE (perplexity={0})'.format(perplex), fontsize=20)
+        #ax.set_title('2-component tSNE (perplexity={0})'.format(perplex), fontsize=20)
         
         # Create colour palette for plot loop
         palette = dict(zip(var_subset, (sns.color_palette(sns_colour_palette, len(var_subset)))))
@@ -1775,7 +1678,7 @@ def plot_umap(featZ,
         ax = fig.add_subplot(1,1,1) 
         ax.set_xlabel('UMAP Component 1', fontsize=15, labelpad=12)
         ax.set_ylabel('UMAP Component 2', fontsize=15, labelpad=12)
-        ax.set_title('2-component UMAP (n_neighbours={0})'.format(n), fontsize=20)
+        #ax.set_title('2-component UMAP (n_neighbours={0})'.format(n), fontsize=20)
                 
         # Create colour palette for plot loop
         palette = dict(zip(var_subset, (sns.color_palette(sns_colour_palette, len(var_subset)))))
@@ -1797,3 +1700,128 @@ def plot_umap(featZ,
         
     return UMAP_projection_df
 
+# def linear_mixed_model(feat_df, 
+#                        meta_df,
+#                        fixed_effect,
+#                        control,
+#                        random_effect='date_yyyymmdd', 
+#                        fdr=0.05, 
+#                        fdr_method='fdr_by', 
+#                        comparison_type='infer',
+#                        n_jobs=-1):
+#     """ Test whether a given group differs siginificantly from the control, taking into account one 
+#         random effect, eg. date of experiment. Each feature is tested independently using a Linear 
+#         Mixed Model with fixed slope and variable intercept to account for the random effect.
+#         The pvalues from the different features are corrected for multiple comparisons using the
+#         multitest methods of statsmodels.
+        
+#         Parameters
+#         ----------
+#         feat_df :         TYPE - pd.DataFrame
+#                           DESCRIPTION - Dataframe of feature summary results
+#         fixed_effect :        TYPE - str
+#                           DESCRIPTION - fixed effect variable (grouping variable)
+#         random_effect :   TYPE - str
+#                           DESCRIPTION - random effect variable
+#         control :         TYPE float, optional. Default is 0.
+#                           DESCRIPTION - The dose of the control points in drug_dose.
+#         fdr :             TYPE - float
+#                           DESCRIPTION. False discovery rate threshold [0-1]. Default is 0.05.
+#         fdr_method :      TYPE - str
+#                           DESCRIPTION - Method for multitest correction. Default is 'fdr_by'.
+#         comparison_type : TYPE - str
+#                           DESCRIPTION - ['continuous', 'categorical', 'infer']. Default is 'infer'.
+#         n_jobs :          TYPE - int
+#                           DESCRIPTION - Number of jobs for parallelisation of model fit.
+#                                         The default is -1.
+                 
+#         Returns
+#         -------
+#         pvals :           TYPE - pd.Series or pd.DataFrame
+#                           DESCRIPTION - P-values for each feature. If categorical, a dataframe is 
+#                                         returned with each group compared separately
+#     """
+
+#     assert type(fixed_effect) == str and fixed_effect in meta_df.columns
+#     assert type(random_effect) == str and random_effect in meta_df.columns
+    
+#     feat_names = feat_df.columns.to_list()
+#     df = feat_df.assign(fixed_effect=meta_df[fixed_effect]).assign(random_effect=meta_df[random_effect])
+
+#     # select only the control points that belong to groups that have non-control members
+#     groups = np.unique(df['random_effect'][df['fixed_effect']!=control])
+#     df = df[np.isin(df['random_effect'], groups)]
+
+#     # Convert fixed effect variable to categorical if you want to compare by group
+#     fixed_effect_type = type(df['fixed_effect'].iloc[0])
+#     if comparison_type == 'infer':
+#         if fixed_effect_type in [float, int, np.int64]:
+#             comparison_type = 'continuous'
+#             df['fixed_effect'] = df['fixed_effect'].astype(float)
+#         elif fixed_effect_type == str:
+#             comparison_type = 'categorical'
+#         else:
+#             raise TypeError('Cannot infer fixed effect dtype!')
+#     elif comparison_type == 'continuous':
+#         if not fixed_effect_type in [float, int, np.int64]:
+#             raise TypeError('Cannot cast fixed effect dtype to float!')
+#         else:
+#             df['fixed_effect'] = df['fixed_effect'].astype(float)
+#     elif comparison_type == 'categorical':
+#         if not fixed_effect_type in [str, int, np.int64]:
+#             raise TypeError('Cannot cast fixed effect type to str!')
+#         else:
+#             df['fixed_effect'] = df['fixed_effect'].astype(str)
+#     else:
+#         raise ValueError('Comparison type not recognised!')
+
+#     # Intitialize pvals as series or dataframe (based on the number of comparisons per feature)
+#     if comparison_type == 'continuous':
+#         pvals = pd.Series(index=feat_names)
+#     elif comparison_type == 'categorical':
+#         groups = np.unique(df['fixed_effect'][df['fixed_effect']!=control])
+#         pvals = pd.DataFrame(index=feat_names, columns=groups)
+
+#     # Local function to perform LMM test for a single feature
+#     def lmm_fit(feature, df):
+#         # remove groups with fewer than 3 members
+#         data = pd.concat([data for _, data in df.groupby(by=['fixed_effect', 'random_effect'])
+#                           if data.shape[0] > 2])
+
+#         # Define LMM
+#         md = smf.mixedlm("{} ~ fixed_effect".format(feature), 
+#                          data,
+#                          groups=data['random_effect'].astype(str),
+#                          re_formula="")
+#         # Fit LMM
+#         try:
+#             mdf = md.fit()
+#             pval = mdf.pvalues[[k for k in mdf.pvalues.keys() if k.startswith('fixed_effect')]]
+#             pval = pval.min()
+#         except:
+#             pval = np.nan
+
+#         return feature, pval
+
+#     ## Fit LMMs for each feature
+#     if n_jobs==1:
+#         # Using a for loop is faster than launching a single job with joblib
+#         for feature in tqdm (feat_names, desc="Testing features…", ascii=False):
+#             _, pvals.loc[feature] = lmm_fit(feature, 
+#                                             df[[feature,
+#                                                 'fixed_effect',
+#                                                 'random_effect']].dropna(axis=0))
+#     else: 
+#         # Parallelize jobs with joblib
+#         parallel = Parallel(n_jobs=n_jobs, verbose=True)
+#         func = delayed(lmm_fit)
+
+#         res = parallel(func(feature, df[[feature,'fixed_effect','random_effect']].dropna(axis=0))
+#                        for feature in feat_names)
+#         for feature, pval in res:
+#             pvals.loc[feature] = pval
+    
+#     # Benjamini-Yekutieli corrections for multiple comparisons
+#     pvals_corrected = multiple_test_correction(pvals.T, fdr_method=fdr_method, fdr=fdr)
+    
+#     return pvals_corrected

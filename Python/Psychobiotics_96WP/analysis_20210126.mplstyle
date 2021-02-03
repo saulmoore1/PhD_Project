@@ -1,6 +1,7 @@
 ## Figure properties
 
 #figure.figsize: 4, 4
+#figure.titlesize: 5
 figure.facecolor: w
 
 
