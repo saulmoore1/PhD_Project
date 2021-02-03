@@ -750,16 +750,18 @@ def plot_day_variation(feat_df,
         sns.violinplot(x=group_by, 
                        y=f, 
                        order=groups,
-                       #hue=day_var, 
-                       #palette=date_dict,
+                       hue=day_var, 
+                       palette=date_dict,
                        #size=5,
                        data=df,
                        ax=ax,
                        dodge=dodge)
+        for violin, alpha in zip(ax.collections, np.repeat(0.5, len(ax.collections))):
+            violin.set_alpha(alpha)
         sns.swarmplot(x=group_by, 
                       y=f, 
                       order=groups,
-                      hue=day_var, 
+                      hue=day_var,
                       palette=date_dict,
                       size=13,
                       edgecolor='k',
@@ -818,7 +820,7 @@ def barplot_sigfeats(test_pvalues_df, saveDir=None, p_value_threshold=0.05):
     for i, (l, v) in enumerate((test_pvalues_df < p_value_threshold).sum(axis=1).items()):
         ax.text(prop_sigfeats.loc[l] + 2, i, str(v), color='k', 
                 va='center', ha='left') #fontweight='bold'
-    plt.text(0.9, 0.9, 'n = %d' % len(test_pvalues_df.columns), ha='center', va='center', 
+    plt.text(0.8, 0.95, 'n = %d' % len(test_pvalues_df.columns), ha='center', va='center', 
              transform=ax.transAxes)  
     plt.tight_layout(rect=[0.02, 0.02, 0.96, 1])
 

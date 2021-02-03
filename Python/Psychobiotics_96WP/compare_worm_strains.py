@@ -66,7 +66,7 @@ RANDOM_EFFECT = 'date_yyyymmdd'
 
 if __name__ == "__main__":
     
-    # Accept command-line inputs
+    # Accept command-line inputs # TODO: Read from JSON instead?
     parser = argparse.ArgumentParser(description='Analyse Tierpsy results (96-well)')
     parser.add_argument('--project_dir', help="Project root directory,\
                         containing 'AuxiliaryFiles', 'RawVideos',\
@@ -109,7 +109,7 @@ if __name__ == "__main__":
     parser.add_argument('--pval_threshold', help="Threshold p-value for statistical \
                         significance", default=0.05, type=float)
     parser.add_argument('--k_sig_features', help="Number of most significantly \
-                        different features to plot", default=50, type=int)  
+                        different features to plot", default=100, type=int)  
     parser.add_argument('--selected_features_path', help="Path to manually selected intuitive \
                         features for publication", default='/Users/sm5911/Documents/tmp_analysis/Filipe/manually_selected_features.csv', type=str)
     args = parser.parse_args()
@@ -139,9 +139,12 @@ if __name__ == "__main__":
     # IO paths
     aux_dir = PROJECT_DIR / "AuxiliaryFiles"
     results_dir = PROJECT_DIR / "Results"
-    save_dir = Path('/Users/sm5911/Documents/tmp_analysis/Filipe') # PROJECT_DIR / 'Analysis'
+    save_dir = PROJECT_DIR / "Analysis" # Path('/Users/sm5911/Documents/tmp_analysis/Filipe') 
 
     #%% Compile and clean results
+    # TODO: Do first in separate script
+    # TODO: Clearly state significance/no significance and which test/run/strain/etc in std_out
+    # TODO: Suppress all annoying warnings
     
     # Process metadata    
     metadata = process_metadata(aux_dir=aux_dir, 
@@ -168,8 +171,9 @@ if __name__ == "__main__":
     # Save full results to file
     full_results_path = save_dir / 'full_results.csv' 
     if not full_results_path.exists():
+        full_results_path.parent.mkdir(exist_ok=True, parents=True)
         fullresults = metadata.join(features) # join metadata + results
-        print("Saving full results (features/metadata) to:\n '%s'" % full_results_path)     
+        print("Saving full results (features/metadata) to:\n '%s'" % full_results_path)
         fullresults.to_csv(full_results_path, index=False)
 
     #%% Subset results
@@ -401,8 +405,8 @@ if __name__ == "__main__":
             #%% K significant features
             #   Compare feature set overlap with k significant features
     
-            k_sigfeat_dir = plot_dir / 'k_sig_feats'
-            k_sigfeat_dir.mkdir(exist_ok=True, parents=True)
+            # k_sigfeat_dir = plot_dir / 'k_sig_feats'
+            # k_sigfeat_dir.mkdir(exist_ok=True, parents=True)
                 
             # Infer feature set
             #K_SIG_FEATS = len(fset) if (fset != None and len(fset) > K_SIG_FEATS) else K_SIG_FEATS
@@ -416,7 +420,7 @@ if __name__ == "__main__":
                                                             plot=False, 
                                                             k_to_plot=None, 
                                                             close_after_plotting=True,
-                                                            saveto=None, 
+                                                            saveto=None, #k_sigfeat_dir
                                                             figsize=None, 
                                                             title=None, 
                                                             xlabel=None)
@@ -466,6 +470,7 @@ if __name__ == "__main__":
                                              saveDir=plot_dir,
                                              p_value_threshold=P_VALUE_THRESHOLD)
             
+            # TODO: Plot k_sig_feats as boxplots anyway even if no sigfeats are found by LMM tests
             # Boxplots of significant features (for each group vs control)
             boxplots_sigfeats(feat_meta_df=meta_df.join(feat_df), 
                               test_pvalues_df=pvalues, 
@@ -577,7 +582,7 @@ if __name__ == "__main__":
                 '{}_date_heatmap.eps'.format(GROUPING_VAR)
             plot_barcode_heatmap(featZ=featZ_df[clustered_features], 
                                  meta=meta_df, 
-                                 group_by=[GROUPING_VAR,'date_yyyymmdd'], 
+                                 group_by=['date_yyyymmdd',GROUPING_VAR], 
                                  pvalues_series=pvalues_heatmap,
                                  p_value_threshold=P_VALUE_THRESHOLD,
                                  selected_feats=fset if len(fset) > 0 else None,
