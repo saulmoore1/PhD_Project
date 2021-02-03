@@ -34,7 +34,7 @@ from helper import (process_metadata,
                     boxplots_sigfeats,
                     boxplots_grouped,
                     plot_clustermap,
-                    plot_barcode_clustermap,
+                    plot_barcode_heatmap,
                     plot_pca,
                     remove_outliers_pca,
                     plot_tSNE,
@@ -94,10 +94,10 @@ if __name__ == "__main__":
     parser.add_argument('--feature_means_only', help="Use only 50th percentile feature summaries \
                         for each feature", default=True, action='store_false')
     parser.add_argument('--drop_size_features', help="Remove size-related Tierpsy \
-                        features from analysis", default=True, action='store_false')
+                        features from analysis", default=False, action='store_true')
     parser.add_argument('--norm_features_only', help="Use only normalised \
                         size-invariant features ('_norm') for analysis",
-                        default=True, action='store_false')
+                        default=False, action='store_true')
     parser.add_argument('--check_normal', help="Perform Shapiro-Wilks test for \
                         normality to decide between parametric/non-parametric \
                         statistics", default=True, action='store_false')
@@ -109,7 +109,7 @@ if __name__ == "__main__":
     parser.add_argument('--pval_threshold', help="Threshold p-value for statistical \
                         significance", default=0.05, type=float)
     parser.add_argument('--k_sig_features', help="Number of most significantly \
-                        different features to plot", default=100, type=int)  
+                        different features to plot", default=50, type=int)  
     parser.add_argument('--selected_features_path', help="Path to manually selected intuitive \
                         features for publication", default='/Users/sm5911/Documents/tmp_analysis/Filipe/manually_selected_features.csv', type=str)
     args = parser.parse_args()
@@ -405,10 +405,11 @@ if __name__ == "__main__":
             k_sigfeat_dir.mkdir(exist_ok=True, parents=True)
                 
             # Infer feature set
-            K_SIG_FEATS = len(fset) if (fset is not None and len(fset)>K_SIG_FEATS) else K_SIG_FEATS
+            #K_SIG_FEATS = len(fset) if (fset != None and len(fset) > K_SIG_FEATS) else K_SIG_FEATS
             fset_ksig, (scores, pvalues_ksig), support = k_significant_feat(feat=feat_df, 
                                                             y_class=meta_df[GROUPING_VAR], 
-                                                            k=K_SIG_FEATS, 
+                                                            k=(len(fset) if len(fset) > K_SIG_FEATS 
+                                                               else K_SIG_FEATS), 
                                                             score_func='f_classif', 
                                                             scale=None, 
                                                             feat_names=None, 
@@ -454,7 +455,7 @@ if __name__ == "__main__":
                                p_value_threshold=P_VALUE_THRESHOLD,
                                saveDir=swarmDir,
                                sns_colour_palette="tab10",
-                               dodge=True, 
+                               dodge=False, 
                                ranked=True)
                                                                    
             #%% Boxplots of most significantly different features for each strain vs control
@@ -477,9 +478,9 @@ if __name__ == "__main__":
             # from tierpsytools.analysis.significant_features import plot_feature_boxplots
             # plot_feature_boxplots(feat_to_plot=fset,
             #                       y_class=GROUPING_VAR,
-            #                       scores=pvalues_ttest.rank(axis=1),
+            #                       scores=pvalues.rank(axis=1),
             #                       feat_df=feat_df,
-            #                       pvalues=np.asarray(pvalues_ttest).flatten(),
+            #                       pvalues=np.asarray(pvalues).flatten(),
             #                       saveto=None,
             #                       close_after_plotting=False)
             
@@ -488,7 +489,7 @@ if __name__ == "__main__":
                              test_pvalues_df=pvalues,
                              control_group=control,
                              fset=fset,
-                             saveDir= (plot_dir / 'grouped_boxplots'),
+                             saveDir=(plot_dir / 'grouped_boxplots'),
                              max_features_plot_cap=K_SIG_FEATS, 
                              p_value_threshold=0.05,
                              figsize=[8,12],
@@ -521,15 +522,14 @@ if __name__ == "__main__":
                 print("Dropped %d features after normalisation (NaN)" % n_dropped)
 
             # plot clustermap for control
-            control_heatmap_path = plot_dir / 'HCA' / '{}_cluster_heatmap.eps'.format(control)
+            control_clustermap_path = plot_dir / 'HCA' / '{}_clustermap.eps'.format(control)
             cg = plot_clustermap(featZ=controlZ_feat_df,
                                  meta=control_meta_df,
                                  group_by=[GROUPING_VAR,'date_yyyymmdd'],
                                  col_linkage=None,
-                                 order=None,
                                  method='complete',#[linkage, complete, average, weighted, centroid]
                                  figsize=[18,6],
-                                 saveto=control_heatmap_path)
+                                 saveto=control_clustermap_path)
 
             # Extract linkage + clustered features
             col_linkage = cg.dendrogram_col.calculated_linkage
@@ -541,8 +541,6 @@ if __name__ == "__main__":
             
             featZ_df = feat_df.apply(zscore, axis=0)
 
-            featZ_df = featZ_df[clustered_features]
-
             # Drop features with NaN values after normalising
             n_cols = len(featZ_df.columns)
             featZ_df.dropna(axis=1, inplace=True)
@@ -550,61 +548,61 @@ if __name__ == "__main__":
             if n_dropped > 0:
                 print("Dropped %d features after normalisation (NaN)" % n_dropped)
             
-            full_heatmap_path = plot_dir / 'HCA' / '{}_cluster_heatmap.eps'.format(GROUPING_VAR)
-            cg = plot_clustermap(featZ=featZ_df, 
+            full_clustermap_path = plot_dir / 'HCA' / 'full_{}_clustermap.eps'.format(GROUPING_VAR)
+            fg = plot_clustermap(featZ=featZ_df, 
                                  meta=meta_df, 
                                  group_by=GROUPING_VAR,
-                                 col_linkage=col_linkage,
-                                 order=pd.Series(clustered_features),
+                                 col_linkage=None,
                                  method='complete',
                                  figsize=[20,5],
-                                 saveto=full_heatmap_path)
+                                 saveto=full_clustermap_path)
             
             if len(var_list) > 2:
                 pvalues_heatmap = pvalues_anova.loc['pval', clustered_features]
             elif len(var_list) == 2:
                 pvalues_heatmap = pvalues.loc[pvalues.index[0], clustered_features]
             pvalues_heatmap.name = 'P < {}'.format(P_VALUE_THRESHOLD)
-            
-            assert set(pvalues_heatmap.index) == set(featZ_df.columns)
-            
-            # Plot barcode clustermap
-            barcode_heatmap_path = Path(str(full_heatmap_path).replace('.eps', '_barcode.eps'))
-            plot_barcode_clustermap(featZ=featZ_df, 
-                                    meta=meta_df, 
-                                    group_by=[GROUPING_VAR,'date_yyyymmdd'], 
-                                    pvalues_series=pvalues_heatmap,
-                                    p_value_threshold=P_VALUE_THRESHOLD,
-                                    selected_feats=fset,
-                                    saveto=barcode_heatmap_path,
-                                    figsize=[18,6],
-                                    sns_colour_palette="Pastel1")
 
-            #%% Heatmap barcode with selected features
+            assert all(f in featZ_df.columns for f in pvalues_heatmap.index)
+
+            # Heatmap barcode with selected features
             #   - Read in selected features list
             
             if args.selected_features_path is not None and run==3 and GROUPING_VAR=='worm_strain':
-                selected_features = pd.read_csv(Path(args.selected_features_path), index_col=None)
-                selected_features = [s for s in selected_features['feature'] 
-                                     if s in featZ_df.columns]              
-                selected_barcode_heatmap_path = plot_dir / 'HCA' /\
-                    '{}_cluster_heatmap_barcode_selected_features.eps'.format(GROUPING_VAR)
-                plot_barcode_clustermap(featZ=featZ_df, 
-                                        meta=meta_df, 
-                                        group_by=[GROUPING_VAR], 
-                                        pvalues_series=pvalues_heatmap,
-                                        p_value_threshold=P_VALUE_THRESHOLD,
-                                        selected_feats=selected_features,
-                                        saveto=selected_barcode_heatmap_path,
-                                        figsize=[18,6],
-                                        sns_colour_palette="Pastel1")                
-                # TODO: Timeseries analysis of feature across timepoints/stimulus windows/on-off food/etc
+                fset = pd.read_csv(Path(args.selected_features_path), index_col=None)
+                fset = [s for s in fset['feature'] if s in featZ_df.columns] # TODO: Assert this?
+                
+            # Plot barcode hewatmap, grouping also by date
+            heatmap_date_path = plot_dir / 'HCA' /\
+                '{}_date_heatmap.eps'.format(GROUPING_VAR)
+            plot_barcode_heatmap(featZ=featZ_df[clustered_features], 
+                                 meta=meta_df, 
+                                 group_by=[GROUPING_VAR,'date_yyyymmdd'], 
+                                 pvalues_series=pvalues_heatmap,
+                                 p_value_threshold=P_VALUE_THRESHOLD,
+                                 selected_feats=fset if len(fset) > 0 else None,
+                                 saveto=heatmap_date_path,
+                                 figsize=[18,6],
+                                 sns_colour_palette="Pastel1")
             
+            # Plot group-mean heatmap (averaged across days)
+            heatmap_path = plot_dir / 'HCA' / '{}_heatmap.eps'.format(GROUPING_VAR)
+            plot_barcode_heatmap(featZ=featZ_df[clustered_features], 
+                                 meta=meta_df, 
+                                 group_by=[GROUPING_VAR], 
+                                 pvalues_series=pvalues_heatmap,
+                                 p_value_threshold=P_VALUE_THRESHOLD,
+                                 selected_feats=fset if len(fset) > 0 else None,
+                                 saveto=heatmap_path,
+                                 figsize=[18,6],
+                                 sns_colour_palette="Pastel1")        
+                            
             # feature sets for each stimulus type
             featsets = {}
             for stim in ['_prestim','_bluelight','_poststim']:
                 featsets[stim] = [f for f in features.columns if stim in f]
-            
+
+        # TODO: Timeseries analysis of feature across timepoints/stimulus windows/on-off food/etc
         # TODO: sns.relplot and sns.jointplot and sns.lineplot for visualising covariance/corrrelation
         # between selected features
         
@@ -655,4 +653,3 @@ if __name__ == "__main__":
                                 saveDir=umap_dir,
                                 n_neighbours=n_neighbours,
                                 min_dist=min_dist)
-

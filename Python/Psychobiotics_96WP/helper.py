@@ -747,20 +747,20 @@ def plot_day_variation(feat_df,
         plt.close('all')
         plt.style.use(CUSTOM_STYLE)
         fig, ax = plt.subplots(figsize=figsize)
+        sns.violinplot(x=group_by, 
+                       y=f, 
+                       order=groups,
+                       #hue=day_var, 
+                       #palette=date_dict,
+                       #size=5,
+                       data=df,
+                       ax=ax,
+                       dodge=dodge)
         sns.swarmplot(x=group_by, 
                       y=f, 
+                      order=groups,
                       hue=day_var, 
                       palette=date_dict,
-                      order=groups, 
-                      size=5,
-                      data=df,
-                      ax=ax,
-                      dodge=dodge)
-        sns.swarmplot(x=group_by, 
-                      y=f, 
-                      hue=day_var, 
-                      palette=date_dict,
-                      order=groups, 
                       size=13,
                       edgecolor='k',
                       linewidth=2,
@@ -817,7 +817,9 @@ def barplot_sigfeats(test_pvalues_df, saveDir=None, p_value_threshold=0.05):
     plt.xlim(0,100)
     for i, (l, v) in enumerate((test_pvalues_df < p_value_threshold).sum(axis=1).items()):
         ax.text(prop_sigfeats.loc[l] + 2, i, str(v), color='k', 
-                va='center', ha='left') #fontweight='bold'           
+                va='center', ha='left') #fontweight='bold'
+    plt.text(0.9, 0.9, 'n = %d' % len(test_pvalues_df.columns), ha='center', va='center', 
+             transform=ax.transAxes)  
     plt.tight_layout(rect=[0.02, 0.02, 0.96, 1])
 
     if saveDir:
@@ -959,10 +961,11 @@ def boxplots_grouped(feat_meta_df,
                      figsize=[8,12],
                      saveFormat=None,
                      **kwargs):
-    """ Boxplots comparing all strains to control for a given feature """
+    """ Boxplots comparing all strains to control for each feature in feature set """
         
     if fset is not None:
         assert all(feat in feat_meta_df.columns for feat in fset)
+        
         # Drop insignificant features
         fset = [feature for feature in fset if (test_pvalues_df[feature] < p_value_threshold).any()]
         
@@ -1052,11 +1055,10 @@ def plot_clustermap(featZ,
                     meta, 
                     group_by,
                     col_linkage=None,
-                    order=None,
                     method='complete',
                     saveto=None,
                     figsize=[10,8],
-                    sns_colour_palette="tab10"):
+                    sns_colour_palette="Pastel1"):
     """ Seaborn clustermap (hierarchical clustering heatmap) of normalised """                
     
     assert (featZ.index == meta.index).all()
@@ -1068,21 +1070,17 @@ def plot_clustermap(featZ,
         raise IOError("Must provide either 1 or 2 'group_by' parameters")        
         
     # Store feature names
-    if order is not None:
-        fset = order
-        assert all(f in featZ.columns for f in fset)
-    else:
-        fset = featZ.columns
+    fset = featZ.columns
         
     # Compute average value for strain for each feature (not each well)
     featZ_grouped = featZ.join(meta).groupby(group_by).mean().reset_index()
     
     var_list = list(featZ_grouped[group_by[0]].unique())
-    
+
     # Row colors
     row_colours = []
     if len(var_list) > 1 or n == 1:
-        var_colour_dict = dict(zip(var_list, sns.color_palette(sns_colour_palette, len(var_list))))
+        var_colour_dict = dict(zip(var_list, sns.color_palette("tab10", len(var_list))))
         row_cols_var = featZ_grouped[group_by[0]].map(var_colour_dict)
         row_colours.append(row_cols_var)
     if n == 2:
@@ -1095,7 +1093,7 @@ def plot_clustermap(featZ,
 
     # Column colors
     bluelight_colour_dict = dict(zip(['prestim','bluelight','poststim'], 
-                                     sns.color_palette("Set2", 3)))
+                                     sns.color_palette(sns_colour_palette, 3)))
     feat_colour_dict = {f:bluelight_colour_dict[f.split('_')[-1]] for f in fset}
     
     # Plot clustermap
@@ -1169,15 +1167,15 @@ def plot_clustermap(featZ,
     
     return cg
 
-def plot_barcode_clustermap(featZ, 
-                            meta, 
-                            group_by,
-                            pvalues_series=None,
-                            p_value_threshold=0.05,
-                            selected_feats=None,
-                            figsize=[18,6],
-                            saveto=None,
-                            sns_colour_palette="Pastel1"):
+def plot_barcode_heatmap(featZ, 
+                         meta, 
+                         group_by,
+                         pvalues_series=None,
+                         p_value_threshold=0.05,
+                         selected_feats=None,
+                         figsize=[18,6],
+                         saveto=None,
+                         sns_colour_palette="Pastel1"):
     """  """
     
     assert set(featZ.index) == set(meta.index)
@@ -1199,9 +1197,9 @@ def plot_barcode_clustermap(featZ,
     var_list = list(heatmap_df.index)
     
     if pvalues_series is not None:
-        assert set(pvalues_series.index) == set(fset)
+        assert all(f in fset for f in pvalues_series.index)
         
-        heatmap_df = heatmap_df.append(-np.log10(pvalues_series.astype(float)))
+        heatmap_df = heatmap_df.append(-np.log10(pvalues_series[fset].astype(float)))
     
     # Map colors for stimulus type
     _stim = pd.DataFrame(data=[f.split('_')[-1] for f in fset], columns=['Stimulus'])
@@ -1226,10 +1224,7 @@ def plot_barcode_clustermap(featZ,
     # Stimulus colors
     stim_order = ['prestim','bluelight','poststim']
     bluelight_colour_dict = dict(zip(stim_order, sns.color_palette(sns_colour_palette, 3)))
-    
-    # TODO: Order features by stim_type + make bluelight blue
-    # TODO: Sort out row names (yticklabels) get rid of None-None, rotatwe stim_type label
-    
+        
     for n, ((ix, r), c, v) in enumerate(zip(heatmap_df.iterrows(), cm, vmin_max)):
         if n > len(var_list):
             c = sns.color_palette(sns_colour_palette,3)
@@ -1245,13 +1240,12 @@ def plot_barcode_clustermap(featZ,
                     cbar_ax=None if n else cbar_ax,
                     #cbar_kws={'shrink':0.8},
                     vmin=v[0], vmax=v[1])
-            
+        plt.yticks(rotation=0, fontsize=20)
+        plt.ylabel("")
         #cbar_ax.set_yticklabels(labels = cbar_ax.get_yticklabels())#, fontdict=font_settings)
         # if n < len(var_list):
         #     axis.set_yticklabels(labels=(str(ix[0])+' - '+str(ix[1])), rotation=0)
         #axis.set_yticklabels(labels=[ix], rotation=0, fontsize=15)
-        plt.ylabel("")
-        plt.yticks(rotation=0, fontsize=20)
         # if n == len(heatmap_df)-1:
         #     axis.set_yticklabels(labels=[ix], rotation=0) # fontsize=15
             
@@ -1275,12 +1269,13 @@ def plot_barcode_clustermap(featZ,
         #f.tight_layout(rect=[0, 0, 0.89, 1], w_pad=0.5)
     
     if selected_feats is not None:
-        for feat in selected_feats:
-            try:
-                axis.text(heatmap_df.columns.get_loc(feat), 1, '*', ha='center')
-            except KeyError:
-                print('{} not in featureset'.format(feat))
-    
+        if len(selected_feats) > 0:
+            for feat in selected_feats:
+                try:
+                    axis.text(heatmap_df.columns.get_loc(feat), 1, ' *', ha='center')
+                except KeyError:
+                    print('{} not in featureset'.format(feat))
+
     if saveto:
         saveto.parent.mkdir(exist_ok=True, parents=True)
         plt.savefig(saveto, dpi=600)
@@ -1428,7 +1423,6 @@ def plot_pca(featZ,
                     levels=1,
                     bw_method="scott", 
                     bw_adjust=1)  
-        # TODO: check sns.jointplot
         
         ax.set_xlabel('Principal Component 1 (%.1f%%)' % (ex_variance_ratio[0]*100), 
                       fontsize=20, labelpad=12)
@@ -1601,7 +1595,7 @@ def plot_tSNE(featZ,
         var_subset = list(meta[group_by].unique())    
         
     print("\nPerforming t-distributed stochastic neighbour embedding (t-SNE)")
-    for perplex in perplexities:
+    for perplex in tqdm(perplexities):
         # 2-COMPONENT t-SNE
         tSNE_embedded = TSNE(n_components=n_components, 
                              init='random', 
@@ -1661,7 +1655,7 @@ def plot_umap(featZ,
         var_subset = list(meta[group_by].unique())    
 
     print("\nPerforming uniform manifold projection (UMAP)")
-    for n in n_neighbours:
+    for n in tqdm(n_neighbours):
         UMAP_projection = umap.UMAP(n_neighbors=n,
                                     min_dist=min_dist,
                                     metric='correlation').fit_transform(featZ)
