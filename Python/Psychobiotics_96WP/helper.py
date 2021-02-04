@@ -841,20 +841,33 @@ def boxplots_sigfeats(feat_meta_df,
                       saveDir=None, 
                       p_value_threshold=0.05,
                       n_sig_feats_to_plot=None,
-                      sns_colour_palette="tab10"):
+                      selected_features=None,
+                      sns_colour_palette="tab10",
+                      colour_by_date=False):
     """ Box plots of most significantly different features between strains """    
        
+    if selected_features is not None:
+        if not type(selected_features) == list:
+            try:
+                selected_features = list(selected_features)
+            except:
+                raise IOError("Please provide selected features as a list!")
+        
     for strain in tqdm(test_pvalues_df.index):
         pvals = test_pvalues_df.loc[strain]
         
         n_sigfeats = sum(pvals < p_value_threshold)
-                    
+
         if pvals.isna().all():
             print("No signficant features found for %s" % strain)
         elif n_sigfeats > 0:       
             ranked_pvals = pvals.sort_values(ascending=True) # rank p-values in ascending order
             ranked_pvals = ranked_pvals.dropna(axis=0) # drop NaNs
             topfeats = ranked_pvals[ranked_pvals < p_value_threshold] # drop non-sig feats  
+            
+            if selected_features is not None:
+                select_feat_pvals = pvals[selected_features]
+                topfeats = select_feat_pvals.append(topfeats)
             
             # select top ranked p-values
             if not n_sig_feats_to_plot:
@@ -876,9 +889,10 @@ def boxplots_sigfeats(feat_meta_df,
             colour_labels = sns.color_palette(sns_colour_palette, 2)
             colour_dict = {control_strain:colour_labels[0], str(strain):colour_labels[1]}
             
-            date_colours = sns.color_palette("Paired", len(plot_df['date_yyyymmdd'].unique()))
-            date_dict = dict(zip(plot_df['date_yyyymmdd'].unique(), date_colours))
-            
+            if colour_by_date:
+                date_colours = sns.color_palette("Paired", len(plot_df['date_yyyymmdd'].unique()))
+                date_dict = dict(zip(plot_df['date_yyyymmdd'].unique(), date_colours))
+                
             order = list(plot_df[group_by].unique())
             order.remove(control_strain)
             order.insert(0, control_strain)
@@ -897,7 +911,7 @@ def boxplots_sigfeats(feat_meta_df,
                             order=order,
                             palette=colour_dict,
                             showfliers=False, 
-                            showmeans=True,
+                            showmeans=True if colour_by_date else None,
                             #meanline=True,
                             meanprops={"marker":"x", 
                                        "markersize":5,
@@ -910,29 +924,42 @@ def boxplots_sigfeats(feat_meta_df,
                               data=plot_df,
                               s=10,
                               order=order,
-                              hue='date_yyyymmdd',
-                              palette=date_dict,
+                              hue='date_yyyymmdd' if colour_by_date else None,
+                              palette=date_dict if colour_by_date else None,
+                              color=None if colour_by_date else 'gray',
                               marker=".",
                               edgecolor='k',
                               linewidth=.3) #facecolors="none"
                 ax.axes.get_xaxis().get_label().set_visible(False) # remove x axis label
-                ax.set_ylabel('') #fontsize=15, labelpad=12
-                plt.xlim(right=len(order)-0.3)
-                plt.legend(loc='upper right', title='Date')
-                plt.title(feature.replace('_',' '), fontsize=18, pad=20)
+
+                ylab = ' '.join(feature.split('_')[:-2])
+                if any(f in feature for f in ['length','width']):
+                    ylab = r'{} ($\mu m$)'.format(ylab)
+                elif 'speed' in feature:
+                    ylab = r'{} ($\mu m/s$)'.format(ylab)
+                elif 'area' in feature:
+                    ylab = r'{} ($\mu m^2$)'.format(ylab)
+                plt.ylabel(ylab, fontsize=18) #fontsize=15, labelpad=12
+
+                if colour_by_date:
+                    plt.xlim(right=len(order)-0.3)
+                    plt.legend(loc='upper right', title='Date')
+                #plt.title(feature.replace('_',' '), fontsize=18, pad=20)
                 
                 # Add p-value to plot
                 for i, strain in enumerate(order[1:]):
                     pval = test_pvalues_df.loc[strain, feature]
                     text = ax.get_xticklabels()[i+1]
                     assert text.get_text() == strain
-                    if isinstance(pval, float) and pval < p_value_threshold:
+                    if ((isinstance(pval, float) and pval < p_value_threshold) 
+                        or feature in selected_features):
                         y = plot_df[feature].max() 
                         h = (y - plot_df[feature].min()) / 50
                         plt.plot([0, 0, i+1, i+1], [y+h, y+2*h, y+2*h, y+h], lw=1.5, c='k')
                         pval_text = 'P < 0.001' if pval < 0.001 else 'P = %.3f' % pval
                         ax.text((i+1)/2, y+2*h, pval_text, fontsize=12, ha='center', va='bottom')
-                    
+                
+                plt.subplots_adjust(left=0.15)
                 # #Custom legend
                 # patch_list = []
                 # for l, key in enumerate(colour_dict.keys()):
@@ -944,7 +971,7 @@ def boxplots_sigfeats(feat_meta_df,
     
                 # Save figure
                 if saveDir:
-                    plot_path = saveDir / str(strain) / ('{0}_'.format(f + 1) + feature + '.png')
+                    plot_path = saveDir / str(strain) / ('{0}_'.format(f + 1) + feature + '.pdf')
                     plot_path.parent.mkdir(exist_ok=True, parents=True)
                     plt.savefig(plot_path, dpi=300)
                 else:
@@ -1463,8 +1490,8 @@ def plot_pca(featZ,
     # Save PCA plot
     if saveDir:
         pca_path = Path(saveDir) / ('pca_by_{}'.format(group_by) + 
-                                   ('.png' if n_dims == 3 else '.eps'))
-        plt.savefig(pca_path, format='png' if n_dims == 3 else 'eps', 
+                                   ('.png' if n_dims == 3 else '.pdf'))
+        plt.savefig(pca_path, format='png' if n_dims == 3 else 'pdf', 
                     dpi=600 if n_dims == 3 else 300) # rasterized=True
     else:
         # Rotate the axes and update plot        
@@ -1630,7 +1657,7 @@ def plot_tSNE(featZ,
         
         if saveDir:
             saveDir.mkdir(exist_ok=True, parents=True)
-            savePath = Path(saveDir) / 'tSNE_perplex={0}.eps'.format(perplex)
+            savePath = Path(saveDir) / 'tSNE_perplex={0}.pdf'.format(perplex)
             plt.savefig(savePath, tight_layout=True, dpi=300)
         else:
             plt.show(); plt.pause(2)
@@ -1689,7 +1716,7 @@ def plot_umap(featZ,
         
         if saveDir:
             saveDir.mkdir(exist_ok=True, parents=True)
-            savePath = Path(saveDir) / 'UMAP_n_neighbours={0}.eps'.format(n)
+            savePath = Path(saveDir) / 'UMAP_n_neighbours={0}.pdf'.format(n)
             plt.savefig(savePath, tight_layout=True, dpi=300)
         else:
             plt.show(); plt.pause(2)

@@ -74,7 +74,7 @@ if __name__ == "__main__":
                         default='/Volumes/hermes$/Filipe_Tests_96WP', type=str)
     parser.add_argument('--analyse_variables', help="List of categorical \
                         variables that you wish to investigate", nargs='+',
-                        default=['worm_strain','instrument_name']) #'food_type'
+                        default=['worm_strain']) #'food_type','instrument_name'
     parser.add_argument('--compile_day_summaries', help="Compile full feature summaries from \
                         day feature summary results", default=False, action='store_true')
     # Keio = ['food_type','instrument_name','lawn_growth_duration_hours','lawn_storage_type']
@@ -94,10 +94,10 @@ if __name__ == "__main__":
     parser.add_argument('--feature_means_only', help="Use only 50th percentile feature summaries \
                         for each feature", default=True, action='store_false')
     parser.add_argument('--drop_size_features', help="Remove size-related Tierpsy \
-                        features from analysis", default=False, action='store_true')
+                        features from analysis", default=True, action='store_true')
     parser.add_argument('--norm_features_only', help="Use only normalised \
                         size-invariant features ('_norm') for analysis",
-                        default=False, action='store_true')
+                        default=True, action='store_true')
     parser.add_argument('--check_normal', help="Perform Shapiro-Wilks test for \
                         normality to decide between parametric/non-parametric \
                         statistics", default=True, action='store_false')
@@ -139,7 +139,7 @@ if __name__ == "__main__":
     # IO paths
     aux_dir = PROJECT_DIR / "AuxiliaryFiles"
     results_dir = PROJECT_DIR / "Results"
-    save_dir = PROJECT_DIR / "Analysis" # Path('/Users/sm5911/Documents/tmp_analysis/Filipe') 
+    save_dir = Path('/Users/sm5911/Documents/tmp_analysis/Filipe') # PROJECT_DIR / "Analysis" # 
 
     #%% Compile and clean results
     # TODO: Do first in separate script
@@ -222,6 +222,7 @@ if __name__ == "__main__":
         
         control = CONTROL_DICT[GROUPING_VAR]
         
+        #imaging_run_list = [3]
         for run in imaging_run_list:
             print("\nAnalysing imaging run %d" % run)
             
@@ -476,6 +477,7 @@ if __name__ == "__main__":
                               test_pvalues_df=pvalues, 
                               group_by=GROUPING_VAR, 
                               control_strain=control, 
+                              selected_features=['speed_norm_50th_bluelight'],
                               saveDir=plot_dir / 'paired_boxplots',
                               n_sig_feats_to_plot=K_SIG_FEATS,
                               p_value_threshold=P_VALUE_THRESHOLD)
@@ -527,7 +529,7 @@ if __name__ == "__main__":
                 print("Dropped %d features after normalisation (NaN)" % n_dropped)
 
             # plot clustermap for control
-            control_clustermap_path = plot_dir / 'HCA' / '{}_clustermap.eps'.format(control)
+            control_clustermap_path = plot_dir / 'HCA' / '{}_clustermap.pdf'.format(control)
             cg = plot_clustermap(featZ=controlZ_feat_df,
                                  meta=control_meta_df,
                                  group_by=[GROUPING_VAR,'date_yyyymmdd'],
@@ -553,7 +555,7 @@ if __name__ == "__main__":
             if n_dropped > 0:
                 print("Dropped %d features after normalisation (NaN)" % n_dropped)
             
-            full_clustermap_path = plot_dir / 'HCA' / 'full_{}_clustermap.eps'.format(GROUPING_VAR)
+            full_clustermap_path = plot_dir / 'HCA' / 'full_{}_clustermap.pdf'.format(GROUPING_VAR)
             fg = plot_clustermap(featZ=featZ_df, 
                                  meta=meta_df, 
                                  group_by=GROUPING_VAR,
@@ -579,7 +581,7 @@ if __name__ == "__main__":
                 
             # Plot barcode hewatmap, grouping also by date
             heatmap_date_path = plot_dir / 'HCA' /\
-                '{}_date_heatmap.eps'.format(GROUPING_VAR)
+                '{}_date_heatmap.pdf'.format(GROUPING_VAR)
             plot_barcode_heatmap(featZ=featZ_df[clustered_features], 
                                  meta=meta_df, 
                                  group_by=['date_yyyymmdd',GROUPING_VAR], 
@@ -591,7 +593,7 @@ if __name__ == "__main__":
                                  sns_colour_palette="Pastel1")
             
             # Plot group-mean heatmap (averaged across days)
-            heatmap_path = plot_dir / 'HCA' / '{}_heatmap.eps'.format(GROUPING_VAR)
+            heatmap_path = plot_dir / 'HCA' / '{}_heatmap.pdf'.format(GROUPING_VAR)
             plot_barcode_heatmap(featZ=featZ_df[clustered_features], 
                                  meta=meta_df, 
                                  group_by=[GROUPING_VAR], 
@@ -614,7 +616,7 @@ if __name__ == "__main__":
             #%% Principal Components Analysis (PCA)
     
             if REMOVE_OUTLIERS:
-                outlier_path = plot_dir / 'mahalanobis_outliers.eps'
+                outlier_path = plot_dir / 'mahalanobis_outliers.pdf'
                 feat_df, inds = remove_outliers_pca(df=feat_df, 
                                                     features_to_analyse=None, 
                                                     saveto=outlier_path)
