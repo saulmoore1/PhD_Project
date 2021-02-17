@@ -9,8 +9,6 @@ Helper Functions
 """
 
 #%% Imports
-import os
-import re
 import sys
 import umap
 import datetime
@@ -18,11 +16,10 @@ import numpy as np
 import pandas as pd
 import seaborn as sns
 from tqdm import tqdm
-from pathlib import Path, PosixPath
-from scipy.stats import (ttest_ind, ranksums, f_oneway, kruskal, zscore, shapiro)
+from pathlib import Path
+from scipy.stats import zscore
 # import scipy.spatial as sp
 # import scipy.cluster.hierarchy as hc
-from statsmodels.stats import multitest as smm # AnovaRM
 from sklearn.decomposition import PCA
 from sklearn.manifold import TSNE
 from sklearn.covariance import MinCovDet
@@ -38,21 +35,7 @@ for sysPath in PATH_LIST:
     if sysPath not in sys.path:
         sys.path.insert(0, sysPath)
 
-from tierpsytools.hydra.compile_metadata import add_imgstore_name # concatenate_days_metadata, get_camera_serial
-                                                 
-from tierpsytools.read_data.compile_features_summaries import compile_tierpsy_summaries
-from tierpsytools.read_data.hydra_metadata import (read_hydra_metadata, 
-                                                   align_bluelight_conditions)
-from tierpsytools.hydra.match_wells_annotations import (import_wells_annoations_in_folder,
-                                                        match_rawvids_annotations,
-                                                        update_metadata)
-from tierpsytools.preprocessing.filter_data import (filter_nan_inf, 
-                                                    feat_filter_std, 
-                                                    drop_ventrally_signed,
-                                                    cap_feat_values,
-                                                    drop_bad_wells)
-
-CUSTOM_STYLE = '/Users/sm5911/Documents/GitHub/PhD_Project/Python/Psychobiotics_96WP/analysis_20210126.mplstyle'
+CUSTOM_STYLE = '/Users/sm5911/Documents/GitHub/PhD_Project/Python/analysis/analysis_20210126.mplstyle'
 
 #%% Functions
 def duration_L1_diapause(df):
@@ -117,292 +100,6 @@ def duration_on_food(df):
    
     return df
 
-def process_metadata(aux_dir, 
-                     imaging_dates=None, 
-                     align_bluelight=True, 
-                     add_well_annotations=True):
-    """ Compile metadata from individual day metadata 
-        - Add 'imgstore_name'
-        - Add well annotations from WellAnnotator GUI
-        - Add camera serial number 
-        - Add duration on food
-    """
-    
-    compiled_metadata_path = Path(aux_dir) / "metadata.csv"
-    
-    if not compiled_metadata_path.exists():
-        print("Compiling from day-metadata in '%s'" % aux_dir)
-        
-        AuxFileList = os.listdir(aux_dir)
-        ExperimentDates = sorted([date for date in AuxFileList if re.match(r'\d{8}', date)])
-        
-        if imaging_dates:
-            ExperimentDates = [expdate for expdate in ExperimentDates if expdate in imaging_dates]
-        else:
-            imaging_dates = ExperimentDates
-    
-        day_meta_list = []
-        for expdate in imaging_dates:
-            day_meta_path = Path(aux_dir) / expdate / '{}_day_metadata.csv'.format(expdate)
-                    
-            day_meta = pd.read_csv(day_meta_path, dtype={"comments":str})
-            
-            # Rename metadata columns for compatibility with TierpsyTools functions 
-            day_meta = day_meta.rename(columns={'date_recording_yyyymmdd': 'date_yyyymmdd',
-                                                'well_number': 'well_name',
-                                                'plate_number': 'imaging_plate_id',
-                                                'run_number': 'imaging_run_number',
-                                                'camera_number': 'camera_serial'})
-             
-            # Get path to RawVideo directory for day metadata
-            rawDir = Path(str(day_meta_path).replace("AuxiliaryFiles","RawVideos")).parent
-            
-            # Get imgstore name + camera serial
-            if ('imgstore_name' not in day_meta.columns):
-                if 'camera_serial' in day_meta.columns:
-                    # Delete camera_serial column as it will be recreated
-                     day_meta = day_meta.drop(columns='camera_serial')
-                day_meta = add_imgstore_name(day_meta, rawDir)
-            
-            # If imgstore_name column is incomplete
-            elif 'imgstore_name' in day_meta.columns:
-                if day_meta['imgstore_name'].isna().any():
-                    day_meta = day_meta.drop(columns='imgstore_name')
-                    
-                    if 'camera_serial' in day_meta.columns:
-                        day_meta = day_meta.drop(columns='camera_serial')
-                    day_meta = add_imgstore_name(day_meta, rawDir)                    
-            
-            # Get filename
-            day_meta['filename'] = [rawDir.parent / day_meta.loc[i,'imgstore_name']\
-                                    for i in range(len(day_meta['filename']))]
-            
-            # Overwrite day metadata
-            print("Updating day metadata for: %s" % expdate)
-            day_meta.to_csv(day_meta_path, index=False)
-            
-            day_meta_list.append(day_meta)
-        
-        # Concatenate list of day metadata into full metadata
-        meta_df = pd.concat(day_meta_list, axis=0, ignore_index=True, sort=False)
-
-        # Ensure no missing filenames
-        assert not any(list(~np.array([isinstance(path, PosixPath) or\
-                       isinstance(path, str) for path in meta_df['filename']])))
-                
-        # Calculate duration on food
-        meta_df = duration_on_food(meta_df) 
-        
-        # Calculate L1 diapause duration
-        meta_df = duration_L1_diapause(meta_df)
-        
-        meta_df.to_csv(compiled_metadata_path, index=None) 
-        
-        if add_well_annotations:
-            annotations_df = import_wells_annoations_in_folder(aux_dir=aux_dir)
-            
-            rawDir = aux_dir.parent / "RawVideos"
-            matched_long = match_rawvids_annotations(rawvid_dir=rawDir, 
-                                                     annotations_df=annotations_df)
-            # overwrite metadata with annotations added
-            meta_df = update_metadata(aux_dir=aux_dir, 
-                                      matched_long=matched_long, 
-                                      saveto=compiled_metadata_path,
-                                      del_if_exists=True)
-            prop_bad = meta_df.is_bad_well.sum()/len(meta_df.is_bad_well)
-            print("%.1f%% of data are labelled as 'bad well' data" % (prop_bad*100))
-            
-        print("Metadata saved to: %s" % compiled_metadata_path)
-    else:
-        # load metadata
-        meta_df = pd.read_csv(compiled_metadata_path, dtype={"comments":str}, header=0)
-        print("Metadata loaded.")
-        
-        if imaging_dates:
-            meta_df = meta_df.loc[meta_df['date_yyyymmdd'].isin(imaging_dates),:]
-            print("Extracted metadata for imaging dates provided.")
-        if add_well_annotations:
-            if not 'is_bad_well' in meta_df.columns:
-                raise Warning("Bad well annotations not found in metadata!\n\
-                         Please delete + re-compile with annotations")
-            else:
-                prop_bad = meta_df.is_bad_well.sum()/len(meta_df.is_bad_well)
-                print("%.1f%% of data are labelled as 'bad well' data" % (prop_bad*100))
-                
-    return meta_df
-
-def process_feature_summaries(metadata, 
-                              results_dir, 
-                              compile_day_summaries=False,
-                              imaging_dates=None, 
-                              add_bluelight=True):
-    """ Compile feature summary results and join with metadata to produce
-        combined full feature summary results.    
-    """    
-    combined_feats_path = results_dir / "full_features.csv"
-    combined_fnames_path = results_dir / "full_filenames.csv"
- 
-    if not np.logical_and(combined_feats_path.is_file(), 
-                          combined_fnames_path.is_file()):
-        print("Processing feature summary results..")
-        
-        if compile_day_summaries:
-            if imaging_dates:
-                feat_files = []
-                fname_files = []
-                for date in imaging_dates:
-                    date_dir = Path(results_dir) / date
-                    feat_files.extend([f for f in Path(date_dir).rglob('features_summary*.csv')])
-                    fname_files.extend([Path(str(f).replace("/features_","/filenames_"))
-                                        for f in feat_files])
-            else:
-                feat_files = [f for f in Path(results_dir).rglob('features_summary*.csv')]
-                fname_files = [Path(str(f).replace("/features_", "/filenames_"))
-                               for f in feat_files]
-        else:
-            feat_files = list(Path(results_dir).glob('features_summary*.csv'))
-            fname_files = list(Path(results_dir).glob('filenames_summary*.csv'))
-               
-        # Keep only features files for which matching filenames_summaries exist
-        feat_files = [feat_fl for feat_fl,fname_fl in zip(np.unique(feat_files),
-                      np.unique(fname_files)) if fname_fl is not None]
-        fname_files = [fname_fl for fname_fl in np.unique(fname_files)
-                       if fname_fl is not None]
-        
-        # Compile feature summaries for matched features/filename summaries
-        compile_tierpsy_summaries(feat_files=feat_files, 
-                                  compiled_feat_file=combined_feats_path,
-                                  compiled_fname_file=combined_fnames_path,
-                                  fname_files=fname_files)
-    
-    # Read features/filename summaries
-    feature_summaries = pd.read_csv(combined_feats_path, comment='#')
-    filename_summaries = pd.read_csv(combined_fnames_path, comment='#')
-    print("Feature summary results loaded.")
-
-    features, metadata = read_hydra_metadata(feature_summaries, 
-                                             filename_summaries,
-                                             metadata,
-                                             add_bluelight=add_bluelight)
-    if add_bluelight:
-        features, metadata = align_bluelight_conditions(feat=features, 
-                                                        meta=metadata, 
-                                                        how='outer',
-                                                        merge_on_cols=['date_yyyymmdd',
-                                                                       'imaging_run_number',
-                                                                       'imaging_plate_id',
-                                                                       'well_name'])
-    assert set(features.index) == set(metadata.index)
-    
-    return features, metadata
-
-def clean_features_summaries(features, 
-                             metadata, 
-                             feature_columns=None, 
-                             imputeNaN=True,
-                             nan_threshold=0.2, 
-                             max_value_cap=1e15,
-                             mean_feats_only=True,
-                             drop_size_related_feats=False,
-                             norm_feats_only=False):
-    """ Clean features summary results:
-        - Drop features with too many NaN/Inf values (> nan_threshold)
-        - Impute remaining NaN values with global mean value for each feature
-        - Drop features with zero standard deviation
-        - Drop features that are ventrally signed
-        - Drop features that are path curvature related
-        - Drop features that are size-related (OPTIONAL)
-        - Drop faetures that are not '_norm' (OPTIONAL)
-        - Drop features that are not '_50th' percentiles (OPTIONAL)
-    """
-
-    assert set(features.index) == set(metadata.index)
-
-    if feature_columns is not None:
-        assert all([feat in features.columns for feat in feature_columns])
-        features = features[feature_columns]
-    else:
-        feature_columns = features.columns
-               
-    # Drop bad well data
-    features, metadata = drop_bad_wells(features, 
-                                        metadata, 
-                                        bad_well_cols=['is_bad_well'], 
-                                        verbose=False)
-    assert not any(features.sum(axis=1) == 0) # ensure no missing row data
-
-    # Drop feature columns with too many NaN values
-    features = filter_nan_inf(features, threshold=nan_threshold, axis=0)
-    nan_cols = [col for col in feature_columns if col not in features.columns]
-    if len(nan_cols) > 0:
-        print("Dropped %d features with >%.1f%% NaNs" % (len(nan_cols), nan_threshold*100))
-
-    # Drop feature columns with zero standard deviation
-    feature_columns = features.columns
-    features = feat_filter_std(features, threshold=0.0)
-    zero_std_feats = [col for col in feature_columns if col not in features.columns]
-    if len(zero_std_feats) > 0:
-        print("Dropped %d features with zero standard deviation" % len(zero_std_feats))
-    
-    # Impute remaining NaN values (using global mean feature value for each strain)
-    if imputeNaN:
-        n_nans = features.isna().sum(axis=0).sum()
-        if n_nans > 0:
-            print("Imputing %d missing values (%.2f%% data) " % (n_nans, 
-                                                                 n_nans/features.count().sum()*100)
-                  + "using global mean value for each feature..") 
-            features = features.fillna(features.mean(axis=0))
-
-    # Drop ventrally-signed features
-    # In general, for the curvature and angular velocity features we should only 
-    # use the 'abs' versions, because the sign is assigned based on whether the worm 
-    # is on its left or right side and this is not known for the multiworm tracking data
-    feature_columns = features.columns
-    features = drop_ventrally_signed(features)
-    ventrally_signed_feats = [f for f in feature_columns if f not in features.columns]
-    if len(ventrally_signed_feats) > 0:
-        print("Dropped %d features that are ventrally signed" % len(ventrally_signed_feats))
-    
-    # Cap feature values to max value for given feature
-    if max_value_cap:
-        features = cap_feat_values(features, cutoff=max_value_cap)
-    
-    # Remove 'path_curvature' features
-    path_curvature_feats = [f for f in features.columns if 'path_curvature' in f]
-    if len(path_curvature_feats) > 0:
-        features = features.drop(columns=path_curvature_feats)
-        print("Dropped %d features that are derived from path curvature"\
-              % len(path_curvature_feats))
-    
-    # Drop size-related features
-    if drop_size_related_feats:
-        size_feat_keys = ['blob','box','width','length','area']
-        size_features = []
-        for feature in list(features.columns):
-            for key in size_feat_keys:
-                if key in feature:
-                    size_features.append(feature)
-        feature_columns = [f for f in features.columns if f not in size_features]
-        features = features[feature_columns]
-        print("Dropped %d features that are size-related" % len(size_features))
-        
-    # Use '_norm' features only
-    if norm_feats_only:
-        feature_columns = features.columns
-        not_norm = [f for f in feature_columns if not '_norm' in f]
-        if len(not_norm) > 0:
-            features = features.drop(columns=not_norm)
-            print("Dropped %d features that are not '_norm' features" % len(not_norm))
-            
-    # Use '_50th' perrcentile data only
-    if mean_feats_only:
-        not_50th = [f for f in features.columns if not '_50th' in f]
-        if len(not_50th) > 0:
-            features = features.drop(columns=not_50th)
-            print("Dropped %d features that are not '_50th' features" % len(not_50th))
-        
-    return features, metadata
-
 def load_top256(top256_path, remove_path_curvature=True, add_bluelight=True):
     """ Load Tierpsy Top256 set of features describing N2 behaviour on E. coli 
         OP50 bacteria 
@@ -424,289 +121,11 @@ def load_top256(top256_path, remove_path_curvature=True, add_bluelight=True):
 
     return top256
 
-def shapiro_normality_test(features_df, 
-                           metadata_df, 
-                           group_by, 
-                           p_value_threshold=0.05,
-                           verbose=True):
-    """ Perform a Shapiro-Wilks test for normality among feature summary results separately for 
-        each test group in 'group_by' column provided, e.g. group_by='worm_strain', and return 
-        whether or not theee feature data can be considered normally distributed for parameetric 
-        statistics 
-    """
-    if verbose:
-        print("Checking for feature normality..")
-        
-    is_normal_threshold = 1 - p_value_threshold
-    strain_list = list(metadata_df[group_by].unique())
-    prop_features_normal = pd.Series(data=None, index=strain_list, name='prop_normal')
-    for strain in strain_list:
-        strain_meta = metadata_df[metadata_df[group_by]==strain]
-        strain_feats = features_df.reindex(strain_meta.index)
-        if verbose and not strain_feats.shape[0] > 2:
-            print("Not enough data for normality test for %s" % strain)
-        else:
-            strain_feats = strain_feats.dropna(axis=1, how='all')
-            fset = strain_feats.columns
-            normality_results = pd.DataFrame(data=None, index=['stat','pval'], columns=fset)
-            for f, feature in enumerate(fset):
-                try:
-                    stat, pval = shapiro(strain_feats[feature])
-                    # NB: UserWarning: Input data for shapiro has range zero 
-                    # Some features for that strain contain all zeros - shapiro(np.zeros(5))
-                    normality_results.loc['stat',feature] = stat
-                    normality_results.loc['pval',feature] = pval
-                    
-                    ## Q-Q plots to visualise whether data fit Gaussian distribution
-                    #from statsmodels.graphics.gofplots import qqplot
-                    #qqplot(data[feature], line='s')
-                    
-                except Exception as EE:
-                    print("WARNING: %s" % EE)
-                    
-            prop_normal = (normality_results.loc['pval'] < p_value_threshold).sum()/len(fset)
-            prop_features_normal.loc[strain] = prop_normal
-            if verbose:
-                print("%.1f%% of features are normal for %s (n=%d)" % (prop_normal*100, strain, 
-                                                                       strain_feats.shape[0]))
-
-    # Determine whether to perform parametric or non-parametric statistics
-    # NB: Null hypothesis - feature summary results for individual strains are normally distributed
-    total_prop_normal = np.mean(prop_features_normal)
-    if total_prop_normal > is_normal_threshold:
-        is_normal = True
-        if verbose:
-            print('More than %d%% of features (%.1f%%) were found to obey a normal distribution '\
-                  % (is_normal_threshold*100, total_prop_normal*100)
-                  + 'so parametric analyses will be preferred.')
-    else:
-        is_normal = False
-        if verbose:
-            print('Less than %d%% of features (%.1f%%) were found to obey a normal distribution '\
-                  % (is_normal_threshold*100, total_prop_normal*100)
-                  + 'so non-parametric analyses will be preferred.')
-    
-    return prop_features_normal, is_normal
-
-def anova_by_feature(feat_df, 
-                     meta_df, 
-                     group_by, 
-                     strain_list=None, 
-                     p_value_threshold=0.05, 
-                     is_normal=True,
-                     fdr_method='fdr_by'):
-    """ One-way ANOVA/Kruskal-Wallis tests for pairwise differences across 
-        strains for each feature 
-    """
-    # Drop features with zero std
-    n_cols = len(feat_df.columns)
-    feat_df = feat_filter_std(feat_df)
-    zero_std = n_cols - len(feat_df.columns)
-    if zero_std > 0:
-        print("Dropped %d features with zero standard deviation" % zero_std)
-  
-    # Record name of statistical test used (kruskal/f_oneway)
-    TEST = f_oneway if is_normal else kruskal
-    test_name = str(TEST).split(' ')[1].split('.')[-1].split('(')[0].split('\'')[0]
-    print("\nComputing %s tests between strains for each feature..." % test_name)
-
-    # Perform 1-way ANOVAs for each feature between test strains
-    test_pvalues_df = pd.DataFrame(index=['stat','pval'], columns=feat_df.columns)
-    for f, feature in enumerate(tqdm(feat_df.columns)):
-            
-        # Perform test and capture outputs: test statistic + p value
-        test_stat, test_pvalue = TEST(*[feat_df[meta_df[group_by]==strain][feature] \
-                                      for strain in meta_df[group_by].unique()])
-        test_pvalues_df.loc['stat',feature] = test_stat
-        test_pvalues_df.loc['pval',feature] = test_pvalue
-
-    # Perform Bonferroni correction for multiple comparisons on one-way ANOVA pvalues
-    _corrArray = smm.multipletests(test_pvalues_df.loc['pval'], 
-                                   alpha=p_value_threshold, 
-                                   method=fdr_method,
-                                   is_sorted=False, 
-                                   returnsorted=False)
-    
-    # Update pvalues with Benjamini-Yekutieli correction
-    test_pvalues_df.loc['pval',:] = _corrArray[1]
-    
-    # Store names of features that show significant differences across the test bacteria
-    sigfeats = test_pvalues_df.columns[np.where(test_pvalues_df.loc['pval'] < p_value_threshold)]
-    print("Complete!\n%d/%d (%.1f%%) features exhibit significant differences between strains "\
-          % (len(sigfeats), len(test_pvalues_df.columns), 
-             len(sigfeats) / len(test_pvalues_df.columns)*100) + 
-          '(%s, P<%.2f, %s)' % (test_name, p_value_threshold, fdr_method))
-    
-    # Compile list to store names of significant features
-    sigfeats_list = pd.Series(test_pvalues_df.columns[np.where(test_pvalues_df.loc['pval'] <
-                                                               p_value_threshold)])
-    sigfeats_list.name = 'significant_features_' + test_name
-    sigfeats_list = pd.DataFrame(sigfeats_list)
-      
-    topfeats = test_pvalues_df.loc['pval'].sort_values(ascending=True)[:10]
-    print("Top 10 significant features by %s test:\n" % test_name)
-    for feat in topfeats.index:
-        print(feat)
-
-    return test_pvalues_df, sigfeats_list
-
-def ranksumtest(test_data, control_data):
-    """ Wilcoxon rank sum test (column-wise between 2 dataframes of equal dimensions)
-        Returns 2 lists: a list of test statistics, and a list of associated p-values
-    """
-    colnames = list(test_data.columns)
-    J = len(colnames)
-    statistics = np.zeros(J)
-    pvalues = np.zeros(J)
-    
-    for j in range(J):
-        test_feat_data = test_data[colnames[j]]
-        control_feat_data = control_data[colnames[j]]
-        statistic, pval = ranksums(test_feat_data, control_feat_data)
-        pvalues[j] = pval
-        statistics[j] = statistic
-        
-    return statistics, pvalues
-
-def ttest_by_feature(feat_df, 
-                     meta_df, 
-                     group_by, 
-                     control_strain, 
-                     is_normal=True,
-                     p_value_threshold=0.05,
-                     fdr_method='fdr_by'):
-    """ Perform t-tests for significant differences between each strain and the
-        control, for each feature. If is_normal=False, rank-sum tests will be 
-        performed instead 
-    """
-    # Record name of statistical test used (ttest/ranksumtest)
-    TEST = ttest_ind if is_normal else ranksumtest
-    test_name = str(TEST).split(' ')[1].split('.')[-1].split('(')[0].split('\'')[0]
-    
-    # Extract control results
-    control_meta = meta_df[meta_df[group_by] == control_strain]
-    control_feats = feat_df.reindex(control_meta.index)
-    
-    # Record test strains
-    test_strains = [strain for strain in meta_df[group_by].unique() if strain != control_strain]
-
-    # Pre-allocate dataframes for storing test statistics and p-values
-    test_stats_df = pd.DataFrame(index=list(test_strains), columns=feat_df.columns)
-    test_pvalues_df = pd.DataFrame(index=list(test_strains), columns=feat_df.columns)
-    sigfeats_table = pd.DataFrame(index=test_pvalues_df.index, 
-                                  columns=['sigfeats','sigfeats_corrected'])
-    
-    # Compute test statistics for each strain, comparing to control for each feature
-    for t, strain in enumerate(test_strains):
-        print("Computing %s tests for %s vs %s..." % (test_name, control_strain, strain))
-            
-        # Grab feature summary results for that strain
-        strain_meta = meta_df[meta_df[group_by] == strain]
-        strain_feats = feat_df.reindex(strain_meta.index)
-        
-        # Drop columns that contain only zeros
-        n_cols = len(strain_feats.columns)
-        strain_feats = feat_filter_std(strain_feats, threshold=0.0)
-        control_feats = feat_filter_std(control_feats, threshold=0.0)
-        zero_std_cols = n_cols - len(strain_feats.columns)
-        if zero_std_cols > 0:
-            print("Dropped %d feature summaries for %s (zero std)" % (zero_std_cols, strain))
-            
-        # Use only shared feature summaries between control data and test data
-        shared_colnames = control_feats.columns.intersection(strain_feats.columns)
-        strain_feats = strain_feats[shared_colnames]
-        control_feats = control_feats[shared_colnames]
-    
-        # Perform rank-sum tests comparing between strains for each feature
-        test_stats, test_pvalues = TEST(strain_feats, control_feats)
-    
-        # Add test results to out-dataframe
-        test_stats_df.loc[strain][shared_colnames] = test_stats
-        test_pvalues_df.loc[strain][shared_colnames] = test_pvalues
-        
-        # Record the names and number of significant features 
-        sigfeats = pd.Series(test_pvalues_df.columns[np.where(test_pvalues < p_value_threshold)])
-        sigfeats.name = strain
-        sigfeats_table.loc[strain,'sigfeats'] = len(sigfeats)
-                
-    # Benjamini-Yekutieli corrections for multiple comparisons
-    sigfeats_list = []
-    for strain in test_pvalues_df.index:
-        # Locate pvalue results for strain (row)
-        strain_pvals = test_pvalues_df.loc[strain]
-        
-        # Perform correction for multiple features comparisons
-        _corrArray = smm.multipletests(strain_pvals.values, 
-                                       alpha=p_value_threshold, 
-                                       method=fdr_method,
-                                       is_sorted=False, 
-                                       returnsorted=False)
-        
-        # Get pvalues for features that passed the Benjamini/Yekutieli (negative) correlation test
-        test_pvalues_df.loc[strain,:] = _corrArray[1]
-        
-        # Record the names and number of significant features (after BY correction)
-        sigfeats = pd.Series(test_pvalues_df.columns[np.where(_corrArray[1] < p_value_threshold)])
-        sigfeats.name = strain
-        sigfeats_list.append(sigfeats)
-        sigfeats_table.loc[strain,'sigfeats_corrected'] = len(sigfeats)
-
-    # Concatentate into dataframe of sigfeats for each strain 
-    sigfeats_list = pd.concat(sigfeats_list, axis=1, ignore_index=True, sort=False)
-    sigfeats_list.columns = test_pvalues_df.index
-
-    return test_pvalues_df, sigfeats_table, sigfeats_list
-
-def multiple_test_correction(pvalues, fdr_method='fdr_by', fdr=0.05):
-    """
-    Multiple comparisons correction of pvalues from univariate tests
-    
-    Parameters
-    ----------
-    pvalues : pandas.Series shape=(n_features,) OR
-              pandas.DataFrame shape=(n_features, n_groups)
-    fdr_method : str
-        The method to use in statsmodels.stats.multitest.multipletests function
-    fdr : float
-        False discovery rate threshold
-        
-    Returns
-    -------
-    pvalues : pandas.DataFrame shape=(n_features, n_groups)
-        Dataframe of corrected pvalues for each feature
-    """
-        
-    assert type(pvalues) in [pd.DataFrame, pd.Series]
-    if type(pvalues) == pd.Series:
-        pvalues = pd.DataFrame(pvalues).T
-        
-    for idx in pvalues.index:
-        # Locate pvalue results for strain (row)
-        _pvals = pvalues.loc[idx]
- 
-        # Perform correction for multiple features comparisons
-        _corrArray = smm.multipletests(_pvals.values, 
-                                       alpha=fdr, 
-                                       method=fdr_method,
-                                       is_sorted=False, 
-                                       returnsorted=False)
-        
-        # Get pvalues for features that passed the Benjamini/Yekutieli (negative) correlation test
-        pvalues.loc[idx,:] = _corrArray[1]
-        
-        # Record significant features (after correction)
-        sigfeats = pvalues.loc[idx, 
-                               pvalues.columns[_corrArray[1] < fdr]].sort_values(ascending=True)
-        print("%d significant features found for %s (method='%s', fdr=%s)"\
-              % (len(sigfeats), idx, fdr_method, fdr))
-    
-    return pvalues
-
 def plot_day_variation(feat_df,
                        meta_df,
                        group_by,
-                       test_pvalues_df,
                        control,
+                       test_pvalues_df=None,
                        day_var='date_yyyymmdd',
                        fset=None,
                        p_value_threshold=0.05,
@@ -714,7 +133,8 @@ def plot_day_variation(feat_df,
                        figsize=[6,6],
                        sns_colour_palette="tab10",
                        dodge=False,
-                       ranked=False):
+                       ranked=False,
+                       drop_insignificant=True):
     """
     Parameters
     ----------
@@ -723,21 +143,25 @@ def plot_day_variation(feat_df,
     
     if fset is not None:
         assert all(f in feat_df.columns for f in fset)
-    else:
+    elif test_pvalues_df is not None and drop_insignificant:
         fset = [f for f in feat_df.columns if (test_pvalues_df[f] < p_value_threshold).any()]
-
-    assert all(f in test_pvalues_df.columns for f in fset)
+    else:
+        fset = [f for f in feat_df.columns]
     
     groups = list(meta_df[group_by].unique())
     groups.remove(control)
-    assert all(g in list(test_pvalues_df.index) for g in groups)
+    
+    if test_pvalues_df is not None:
+        assert all(f in test_pvalues_df.columns for f in fset)
+        assert all(g in list(test_pvalues_df.index) for g in groups)
+    
     groups.insert(0, control)
     
     plt.ioff() if saveDir else plt.ion()
-    for idx, f in enumerate(tqdm(fset)):
+    for idx, feature in enumerate(tqdm(fset)):
                 
-        df = meta_df[[group_by, day_var]].join(feat_df[f])
-        RepAverage = df.groupby([group_by, day_var], as_index=False).agg({f: "mean"})
+        df = meta_df[[group_by, day_var]].join(feat_df[feature])
+        RepAverage = df.groupby([group_by, day_var], as_index=False).agg({feature: "mean"})
         #RepAvPivot = RepAverage.pivot_table(columns=group_by, values=f, index=random_effect)
         #stat, pval = ttest_rel(RepAvPivot[control], RepAvPivot[g])
         
@@ -748,7 +172,7 @@ def plot_day_variation(feat_df,
         plt.style.use(CUSTOM_STYLE)
         fig, ax = plt.subplots(figsize=figsize)
         sns.violinplot(x=group_by, 
-                       y=f, 
+                       y=feature, 
                        order=groups,
                        hue=day_var, 
                        palette=date_dict,
@@ -759,7 +183,7 @@ def plot_day_variation(feat_df,
         for violin, alpha in zip(ax.collections, np.repeat(0.5, len(ax.collections))):
             violin.set_alpha(alpha)
         sns.swarmplot(x=group_by, 
-                      y=f, 
+                      y=feature, 
                       order=groups,
                       hue=day_var,
                       palette=date_dict,
@@ -772,67 +196,70 @@ def plot_day_variation(feat_df,
         handles, labels = ax.get_legend_handles_labels()
         n_labs = len(meta_df[day_var].unique())
         ax.legend(handles[:n_labs], labels[:n_labs], fontsize=10)
-        plt.title(f.replace('_',' '), fontsize=12, pad=20)
+        plt.title(feature.replace('_',' '), fontsize=12, pad=20)
         plt.xlim(right=len(groups)-0.4)
         plt.ylabel(''); plt.xlabel('')
         
-        # Add p-value to plot        
-        for ii, g in enumerate(groups[1:]):
-            pval = test_pvalues_df.loc[g, f]
-            text = ax.get_xticklabels()[ii+1]
-            assert text.get_text() == g
-            if isinstance(pval, float) and pval < p_value_threshold:
-                y = df[f].max() 
-                h = (y - df[f].min()) / 50
-                plt.plot([0, 0, ii+1, ii+1], [y+h, y+2*h, y+2*h, y+h], lw=1.5, c='k')
-                pval_text = 'P < 0.001' if pval < 0.001 else 'P = %.3f' % pval
-                ax.text((ii+1)/2, y+2*h, pval_text, fontsize=12, ha='center', va='bottom')
+        # Add p-value to plot  
+        if test_pvalues_df is not None:
+            for ii, group in enumerate(groups[1:]):
+                pval = test_pvalues_df.loc[group, feature]
+                text = ax.get_xticklabels()[ii+1]
+                assert text.get_text() == group
+                if isinstance(pval, float) and pval < p_value_threshold:
+                    y = df[feature].max() 
+                    h = (y - df[feature].min()) / 50
+                    plt.plot([0, 0, ii+1, ii+1], [y+h, y+2*h, y+2*h, y+h], lw=1.5, c='k')
+                    pval_text = 'P < 0.001' if pval < 0.001 else 'P = %.3f' % pval
+                    ax.text((ii+1)/2, y+2*h, pval_text, fontsize=12, ha='center', va='bottom')
         plt.subplots_adjust(left=0.15) #top=0.9,bottom=0.1,left=0.2
 
         if saveDir is not None:
             Path(saveDir).mkdir(exist_ok=True, parents=True)
-            savePath = Path(saveDir) / (('{0}_'.format(idx + 1) + f if ranked else f) + '.png')
+            savePath = Path(saveDir) / ((('{0}_'.format(idx + 1) + feature) if ranked 
+                                         else feature) + '.png')
             plt.savefig(savePath, dpi=300) # dpi=600
         else:
             plt.show(); plt.pause(2)
 
-def barplot_sigfeats(test_pvalues_df, saveDir=None, p_value_threshold=0.05):
+def barplot_sigfeats(test_pvalues_df=None, saveDir=None, p_value_threshold=0.05):
     """ Plot barplot of number of significant features from test p-values """
     
-    # Proportion of features significantly different from control
-    prop_sigfeats = ((test_pvalues_df < p_value_threshold).sum(axis=1) /\
-                     len(test_pvalues_df.columns))*100
-    prop_sigfeats = prop_sigfeats.sort_values(ascending=False)
+    if test_pvalues_df is not None:
+        # Proportion of features significantly different from control
+        prop_sigfeats = ((test_pvalues_df < p_value_threshold).sum(axis=1) /\
+                         len(test_pvalues_df.columns))*100
+        prop_sigfeats = prop_sigfeats.sort_values(ascending=False)
+        
+        # Plot proportion significant features for each strain
+        plt.ioff() if saveDir else plt.ion()
+        plt.close('all')
+        plt.style.use(CUSTOM_STYLE)  
+        fig = plt.figure(figsize=[7,10])
+        ax = fig.add_subplot(1,1,1)
+        ax.barh(prop_sigfeats,width=1)
+        prop_sigfeats.plot.barh(x=prop_sigfeats.index, 
+                                y=prop_sigfeats.values, 
+                                color='gray',
+                                ec='black') # fc
+        ax.set_xlabel('% significant features') # fontsize=16, labelpad=10
+        plt.xlim(0,100)
+        for i, (l, v) in enumerate((test_pvalues_df < p_value_threshold).sum(axis=1).items()):
+            ax.text(prop_sigfeats.loc[l] + 2, i, str(v), color='k', 
+                    va='center', ha='left') #fontweight='bold'
+        plt.text(0.8, 0.95, 'n = %d' % len(test_pvalues_df.columns), ha='center', va='center', 
+                 transform=ax.transAxes)  
+        plt.tight_layout(rect=[0.02, 0.02, 0.96, 1])
     
-    # Plot proportion significant features for each strain
-    plt.ioff() if saveDir else plt.ion()
-    plt.close('all')
-    plt.style.use(CUSTOM_STYLE)  
-    fig = plt.figure(figsize=[7,10])
-    ax = fig.add_subplot(1,1,1)
-    ax.barh(prop_sigfeats,width=1)
-    prop_sigfeats.plot.barh(x=prop_sigfeats.index, 
-                            y=prop_sigfeats.values, 
-                            color='gray',
-                            ec='black') # fc
-    ax.set_xlabel('% significant features') # fontsize=16, labelpad=10
-    plt.xlim(0,100)
-    for i, (l, v) in enumerate((test_pvalues_df < p_value_threshold).sum(axis=1).items()):
-        ax.text(prop_sigfeats.loc[l] + 2, i, str(v), color='k', 
-                va='center', ha='left') #fontweight='bold'
-    plt.text(0.8, 0.95, 'n = %d' % len(test_pvalues_df.columns), ha='center', va='center', 
-             transform=ax.transAxes)  
-    plt.tight_layout(rect=[0.02, 0.02, 0.96, 1])
-
-    if saveDir:
-        Path(saveDir).mkdir(exist_ok=True, parents=True)
-        savePath = Path(saveDir) / 'percentage_sigfeats.eps'
-        print("Saving figure: %s" % savePath.name)
-        plt.savefig(savePath, dpi=600)
-    else:
-        plt.show()
-    
-    return prop_sigfeats
+        if saveDir:
+            Path(saveDir).mkdir(exist_ok=True, parents=True)
+            savePath = Path(saveDir) / 'percentage_sigfeats.eps'
+            print("Saving figure: %s" % savePath.name)
+            plt.savefig(savePath, dpi=600)
+        else:
+            plt.show()
+        
+        return prop_sigfeats
     
 def boxplots_sigfeats(feat_meta_df, 
                       test_pvalues_df, 
@@ -980,12 +407,13 @@ def boxplots_sigfeats(feat_meta_df,
 def boxplots_grouped(feat_meta_df,
                      group_by,
                      control_group,
-                     test_pvalues_df,
+                     test_pvalues_df=None,
                      fset=None,
                      saveDir=None,
                      p_value_threshold=0.05,
+                     drop_insignificant=True,
                      max_features_plot_cap=None, 
-                     max_groups_plot_cap=48,
+                     max_groups_plot_cap=96,
                      sns_colour_palette="tab10",
                      figsize=[8,12],
                      saveFormat=None,
@@ -996,16 +424,20 @@ def boxplots_grouped(feat_meta_df,
         assert all(feat in feat_meta_df.columns for feat in fset)
         
         # Drop insignificant features
-        fset = [feature for feature in fset if (test_pvalues_df[feature] < p_value_threshold).any()]
+        if drop_insignificant and (test_pvalues_df is not None):
+            fset = [feature for feature in fset if (test_pvalues_df[feature] < 
+                                                    p_value_threshold).any()]
         
         if max_features_plot_cap and len(fset) > max_features_plot_cap:
             print("WARNING: Too many features to plot! Capping at %d plots"\
                   % max_features_plot_cap)
             fset = fset[:max_features_plot_cap]
-    else:
+    elif test_pvalues_df is not None:
         # Plot all sig feats between any strain and control
-        fset = [feature for feature in test_pvalues_df.columns if \
-                         (test_pvalues_df[feature] < p_value_threshold).any()]
+        fset = [feature for feature in test_pvalues_df.columns if
+                (test_pvalues_df[feature] < p_value_threshold).any()]
+    else:
+        raise IOError()
     
     # OPTIONAL: Plot cherry-picked features
     #fset = ['speed_50th','curvature_neck_abs_50th','angular_velocity_neck_abs_50th']
@@ -1013,11 +445,15 @@ def boxplots_grouped(feat_meta_df,
     # Seaborn boxplots with swarmplot overlay for each feature - saved to file
     plt.ioff() if saveDir else plt.ion()
     for f, feature in enumerate(tqdm(fset)):
-        sortedPvals = test_pvalues_df[feature].sort_values(ascending=True)
-        strains2plt = list(sortedPvals.index)
+        if test_pvalues_df is not None:
+            sortedPvals = test_pvalues_df[feature].sort_values(ascending=True)
+            strains2plt = list(sortedPvals.index)
+        else:
+            strains2plt = [s for s in list(feat_meta_df[group_by].unique()) if s != control_group]
+            
         if len(strains2plt) > max_groups_plot_cap:
             print("Capping at %d strains" % max_groups_plot_cap)
-            strains2plt = list(sortedPvals[:max_groups_plot_cap].index)
+            strains2plt = strains2plt[:max_groups_plot_cap]
             
         strains2plt.insert(0, control_group)
         plot_df = feat_meta_df[feat_meta_df[group_by].isin(strains2plt)]
@@ -1029,9 +465,10 @@ def boxplots_grouped(feat_meta_df,
         if len(strains2plt) > 10:
             colour_dict = {strain: "r" if strain == control_group else \
                            "darkgray" for strain in plot_df[group_by].unique()}
-            colour_dict2 = {strain: "b" for strain in \
-                            list(sortedPvals[sortedPvals < p_value_threshold].index)}
-            colour_dict.update(colour_dict2)
+            if drop_insignificant:
+                colour_dict2 = {strain: "b" for strain in
+                                list(sortedPvals[sortedPvals < p_value_threshold].index)}
+                colour_dict.update(colour_dict2)
         else:
             colour_labels = sns.color_palette(sns_colour_palette, len(strains2plt))
             colour_dict = {key:col for (key,col) in zip(plot_df[group_by].unique(), colour_labels)}
@@ -1062,14 +499,15 @@ def boxplots_grouped(feat_meta_df,
             if strain == control_group:
                 plt.axvline(x=rankMedian[control_group], c='dimgray', ls='--')
                 continue
-            pval = test_pvalues_df.loc[strain, feature]
-            text = ax.get_yticklabels()[i]
-            assert text.get_text() == strain
-            if isinstance(pval, float) and pval < p_value_threshold:
-                trans = transforms.blended_transform_factory(ax.transAxes, # x=scaled
-                                                             ax.transData) # y=none
-                text = 'P < 0.001' if pval < 0.001 else 'P = %.3f' % pval
-                ax.text(1.02, i, text, fontsize=12, ha='left', va='center', transform=trans)
+            if test_pvalues_df is not None:
+                pval = test_pvalues_df.loc[strain, feature]
+                text = ax.get_yticklabels()[i]
+                assert text.get_text() == strain
+                if isinstance(pval, float): # and pval < p_value_threshold
+                    trans = transforms.blended_transform_factory(ax.transAxes, # x=scaled
+                                                                 ax.transData) # y=none
+                    text = 'P < 0.001' if pval < 0.001 else 'P = %.3f' % pval
+                    ax.text(1.02, i, text, fontsize=12, ha='left', va='center', transform=trans)
         plt.subplots_adjust(right=0.85) #top=0.9,bottom=0.1,left=0.2
 
         # Save boxplot
@@ -1447,9 +885,10 @@ def plot_pca(featZ,
                     data=meta.join(projected_df), 
                     hue=group_by, 
                     palette=palette,
-                    fill=False,
+                    fill=True, # TODO: Fill kde plot with plain colour by group
+                    alpha=0.25,
                     thresh=0.05,
-                    levels=1,
+                    levels=2,
                     bw_method="scott", 
                     bw_adjust=1)  
         

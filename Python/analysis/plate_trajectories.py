@@ -3,11 +3,10 @@
 """
 Plot 96-well Plate Trajectories
 
-A script to plot trajectories for worms tracked in all the wells of the 96-well
-plate to which that video belongs. Just provide a featuresN filepath from 
-Tierpsy filenames summaries and a plot will be produced of tracked worm 
-trajectories throughout the video, for the entire 96-well plate (imaged under
-6 cameras simultaneously).
+A script to plot trajectories for worms tracked in all the wells of the 96-well plate to which that 
+video belongs. Just provide a featuresN filepath from Tierpsy filenames summaries and a plot will 
+be produced of tracked worm trajectories throughout the video, for the entire 96-well plate 
+(imaged under 6 cameras simultaneously)
 
 @author: sm5911
 @date: 23/06/2020
@@ -27,7 +26,6 @@ from matplotlib import pyplot as plt
 from tierpsy.analysis.split_fov.FOVMultiWellsSplitter import FOVMultiWellsSplitter
 from tierpsy.analysis.split_fov.helper import CAM2CH_df, serial2channel, parse_camera_serial
 
-
 #%% Channel-to-plate mapping dictionary (global)
 
 # {'channel' : ((ax array location), rotate)}
@@ -37,7 +35,6 @@ CH2PLATE_dict = {'Ch1':((0,0),True),
                  'Ch4':((1,1),False),
                  'Ch5':((0,2),True),
                  'Ch6':((1,2),False)}
-  
 
 #%% Functions
         
@@ -55,7 +52,6 @@ def get_trajectory_data(featuresfilepath):
     # {'midbody_speed': f['timeseries_data']['speed_midbody']}
     return(df)
 # Look to see if TT here is as good - can replace
-
 
 def plot_trajectory(featurefilepath, 
                     ax=None, 
@@ -99,7 +95,6 @@ def plot_trajectory(featurefilepath,
     
     ax.autoscale(enable=True, axis='x', tight=True) # re-scaling axes
     ax.autoscale(enable=True, axis='y', tight=True)
- 
 
 def get_video_set(featurefilepath):
     """ Get the set of filenames of the featuresN results files that belong to
@@ -132,7 +127,6 @@ def get_video_set(featurefilepath):
         file_dict[channel] = (maskedfilepath, featurefilepath)
         
     return file_dict
-
     
 def plot_plate_trajectories(featurefilepath, saveDir=None, downsample=10):
     """ Tile plots and merge into a single plot for the 
@@ -201,7 +195,6 @@ def plot_plate_trajectories(featurefilepath, saveDir=None, downsample=10):
           
     return(fig)
 
-
 def plot_plate_trajectories_from_filenames_summary(filenames_path, 
                                                    saveDir=None, 
                                                    downsample=10):
@@ -234,7 +227,6 @@ def plot_plate_trajectories_from_filenames_summary(filenames_path,
                                 saveDir=saveDir, 
                                 downsample=downsample)
         
-        
 #%% Main
     
 if __name__ == "__main__":
@@ -264,20 +256,16 @@ if __name__ == "__main__":
     SAVE_DIR = Path(args.save_dir) if args.save_dir else None
     DOWNSAMPLE = int(args.downsample)
         
-    if (FEAT_FILE_PATH is not None) or (FULL_FILES_PATH is not None):
-        
-        if FULL_FILES_PATH:
-            print("\nPlotting plate trajectories from full filenames summaries:")
-            plot_plate_trajectories_from_filenames_summary(FULL_FILES_PATH, 
-                                                           saveDir=SAVE_DIR, 
-                                                           downsample=DOWNSAMPLE)
-        elif FEAT_FILE_PATH:
-            print("\nPlotting plate trajectories for features file provided:")
-            plot_plate_trajectories(FEAT_FILE_PATH, 
-                                    saveDir=SAVE_DIR, 
-                                    downsample=DOWNSAMPLE)
+    if FULL_FILES_PATH is not None:
+        print("\nPlotting plate trajectories from full filenames summaries:")
+        plot_plate_trajectories_from_filenames_summary(FULL_FILES_PATH, 
+                                                       saveDir=SAVE_DIR, 
+                                                       downsample=DOWNSAMPLE)
+    elif FEAT_FILE_PATH is not None:
+        print("\nPlotting plate trajectories for features file provided:")
+        plot_plate_trajectories(FEAT_FILE_PATH, 
+                                saveDir=SAVE_DIR, 
+                                downsample=DOWNSAMPLE)
     else:
         print("\nNo file path provided!")
-
-    
-    
+  
