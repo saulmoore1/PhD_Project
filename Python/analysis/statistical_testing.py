@@ -150,13 +150,15 @@ def ttest_by_feature(feat_df,
                      control_strain, 
                      is_normal=True,
                      p_value_threshold=0.05,
-                     fdr_method='fdr_by'):
+                     fdr_method='fdr_by',
+                     verbose=False):
     """ Perform t-tests for significant differences between each strain and the
         control, for each feature. If is_normal=False, rank-sum tests will be 
         performed instead 
     """   
     import numpy as np
     import pandas as pd
+    from tqdm import tqdm
     from scipy.stats import ttest_ind
     from statsmodels.stats import multitest as smm # AnovaRM
     from tierpsytools.preprocessing.filter_data import feat_filter_std
@@ -164,7 +166,8 @@ def ttest_by_feature(feat_df,
     # Record name of statistical test used (ttest/ranksumtest)
     TEST = ttest_ind if is_normal else ranksumtest
     test_name = str(TEST).split(' ')[1].split('.')[-1].split('(')[0].split('\'')[0]
-    
+    print("Computing %s tests for each %s vs %s" % (test_name, group_by, control_strain))
+
     # Extract control results
     control_meta = meta_df[meta_df[group_by] == control_strain]
     control_feats = feat_df.reindex(control_meta.index)
@@ -179,8 +182,7 @@ def ttest_by_feature(feat_df,
                                   columns=['sigfeats','sigfeats_corrected'])
     
     # Compute test statistics for each strain, comparing to control for each feature
-    for t, strain in enumerate(test_strains):
-        print("Computing %s tests for %s vs %s..." % (test_name, control_strain, strain))
+    for t, strain in enumerate(tqdm(test_strains, position=0)):
             
         # Grab feature summary results for that strain
         strain_meta = meta_df[meta_df[group_by] == strain]
@@ -191,7 +193,7 @@ def ttest_by_feature(feat_df,
         strain_feats = feat_filter_std(strain_feats, threshold=0.0)
         control_feats = feat_filter_std(control_feats, threshold=0.0)
         zero_std_cols = n_cols - len(strain_feats.columns)
-        if zero_std_cols > 0:
+        if zero_std_cols > 0 and verbose:
             print("Dropped %d feature summaries for %s (zero std)" % (zero_std_cols, strain))
             
         # Use only shared feature summaries between control data and test data
@@ -270,7 +272,7 @@ def anova_by_feature(feat_df,
 
     # Perform 1-way ANOVAs for each feature between test strains
     test_pvalues_df = pd.DataFrame(index=['stat','pval'], columns=feat_df.columns)
-    for f, feature in enumerate(tqdm(feat_df.columns)):
+    for f, feature in enumerate(tqdm(feat_df.columns, position=0)): # leave=True
             
         # Perform test and capture outputs: test statistic + p value
         test_stat, test_pvalue = TEST(*[feat_df[meta_df[group_by]==strain][feature] \
@@ -300,10 +302,140 @@ def anova_by_feature(feat_df,
                                                                p_value_threshold)])
     sigfeats_list.name = 'significant_features_' + test_name
     sigfeats_list = pd.DataFrame(sigfeats_list)
-      
-    topfeats = test_pvalues_df.loc['pval'].sort_values(ascending=True)[:10]
+    
+    # Rank pvalues by ascending order
+    topfeats = test_pvalues_df.loc['pval'].sort_values(ascending=True)
+    test_pvalues_df = test_pvalues_df[topfeats.index]
+    
     print("Top 10 significant features by %s test:\n" % test_name)
-    for feat in topfeats.index:
+    for feat in topfeats.index[:10]:
         print(feat)
 
     return test_pvalues_df, sigfeats_list
+
+# def linear_mixed_model(feat_df, 
+#                        meta_df,
+#                        fixed_effect,
+#                        control,
+#                        random_effect='date_yyyymmdd', 
+#                        fdr=0.05, 
+#                        fdr_method='fdr_by', 
+#                        comparison_type='infer',
+#                        n_jobs=-1):
+#     """ Test whether a given group differs siginificantly from the control, taking into account one 
+#         random effect, eg. date of experiment. Each feature is tested independently using a Linear 
+#         Mixed Model with fixed slope and variable intercept to account for the random effect.
+#         The pvalues from the different features are corrected for multiple comparisons using the
+#         multitest methods of statsmodels.
+        
+#         Parameters
+#         ----------
+#         feat_df :         TYPE - pd.DataFrame
+#                           DESCRIPTION - Dataframe of feature summary results
+#         fixed_effect :        TYPE - str
+#                           DESCRIPTION - fixed effect variable (grouping variable)
+#         random_effect :   TYPE - str
+#                           DESCRIPTION - random effect variable
+#         control :         TYPE float, optional. Default is 0.
+#                           DESCRIPTION - The dose of the control points in drug_dose.
+#         fdr :             TYPE - float
+#                           DESCRIPTION. False discovery rate threshold [0-1]. Default is 0.05.
+#         fdr_method :      TYPE - str
+#                           DESCRIPTION - Method for multitest correction. Default is 'fdr_by'.
+#         comparison_type : TYPE - str
+#                           DESCRIPTION - ['continuous', 'categorical', 'infer']. Default is 'infer'.
+#         n_jobs :          TYPE - int
+#                           DESCRIPTION - Number of jobs for parallelisation of model fit.
+#                                         The default is -1.
+                 
+#         Returns
+#         -------
+#         pvals :           TYPE - pd.Series or pd.DataFrame
+#                           DESCRIPTION - P-values for each feature. If categorical, a dataframe is 
+#                                         returned with each group compared separately
+#     """
+
+#     assert type(fixed_effect) == str and fixed_effect in meta_df.columns
+#     assert type(random_effect) == str and random_effect in meta_df.columns
+    
+#     feat_names = feat_df.columns.to_list()
+#     df = feat_df.assign(fixed_effect=meta_df[fixed_effect]).assign(random_effect=meta_df[random_effect])
+
+#     # select only the control points that belong to groups that have non-control members
+#     groups = np.unique(df['random_effect'][df['fixed_effect']!=control])
+#     df = df[np.isin(df['random_effect'], groups)]
+
+#     # Convert fixed effect variable to categorical if you want to compare by group
+#     fixed_effect_type = type(df['fixed_effect'].iloc[0])
+#     if comparison_type == 'infer':
+#         if fixed_effect_type in [float, int, np.int64]:
+#             comparison_type = 'continuous'
+#             df['fixed_effect'] = df['fixed_effect'].astype(float)
+#         elif fixed_effect_type == str:
+#             comparison_type = 'categorical'
+#         else:
+#             raise TypeError('Cannot infer fixed effect dtype!')
+#     elif comparison_type == 'continuous':
+#         if not fixed_effect_type in [float, int, np.int64]:
+#             raise TypeError('Cannot cast fixed effect dtype to float!')
+#         else:
+#             df['fixed_effect'] = df['fixed_effect'].astype(float)
+#     elif comparison_type == 'categorical':
+#         if not fixed_effect_type in [str, int, np.int64]:
+#             raise TypeError('Cannot cast fixed effect type to str!')
+#         else:
+#             df['fixed_effect'] = df['fixed_effect'].astype(str)
+#     else:
+#         raise ValueError('Comparison type not recognised!')
+
+#     # Intitialize pvals as series or dataframe (based on the number of comparisons per feature)
+#     if comparison_type == 'continuous':
+#         pvals = pd.Series(index=feat_names)
+#     elif comparison_type == 'categorical':
+#         groups = np.unique(df['fixed_effect'][df['fixed_effect']!=control])
+#         pvals = pd.DataFrame(index=feat_names, columns=groups)
+
+#     # Local function to perform LMM test for a single feature
+#     def lmm_fit(feature, df):
+#         # remove groups with fewer than 3 members
+#         data = pd.concat([data for _, data in df.groupby(by=['fixed_effect', 'random_effect'])
+#                           if data.shape[0] > 2])
+
+#         # Define LMM
+#         md = smf.mixedlm("{} ~ fixed_effect".format(feature), 
+#                          data,
+#                          groups=data['random_effect'].astype(str),
+#                          re_formula="")
+#         # Fit LMM
+#         try:
+#             mdf = md.fit()
+#             pval = mdf.pvalues[[k for k in mdf.pvalues.keys() if k.startswith('fixed_effect')]]
+#             pval = pval.min()
+#         except:
+#             pval = np.nan
+
+#         return feature, pval
+
+#     ## Fit LMMs for each feature
+#     if n_jobs==1:
+#         # Using a for loop is faster than launching a single job with joblib
+#         for feature in tqdm (feat_names, desc="Testing features…", ascii=False):
+#             _, pvals.loc[feature] = lmm_fit(feature, 
+#                                             df[[feature,
+#                                                 'fixed_effect',
+#                                                 'random_effect']].dropna(axis=0))
+#     else: 
+#         # Parallelize jobs with joblib
+#         parallel = Parallel(n_jobs=n_jobs, verbose=True)
+#         func = delayed(lmm_fit)
+
+#         res = parallel(func(feature, df[[feature,'fixed_effect','random_effect']].dropna(axis=0))
+#                        for feature in feat_names)
+#         for feature, pval in res:
+#             pvals.loc[feature] = pval
+    
+#     # Benjamini-Yekutieli corrections for multiple comparisons
+#     pvals_corrected = multiple_test_correction(pvals.T, fdr_method=fdr_method, fdr=fdr)
+    
+#     return pvals_corrected
+

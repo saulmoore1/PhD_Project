@@ -15,7 +15,7 @@ def clean_features_summaries(features,
                              imputeNaN=True,
                              nan_threshold=0.2, 
                              max_value_cap=1e15,
-                             mean_feats_only=True,
+                             percentile_to_use=None,
                              drop_size_related_feats=False,
                              norm_feats_only=False):
     """ Clean features summary results:
@@ -114,10 +114,12 @@ def clean_features_summaries(features,
             print("Dropped %d features that are not '_norm' features" % len(not_norm))
             
     # Use '_50th' perrcentile data only
-    if mean_feats_only:
-        not_50th = [f for f in features.columns if not '_50th' in f]
-        if len(not_50th) > 0:
-            features = features.drop(columns=not_50th)
-            print("Dropped %d features that are not '_50th' features" % len(not_50th))
+    if percentile_to_use is not None:
+        assert type(percentile_to_use) == str
+        not_perc = [f for f in features.columns if not percentile_to_use in f]
+        if len(not_perc) > 0:
+            features = features.drop(columns=not_perc)
+            print("Dropped %d features that are not %s features" % (len(not_perc), 
+                                                                    percentile_to_use))
         
     return features, metadata
