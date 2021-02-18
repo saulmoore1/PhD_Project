@@ -81,10 +81,10 @@ if __name__ == "__main__":
                         'MaskedVideos' and 'Results' folders",
                         default='/Volumes/hermes$/KeioScreen_96WP', type=str)
     parser.add_argument('--grouping_variable', help="Categorical variable that you wish to \
-                        investigate", nargs='+', default='food_type') # 'worm_strain', 'lawn_storage_type'
+                        investigate (eg. 'worm_strain')", nargs='+', default='food_type')
+    # Keio = ['food_type','instrument_name','lawn_growth_duration_hours','lawn_storage_type']
     parser.add_argument('--compile_day_summaries', help="Compile full feature summaries from \
                         day feature summary results", default=True, action='store_false')
-    # Keio = ['food_type','instrument_name','lawn_growth_duration_hours','lawn_storage_type']
     parser.add_argument('--add_well_annotations', help="Add 'is_bad_well' labels \
                         from WellAnnotator GUI", default=True,
                         action='store_false')
@@ -176,7 +176,7 @@ if __name__ == "__main__":
     RANDOM_EFFECT = 'date_yyyymmdd'
     USE_K_SIG_FEATS_OVERLAP = False # Restrict significant feature set to overlap with k sig feats?
     DO_STATS = False
-    MAX_FEATURES_PLOT_CAP = 50
+    MAX_FEATURES_PLOT_CAP = None
 
     #%% Compile and clean results
     
@@ -354,7 +354,7 @@ if __name__ == "__main__":
             #                                           ignore_names=None, 
             #                                           return_pvals=True)
             
-            if TEST_NAME == 'ANOVA' or TEST_NAME == 'Kruskal':
+            if (TEST_NAME == 'ANOVA' or TEST_NAME == 'Kruskal'):
                 if len(run_strain_list) > 2:
                     pvalues, anova_sigfeats_list = anova_by_feature(feat_df=feat_df, 
                                                                     meta_df=meta_df, 
@@ -386,6 +386,7 @@ if __name__ == "__main__":
                         print("%d significant features found for %s (run %d, %s, P<%.2f, %s)" %\
                               (len(fset), GROUPING_VAR, run, TEST_NAME, P_VALUE_THRESHOLD, FDR_METHOD))
                 else:
+                    fset = []
                     print("WARNING: Not enough groups for ANOVA (n=%d groups, run %d)" %\
                           (len(run_strain_list), run))
         
@@ -468,7 +469,7 @@ if __name__ == "__main__":
                 
                 # Investigate t-test significant features if comparing just 2 strains
                 if len(run_strain_list) == 2:
-                    print("Preferring t-test fset over ANOVA fset")
+                    print("Only 2 groups. Preferring t-test over ANOVA")
                     pvalues = pvalues_ttest
                     fset = fset_ttest
                     
@@ -532,6 +533,7 @@ if __name__ == "__main__":
                       + "Falling back on 'k_significant_feat' feature set for plotting.")
                 fset = fset_ksig
             
+                # TODO: Actually fall back on k_sig_feats for plotting :P
             ## Save feature set to file
             # save_test_name = T_TEST_NAME if len(run_strain_list) == 2 else TEST_NAME
             # fset_out = run_save_dir / '{}_significant_feature_set.csv'.format(save_test_name)
@@ -539,18 +541,26 @@ if __name__ == "__main__":
 
         #%% Load statistics results
         
-        # Read ANOVA/Kruskal/LMM results from file and infer fset
+        # Read stats results from file and infer fset
         print("Loading feature set")
         path_pvalues_anova = stats_dir / '{}_results.csv'.format(TEST_NAME)
-        
-        if path_pvalues_anova.exists():
+        path_pvalues_ttest = stats_dir / '{}_results.csv'.format(T_TEST_NAME)
+                    
+        if path_pvalues_anova.exists() and len(run_strain_list) > 2:
             # Read ANOVA results and record significant features
             pvalues_anova = pd.read_csv(path_pvalues_anova, index_col=0)
             fset = pvalues_anova.columns[pvalues_anova.loc['pval'] < P_VALUE_THRESHOLD].to_list()
             print("%d significant features found by %s (run %d, P<%.2f)" %\
                   (len(fset), TEST_NAME, run, P_VALUE_THRESHOLD))
+        elif path_pvalues_ttest.exists() and len(run_strain_list) == 2:
+            # Read t-test results for feature summaries
+            pvalues_ttest = pd.read_csv(path_pvalues_ttest, index_col=0)
+            assert all(f in pvalues_ttest.columns for f in feat_df.columns)
+                
+            # Record significant features by t-test
+            fset = list(pvalues_ttest.columns[(pvalues_ttest < P_VALUE_THRESHOLD).sum(axis=0) > 0])
         else:
-            raise Warning("Stats results not found! Please perform ANOVA/Kruskal or LMM first.")
+            raise Warning("Stats results not found! Please perform stats first.")
         
         # # Read feature set from file
         # fset_in = run_save_dir / '{}_significant_feature_set.csv'.format(load_test_name)
@@ -559,7 +569,6 @@ if __name__ == "__main__":
         # Read pairwise t-test results from file for p-value annotations on plots
         if len(fset) > 0 or len(run_strain_list) == 2:
             print("Loading %s p-values for plotting" % T_TEST_NAME)
-            path_pvalues_ttest = stats_dir / '{}_results.csv'.format(T_TEST_NAME)
             
             if path_pvalues_ttest.exists():
                 # Read t-test results for feature summaries
@@ -570,15 +579,12 @@ if __name__ == "__main__":
                 fset_ttest = list(pvalues_ttest.columns[(pvalues_ttest < 
                                                          P_VALUE_THRESHOLD).sum(axis=0) > 0])
                 if len(fset_ttest) == 0:
-                    print("%d significant features found by %s (run %d, P<%.2f)" %\
-                          (len(fset_ttest), T_TEST_NAME, run, P_VALUE_THRESHOLD))
                     pvalues_ttest = None
             else:
-                print("WARNING: T-test results not found.")
+                raise Warning("T-test results not found! Please perform stats first.")
                 pvalues_ttest =  None
         else:
             pvalues_ttest = None
-
                               
         #%% Plot day variation
         
@@ -620,7 +626,7 @@ if __name__ == "__main__":
                          saveFormat='png')
                 
         # Boxplots of significant features by pairwise t-test (for each group vs control)
-        if pvalues_ttest:
+        if pvalues_ttest is not None:
             boxplots_sigfeats(feat_meta_df=meta_df.join(feat_df), 
                               test_pvalues_df=pvalues_ttest, 
                               group_by=GROUPING_VAR, 
@@ -716,7 +722,8 @@ if __name__ == "__main__":
             first_cols.insert(0, 'feature')
             stats_table.columns = first_cols
             stats_table['feature'] = [' '.join(f.split('_')) for f in stats_table['feature']]
-            stats_table = stats_table.sort_values(by='{} p-value'.format(TEST_NAME), ascending=True)
+            stats_table = stats_table.sort_values(by='{} p-value'.format((T_TEST_NAME if 
+                                         len(run_strain_list) == 2 else TEST_NAME)), ascending=True)
             
             # Save stats table to CSV
             stats_table_path = stats_dir / 'stats_summary_table.csv'
@@ -814,6 +821,7 @@ if __name__ == "__main__":
                                 n_feats2print=10,
                                 sns_colour_palette="tab10",
                                 hypercolor=False)      
+        # TODO: Ensure sns colour palette doees not plot white points
          
         #%%     t-distributed Stochastic Neighbour Embedding (tSNE)
 
