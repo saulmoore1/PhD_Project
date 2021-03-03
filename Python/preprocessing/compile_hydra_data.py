@@ -38,11 +38,20 @@ def process_metadata(aux_dir,
                      imaging_dates=None, 
                      align_bluelight=True, 
                      add_well_annotations=True):
-    """ Compile metadata from individual day metadata 
-        - Add 'imgstore_name'
-        - Add well annotations from WellAnnotator GUI
-        - Add camera serial number 
-        - Add duration on food
+    """ Compile metadata from individual day metadata CSV files
+    
+        Parameters
+        ----------
+        imaging_dates : list of str, None
+            List of day metadata imaging dates to compile
+        align_bluelight : bool
+            Align bluelight conditions (convert to wide format)
+        add_well_annotations : bool
+            Add annotations from WellAnnotator GUI
+
+        Returns
+        -------
+        Updated metadata
     """
     
     compiled_metadata_path = Path(aux_dir) / "metadata.csv"
@@ -152,12 +161,32 @@ def process_feature_summaries(metadata,
                               results_dir, 
                               compile_day_summaries=False,
                               imaging_dates=None, 
-                              add_bluelight=True):
+                              align_bluelight=True):
     """ Compile feature summary results and join with metadata to produce
-        combined full feature summary results.    
+        combined full feature summary results
+        
+        Parameters
+        ----------
+        metadata : pd.DataFrame
+            Experiment metadata
+        results_dir : str, Path
+            Path to 'Results' directory, containing Tierpsy feature summaries files
+        compile_day_summaries : bool
+            Compile from Tierpsy feature summaries for each experiment day
+        imaging_dates : list of str, None
+            List of imaging dates to compile Tierspy feature summaries from. If None, will use 
+            'date_yyyymmdd' column of metadata
+        align_bluelight : bool
+            Align bluelight conditions (convert to wide format)
+        
+        Returns
+        -------
+        metadata, features
+        
     """    
-    combined_feats_path = results_dir / "full_features.csv"
-    combined_fnames_path = results_dir / "full_filenames.csv"
+    
+    combined_feats_path = Path(results_dir) / "full_features.csv"
+    combined_fnames_path = Path(results_dir) / "full_filenames.csv"
  
     if np.logical_and(combined_feats_path.is_file(), 
                       combined_fnames_path.is_file()):
@@ -208,8 +237,8 @@ def process_feature_summaries(metadata,
     features, metadata = read_hydra_metadata(feature_summaries, 
                                              filename_summaries,
                                              metadata,
-                                             add_bluelight=add_bluelight)
-    if add_bluelight:
+                                             add_bluelight=align_bluelight)
+    if align_bluelight:
         features, metadata = align_bluelight_conditions(feat=features, 
                                                         meta=metadata, 
                                                         how='outer',
@@ -241,23 +270,18 @@ if __name__ == "__main__":
                         from WellAnnotator GUI", default=True, action='store_false')
     args = parser.parse_args()
     
-    PROJECT_DIR = Path(args.project_dir)
-    COMPILE_DAY = args.compile_day_summaries
-    IMAGING_DATES = args.dates
-    BLUELIGHT = args.align_bluelight
-    ADD_WELL_ANNOTATIONS = args.add_well_annotations
-
     # Compile metadata
-    metadata = process_metadata(aux_dir=PROJECT_DIR / 'AuxiliaryFiles',
-                                imaging_dates=IMAGING_DATES,
-                                align_bluelight=BLUELIGHT,
-                                add_well_annotations=ADD_WELL_ANNOTATIONS)
+    metadata = process_metadata(aux_dir=Path(args.project_dir) / 'AuxiliaryFiles',
+                                imaging_dates=args.dates,
+                                align_bluelight=args.align_bluelight,
+                                add_well_annotations=args.add_well_annotations)
                 
     # Process feature summary results
     features, metadata = process_feature_summaries(metadata, 
-                                                   results_dir=PROJECT_DIR / 'Results',
-                                                   compile_day_summaries=COMPILE_DAY,
-                                                   imaging_dates=IMAGING_DATES,
-                                                   add_bluelight=BLUELIGHT)   
+                                                   results_dir=Path(args.project_dir) / 'Results',
+                                                   compile_day_summaries=args.compile_day_summaries,
+                                                   imaging_dates=args.dates,
+                                                   add_bluelight=args.align_bluelight)   
     print("\nMetadata:\n", metadata.head())
     print("\nFeatures:\n", features.head())
+    

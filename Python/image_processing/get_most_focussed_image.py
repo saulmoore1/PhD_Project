@@ -1,39 +1,54 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-
 Get best focussed TIF/CZI images based on focus measure
+NB: Looks for 'mM' in filename to record concentration
 
-input
------
+Inputs
+-----------------
 image_root_dir (str): path to parent directory of images to be processed
 
-
-supported methods
+Supported Methods
 -----------------
 GLVA: Graylevel variance (Krotkov, 86)
 BREN: Brenner's (Santos, 97)
 
-----------------------------
+-----------------
 @author: Saul Moore (sm5911)
 @date: 16/03/2020
 
 """
-
-# TODO: Fix python-bioformats/javabridge 32-bit compatibility issue with macOS Catalina
 
 #%% Imports
 
 import os, sys, time
 import numpy as np
 import pandas as pd
-import czifile #tifffile, bioformats, javabridge, unicodedata
+#import czifile, tifffile
+import javabridge 
+import bioformats #unicodedata
 from PIL import Image
 from matplotlib import pyplot as plt
 from shutil import copyfile
 from cv2 import subtract
 from pathlib import Path
 
+#%% Globals
+
+# max RAM to use (Gb)
+maxRAM = 4
+
+# save most focussed images in output directory?
+saveBestFocus = True        
+
+# method for calculating best focussed image: ['BREN','GLVA']
+method = 'BREN'
+
+# image file type (format): ['tif','czi']    
+imageFormat = 'czi'
+
+# Size filter to use only small images (< 1024x1024 pixels)
+imageSizeThreshXY = [1024,1024]
 
 #%% Functions
 
@@ -211,11 +226,6 @@ def findFocussedCZI(df, output_dir, method='BREN', imageSizeThreshXY=None, show=
     n = len(df['filepath'])
     for f, file in enumerate(df['filepath']):
         print("\nProcessing file %d/%d (%.1f%%)" % (f+1, n, ((f+1)/n)*100))
-        
-        ##### TEST CODE BREAKER #####
-        #if f == 1:
-        #    raise Exception('STOP!')
-        #############################
 
         # extract metadata from filename
         file = str(file)
@@ -223,21 +233,22 @@ def findFocussedCZI(df, output_dir, method='BREN', imageSizeThreshXY=None, show=
         plateID = fname.split('.')[0]
         conc_mM = plateID.split("mM")[0].split("_")[-1]
         
-        # # get the actual image reader
-        # rdr = bioformats.get_image_reader(None, path=file)
-        # #with bioformats.ImageReader(path=file, url=None, perform_init=True) as reader:
-        # #    img_arr = reader.read(file)
-        image_arrays = czifile.imread(file)
-        image_arrays.shape
+        # get the actual image reader
+        rdr = bioformats.get_image_reader(None, path=file)
+        #with bioformats.ImageReader(path=file, url=None, perform_init=True) as reader:
+        #    image_arrays = reader.read(file)
+        #image_arrays = czifile.imread(file)
+        #image_arrays.shape
 
-        # # get total image series count
-        # try:
-        #     # for "whatever" reason the number of total image series can only be accessed this way
-        #     totalseries = np.int(rdr.rdr.getSeriesCount())
-        # except:
-        #     totalseries = 1 # in case there is only ONE series
-        totalseries = image_arrays.shape[1]
-        zSlices = image_arrays.shape[3]
+        # get total image series count
+        try:
+            # for "whatever" reason the number of total image series can only be accessed this way
+            totalseries = int(rdr.rdr.getSeriesCount())
+        except:
+            totalseries = 1 # in case there is only ONE series
+            
+        #totalseries = image_arrays.shape[1]
+        #zSlices = image_arrays.shape[3]
 
         # OPTIONAL: Get metadata (obtain instrument info)
         #omeXMLObject = getMetadata(file)
@@ -246,37 +257,37 @@ def findFocussedCZI(df, output_dir, method='BREN', imageSizeThreshXY=None, show=
         # parse the CZI file
         file_info = []
         too_small_log = []
+        
         # Loop over wells (series)
         for sc in range(totalseries):
             
-            # # Set reader to series
-            # rdr.rdr.setSeries(sc)
-            img = np.array(image_arrays[0,sc,0,0,:,:,0])
-                    
-            hor_profile = img.any(axis=0)
-            ver_profile = img.any(axis=1)
+            # Set reader to series
+            rdr.rdr.setSeries(sc)
             
-            hor_first = np.where(hor_profile != 0)[0].min()
-            hor_last = np.where(hor_profile != 0)[0].max()
-            ver_first = np.where(ver_profile != 0)[0].min()
-            ver_last = np.where(ver_profile != 0)[0].max()
+            # img = np.array(image_arrays[0,sc,0,0,:,:,0])
+            # hor_profile = img.any(axis=0)
+            # ver_profile = img.any(axis=1)
+            # hor_first = np.where(hor_profile != 0)[0].min()
+            # hor_last = np.where(hor_profile != 0)[0].max()
+            # ver_first = np.where(ver_profile != 0)[0].min()
+            # ver_last = np.where(ver_profile != 0)[0].max()
                 
             # Filter small images
             if imageSizeThreshXY:
-                #x, y = rdr.rdr.getSizeX(), rdr.rdr.getSizeY()
-                x = hor_last - hor_first
-                y = ver_last - ver_first
+                x, y = rdr.rdr.getSizeX(), rdr.rdr.getSizeY()
+                # x = hor_last - hor_first
+                # y = ver_last - ver_first
                 if (x <= imageSizeThreshXY[0] and y <= imageSizeThreshXY[1]):
                     too_small_log.append(sc)
                 else:
                     # get number of z-slices
-                    #zSlices = rdr.rdr.getImageCount()
+                    zSlices = rdr.rdr.getImageCount()
 
                     # Loop over z-slices    
                     for zc in range(zSlices):
-                        # img = rdr.read(c=None, z=0, t=0, series=sc, index=zc,\
-                        #                rescale=False)
-                        img = np.array(image_arrays[0, sc, 0, zc, ver_first:ver_last, hor_first:hor_last, 0])
+                        img = rdr.read(c=None, z=0, t=0, series=sc, index=zc, rescale=False)
+                        
+                        # img = np.array(image_arrays[0, sc, 0, zc, ver_first:ver_last, hor_first:hor_last, 0])
                         # plt.imshow(img); plt.pause(3); plt.close()
                         
                         # measure focus of raw image (uint16)
@@ -324,10 +335,10 @@ def findFocussedCZI(df, output_dir, method='BREN', imageSizeThreshXY=None, show=
             sc = img_info['seriesID']
             zc = img_info['z_slice_number']
             
-            # # We do NOT want to rescale images if comparing between them
-            # rdr.rdr.setSeries(sc)
-            # img = rdr.read(c=None, z=0, t=0, series=sc, index=zc, rescale=False)
-            img = image_arrays[0,sc,0,zc,:,:,0]
+            # We do NOT want to rescale images if comparing between them
+            rdr.rdr.setSeries(sc)
+            img = rdr.read(c=None, z=0, t=0, series=sc, index=zc, rescale=False)
+            # img = image_arrays[0,sc,0,zc,:,:,0]
             assert img.dtype == np.uint16 
 
             # Convert image to 8-bit (Warning: some information will be lost)
@@ -344,22 +355,22 @@ def findFocussedCZI(df, output_dir, method='BREN', imageSizeThreshXY=None, show=
             # save as TIFF image
             outPath = os.path.join(outDir, plateID + '_s%dz%d' % (sc, zc) + '.tif')
             
-            # # Save as TIFF (bioformats)
-            # bioformats.write_image(pathname=outPath,\
-            #                        pixels=img,\
-            #                        pixel_type=bioformats.PT_UINT16)
+            # Save as TIFF (bioformats)
+            bioformats.write_image(pathname=outPath,
+                                   pixels=img,
+                                   pixel_type=bioformats.PT_UINT16)
             
             # Save TIF image as '.npy' for compatibility with ilastik software
-            np.save(outPath.replace('.tif','.npy'), 
-                    img[None, None, None, :, :], 
-                    allow_pickle=True)
+            # np.save(outPath.replace('.tif','.npy'), 
+            #         img[None, None, None, :, :], 
+            #         allow_pickle=True)
                         
     # concatenate dataframe from CZI file info
     df = pd.concat(file_df_list, axis=0, ignore_index=True)
 
     # save focus measures to file
     outDir = os.path.join(output_dir, 'focus_measures.csv')
-    #df.to_csv()
+    df.to_csv(outDir, index=False)
 
     focussed_images_df = df[df['focus_measure'] == \
                          df.groupby(['plateID','GFP_mM','seriesID'])['focus_measure']\
@@ -470,12 +481,14 @@ if __name__ == "__main__":
 
     ######################
     
-    # # Start Java virtual machine (for parsing CZI files with bioformats)
-    # os.environ["JAVA_HOME"] = "/Library/Internet Plug-Ins/JavaAppletPlugin.plugin/Contents/Home"
-    # javabridge.start_vm(class_path=bioformats.JARS, max_heap_size='6G')
+    #print("JAVA_HOME: '%s'" % os.environ["JAVA_HOME"]) 
+    #os.environ["JAVA_HOME"] = "/Library/Java/JavaVirtualMachines/jdk1.8.0_281.jdk/Contents/Home"
+    
+    # Start Java virtual machine (for parsing CZI files with bioformats)
+    javabridge.start_vm(class_path=bioformats.JARS, max_heap_size='{}G'.format(maxRAM))
 
-    # classpath = javabridge.JClassWrapper('java.lang.System').getProperty('java.class.path')
-    # assert pd.Series([os.path.isfile(path) for path in classpath.split(os.pathsep)]).all()    
+    classpath = javabridge.JClassWrapper('java.lang.System').getProperty('java.class.path')
+    assert pd.Series([os.path.isfile(path) for path in classpath.split(os.pathsep)]).all()    
 
     ######################
     ##### PARAMETERS #####
@@ -485,22 +498,10 @@ if __name__ == "__main__":
         image_root_dir = sys.argv[1]
     else: 
         # local copy
-        #image_root_dir = '/Users/sm5911/Documents/PanGenomeGFP/data/fluorescence_data_local_copy'
-        image_root_dir = '/Users/sm5911/Documents/PanGenome/data/dev_assay_optimisation_local_copy/201106_dev_assay_optimisation3'
-        #raise Exception("No directory path provided.")    
+        raise Warning("No directory path provided! " + 
+                      "Please provide path to parent directory of CZI image files")
+        #image_root_dir = '~/Documents/PanGenome/data/dev_assay_optimisation_local_copy/210201_DA_1143_R1'
     
-    # save most focussed images in output directory?
-    saveBestFocus = True        
-    
-    # method for calculating best focussed image: ['BREN','GLVA']
-    method = 'BREN'
-    
-    # image file type (format): ['tif','czi']    
-    imageFormat = 'czi'
-    
-    # Size filter to use only small images (< 1024x1024 pixels)
-    imageSizeThreshXY = [1024,1024]
-
     ####################
     ##### COMMANDS #####
     
@@ -528,8 +529,8 @@ if __name__ == "__main__":
         
     ####################
     
-    # # Terminate Java virtual machine
-    # javabridge.kill_vm()
+    # Terminate Java virtual machine
+    javabridge.kill_vm()
 
     toc = time.time()
     print('Complete!\nTotal time taken: %.2f seconds.' % (toc - tic))        
