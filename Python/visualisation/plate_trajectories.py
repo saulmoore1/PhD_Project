@@ -3,9 +3,9 @@
 """
 Plot 96-well Plate Trajectories
 
-A script to plot trajectories for worms tracked in all the wells of the 96-well plate to which that 
-video belongs. Just provide a featuresN filepath from Tierpsy filenames summaries and a plot will 
-be produced of tracked worm trajectories throughout the video, for the entire 96-well plate 
+A script to plot trajectories for worms tracked in all the wells of 96-well plates under Hydra.
+Just provide a featuresN filepath from Tierpsy filenames summaries and a plot will be produced of 
+tracked worm trajectories throughout the video, for the entire 96-well plate 
 (imaged under 6 cameras simultaneously)
 
 @author: sm5911
@@ -16,18 +16,24 @@ be produced of tracked worm trajectories throughout the video, for the entire 96
 #%% Imports 
 
 import sys
-import h5py
 import argparse
 import pandas as pd
 from tqdm import tqdm
 from pathlib import Path
 from matplotlib import pyplot as plt
 
+sys.path.insert(0, "/Users/sm5911/Documents/GitHub/PhD_Project/Python")
+
+# Custom imports
+from read_data.read import get_trajectory_data
+from filter_data.filter_trajectories import filter_worm_trajectories
+
 from tierpsy.analysis.split_fov.FOVMultiWellsSplitter import FOVMultiWellsSplitter
 from tierpsy.analysis.split_fov.helper import CAM2CH_df, serial2channel, parse_camera_serial
 
-#%% Channel-to-plate mapping dictionary (global)
+#%% Globals
 
+# Channel-to-plate mapping dictionary
 # {'channel' : ((ax array location), rotate)}
 CH2PLATE_dict = {'Ch1':((0,0),True),
                  'Ch2':((1,0),False),
@@ -36,65 +42,107 @@ CH2PLATE_dict = {'Ch1':((0,0),True),
                  'Ch5':((0,2),True),
                  'Ch6':((1,2),False)}
 
+EXAMPLE_FILE = "/Volumes/hermes$/KeioScreen_96WP/Results/20210126/keio_plate3_run1_bluelight_20210126_124541.22956809/metadata_featuresN.hdf5"
+EXAMPLE_FILE_OLD = "/Volumes/behavgenom$/Priota/Data/FoodChoiceAssay/Results/20181109/PC1/Set1/Set1_Ch1_09112018_101552_featuresN.hdf5"
+
+THRESHOLD_NUMBER_PIXELS = 10
+THRESHOLD_NUMBER_FRAMES = 25
+FPS = 25
+MICRONS_PER_PIXEL = 12.4
+
 #%% Functions
-        
-def get_trajectory_data(featuresfilepath):
-    """ Read Tierpsy-generated featuresN file trajectories data and return 
-        the following info as a dataframe:
-        ['x', 'y', 'frame_number', 'worm_id'] """
-        
-    # Read HDF5 file + extract info
-    with h5py.File(featuresfilepath, 'r') as f:
-        df = pd.DataFrame({'x': f['trajectories_data']['coord_x'],\
-                           'y': f['trajectories_data']['coord_y'],\
-                           'frame_number': f['trajectories_data']['frame_number'],\
-                           'worm_id': f['trajectories_data']['worm_index_joined']})
-    # {'midbody_speed': f['timeseries_data']['speed_midbody']}
-    return(df)
-# Look to see if TT here is as good - can replace
 
 def plot_trajectory(featurefilepath, 
-                    ax=None, 
-                    downsample=10, 
-                    legend=True, 
+                    downsample=10,
+                    filter_trajectories=False,
+                    mark_endpoints=False,
+                    annotate_lawns=False,
                     rotate=False, 
-                    img_shape=None, 
+                    img_shape=None,
+                    legend=True, 
+                    ax=None,
+                    verbose=True,
                     **kwargs):
     """ Overlay feature file trajectory data onto existing figure """
-        
+
+    from matplotlib import pyplot as plt
+    
     df = get_trajectory_data(featurefilepath)
     
+    # Optional - filter trajectories using global movement/time threshold parameters
+    if filter_trajectories:
+        filter_worm_trajectories(df, 
+                                 threshold_move=THRESHOLD_NUMBER_PIXELS, 
+                                 threshold_time=THRESHOLD_NUMBER_FRAMES,
+                                 fps=FPS,
+                                 microns_per_pixel=MICRONS_PER_PIXEL,
+                                 verbose=verbose)
     if not ax:
         fig, ax = plt.subplots(**kwargs)
- 
-    # Rotate your trajectories when you plot a rotated image
+        # # plot first frame of video + annotate wells
+        # FOVsplitter = FOVMultiWellsSplitter(maskedfilepath)
+        # FOVsplitter.plot_wells(is_rotate180=rotate, ax=ax, line_thickness=10)
+
+    if annotate_lawns:
+        # TODO: Update for compatibility with Tierpsy videos - new food coords path
+        from manual_labelling.label_lawns import plot_polygon
+        
+        # Plot food region (from coords)
+        coordfilepath = featurefilepath.replace("_featuresN.hdf5", "_FoodCoords.txt")
+        coordfilepath = coordfilepath.replace("Priota/Data/FoodChoiceAssay/Results/",\
+                                              "Saul/FoodChoiceAssay/Results/FoodCoords/") 
+        print(coordfilepath)
+        if Path(coordfilepath).exists():
+            # Read food coordinates
+            f = open(coordfilepath, 'r').read()
+            poly_dict = eval(f)
+                    
+            # Overlay food regions
+            ax = plot_polygon(poly_dict, ax, colour=False)
+        else:
+            print("WARNING: Could not find lawn annotations:\n\t%s\n" % coordfilepath) 
+            
+    # Rotate trajectories if necessary (for tiling 96-well plate)
     if rotate:
+        # TODO: Update for compatibility with Phenix videos - rotate food coords polygon
         if not img_shape:
             raise ValueError('Image shape missing for rotation.')
         else:
             height, width = img_shape[0], img_shape[1]
             df['x'] = width - df['x']
             df['y'] = height - df['y']
+            
+    # Plot trajectory
+    if downsample is not None:
+        # Downsample frames for plotting
+        downsample = 1 if downsample < 1 else downsample
         
-    # Downsample frames for plotting
-    if downsample < 1 or downsample == None: # input error handling
-        downsample = 1
+        ax.scatter(x=df['x'][::downsample], y=df['y'][::downsample], 
+                   c=df['frame_number'][::downsample], cmap='plasma', s=10)
+    else:
+        ax.scatter(x=df['x'], y=df['y'], c=df['frame_number'], cmap='plasma', s=10)
+        
+    if mark_endpoints:
+        ax.plot(df['x'].iloc[0], df['y'].iloc[0], color='r', marker='+', 
+                markersize=7, linestyle='', label="Start")
+        ax.plot(df['x'].iloc[-1], df['y'].iloc[-1], color='b', marker='+', 
+                markersize=7, linestyle='', label="End")
     
-    # TODO: Check if [::1] is slower than no [], if so, put in 'if'
-    ax.scatter(x=df['x'][::downsample], y=df['y'][::downsample],\
-                s=10, c=df['frame_number'][::downsample], cmap='plasma')
-    #ax.tick_params(labelsize=5)
+    if legend and mark_endpoints:
+            plt.legend(["Start", "End"], loc='upper right')
+            # ax = plt.gca() # get the current axes
+            # PCM = ax.get_children()[2] # get the mappable, the 1st and the 2nd are the x and y axes
+            # _legend = plt.colorbar(pad=0.01)
+            # _legend.ax.get_yaxis().labelpad = 10 # legend spacing
+            # _legend.ax.set_ylabel('Frame Number', rotation=270, size=7) # legend label
+            # _legend.ax.tick_params(labelsize=5)
+
     ax.axes.get_xaxis().set_visible(False)
-    ax.axes.get_yaxis().set_visible(False)
-    
-    if legend:
-        _legend = plt.colorbar(pad=0.01)
-        _legend.ax.get_yaxis().labelpad = 10 # legend spacing
-        _legend.ax.set_ylabel('Frame Number', rotation=270, size=7) # legend label
-        _legend.ax.tick_params(labelsize=5)
-    
+    ax.axes.get_yaxis().set_visible(False)    
     ax.autoscale(enable=True, axis='x', tight=True) # re-scaling axes
     ax.autoscale(enable=True, axis='y', tight=True)
+    
+    return
 
 def get_video_set(featurefilepath):
     """ Get the set of filenames of the featuresN results files that belong to
@@ -128,7 +176,12 @@ def get_video_set(featurefilepath):
         
     return file_dict
     
-def plot_plate_trajectories(featurefilepath, saveDir=None, downsample=10):
+def plot_plate_trajectories(featurefilepath, 
+                            saveDir=None, 
+                            downsample=10,
+                            filter_trajectories=False,
+                            mark_endpoints=False,
+                            annotate_lawns=False,):
     """ Tile plots and merge into a single plot for the 
         entire 96-well plate, correcting for camera orientation. """
         
@@ -170,17 +223,19 @@ def plot_plate_trajectories(featurefilepath, saveDir=None, downsample=10):
         
         # plot worm trajectories
         plot_trajectory(featurefilepath, 
-                       ax=ax, 
-                       downsample=downsample,
-                       legend=False, 
-                       rotate=rotate, 
-                       img_shape=FOVsplitter.img_shape)
+                        downsample=downsample,
+                        filter_trajectories=filter_trajectories,
+                        mark_endpoints=mark_endpoints,
+                        rotate=rotate,
+                        img_shape=FOVsplitter.img_shape,
+                        legend=False, 
+                        ax=ax)
         
         # set image position in figure
         ax.set_position(bbox)
     
     if saveDir:
-        saveName = maskedfilepath.parent.stem + '.png'
+        saveName = maskedfilepath.parent.stem + ('_filtered.png' if filter_trajectories else '.png')
         savePath = Path(saveDir) / saveName
         Path(saveDir).mkdir(exist_ok=True, parents=True)
         fig.savefig(savePath,
@@ -191,13 +246,16 @@ def plot_plate_trajectories(featurefilepath, saveDir=None, downsample=10):
     else:
         # TODO: Fix show plot figsize
         plt.tight_layout()
-        plt.show(); plt.pause(5)
+        plt.show()
           
     return(fig)
 
 def plot_plate_trajectories_from_filenames_summary(filenames_path, 
                                                    saveDir=None, 
-                                                   downsample=10):
+                                                   downsample=10,
+                                                   filter_trajectories=False,
+                                                   mark_endpoints=False,
+                                                   annotate_lawns=False):
     """ Plot plate trajectories for all files in Tierpsy filenames summaries
         'filenames_path', and save results to 'saveDir' """
 
@@ -225,47 +283,64 @@ def plot_plate_trajectories_from_filenames_summary(filenames_path,
               Path(featurefilepath).parent.name)
         plot_plate_trajectories(featurefilepath, 
                                 saveDir=saveDir, 
-                                downsample=downsample)
+                                downsample=downsample,
+                                filter_trajectories=filter_trajectories,
+                                mark_endpoints=mark_endpoints)
+    return
         
 #%% Main
     
 if __name__ == "__main__":
-    print("\nRunning: ", sys.argv[0])
         
     parser = argparse.ArgumentParser()
-    
-    # FeaturesN filepath
     parser.add_argument("--features_file", help="Input a single featuresN HDF5 \
                         filepath to plot all trajectories for that plate", 
-                        default=None)  
-    # Full filenames filepath
+                        default=EXAMPLE_FILE)
+        
     parser.add_argument("--full_filenames", help="Input a full_filenames.csv \
                         filepath to plot plate trajectories for all videos", 
                         default=None)
-    # Save dirpath
+        
     parser.add_argument("--save_dir", help="Path to directory to save plate \
                         trajectories", default=None)
-    # Downsample
+                        
     parser.add_argument("--downsample", help="Downsample trajectory data by \
                         plotting the worm centroid for every 'nth' frame",
-                        default=10)
+                        default=20)
+        
+    parser.add_argument("--filter_trajectories", help="Filter trsjectory data by global threshold \
+                        parameters for movement and duration", default=False)
+                        
+    parser.add_argument("--mark_endpoints", help="Show trajectory start and end points on plot",
+                        default=False)
+    
+    parser.add_argument("--annotate_lawns", help="Plot polygon outlining bacterial lawns from \
+                        saved food coordinates", default=False)
     args = parser.parse_args()
     
     FEAT_FILE_PATH = Path(args.features_file) if args.features_file else None
     FULL_FILES_PATH = Path(args.full_filenames) if args.full_filenames else None
     SAVE_DIR = Path(args.save_dir) if args.save_dir else None
-    DOWNSAMPLE = int(args.downsample)
-        
+    
+    plt.close('all')
+    plt.ioff() if SAVE_DIR is not None else plt.ion()
+    
     if FULL_FILES_PATH is not None:
-        print("\nPlotting plate trajectories from full filenames summaries:")
+        print("Plotting plate trajectories from full filenames summaries:\n\t%s\n" %FULL_FILES_PATH)
         plot_plate_trajectories_from_filenames_summary(FULL_FILES_PATH, 
                                                        saveDir=SAVE_DIR, 
-                                                       downsample=DOWNSAMPLE)
+                                                       downsample=int(args.downsample),
+                                                       filter_trajectories=args.filter_trajectories,
+                                                       mark_endpoints=args.mark_endpoints,
+                                                       annotate_lawns=args.annotate_lawns)
     elif FEAT_FILE_PATH is not None:
-        print("\nPlotting plate trajectories for features file provided:")
+        print("\nPlotting plate trajectories for:\n\t%s\n" % str(FEAT_FILE_PATH))
         plot_plate_trajectories(FEAT_FILE_PATH, 
                                 saveDir=SAVE_DIR, 
-                                downsample=DOWNSAMPLE)
+                                downsample=int(args.downsample),
+                                filter_trajectories=args.filter_trajectories,
+                                mark_endpoints=args.mark_endpoints,
+                                annotate_lawns=args.annotate_lawns)
     else:
         print("\nNo file path provided!")
   

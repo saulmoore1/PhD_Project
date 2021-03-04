@@ -9,8 +9,6 @@ Analyse between strain variation
 
 #%% Imports
 
-import sys
-import json
 import argparse
 import warnings
 import pandas as pd
@@ -18,13 +16,6 @@ import numpy as np
 from pathlib import Path
 from scipy.stats import ttest_ind, zscore # f_oneway, kruskal
 
-# Path to Github helper functions (USER-DEFINED path to local copy of Github repo)
-PATH_LIST = ['/Users/sm5911/Tierpsy_Versions/tierpsy-tools-python/',
-             '/Users/sm5911/Documents/GitHub/PhD_Project/Python']
-for sysPath in PATH_LIST:
-    if sysPath not in sys.path:
-        sys.path.insert(0, sysPath)
-        
 # Custom functions
 from preprocessing.compile_hydra_data import process_metadata, process_feature_summaries
 from filter_data.clean_feature_summaries import clean_summary_results
@@ -32,7 +23,7 @@ from statistical_testing.stats_helper import (shapiro_normality_test,
                                               ranksumtest,
                                               ttest_by_feature,
                                               anova_by_feature)
-from feature_extraction.load_features import load_top256
+from read_data.read import load_json, load_top256
 from feature_extraction.decomposition.pca import plot_pca, remove_outliers_pca
 from feature_extraction.decomposition.tsne import plot_tSNE
 from feature_extraction.decomposition.umap import plot_umap
@@ -43,32 +34,27 @@ from visualisation.plotting_helper import (sig_asterix,
                                            barplot_sigfeats, 
                                            boxplots_sigfeats,
                                            boxplots_grouped)
+
 from tierpsytools.analysis.significant_features import k_significant_feat
 from tierpsytools.drug_screenings.filter_compounds import compounds_with_low_effect_univariate
 
-#%% Functions
+#%% Globals
 
-class dict2obj:
-    """ A simple class to convert a dictionary into an object """
-    def __init__(self, **entries):
-        self.__dict__.update(entries)
-              
+JSON_PARAMETERS_PATH = "analysis/20191017_parameters_pangenome_tests.json"
+            
 #%% Main
 
-#TODO: Make so that you can provide a manual set of selected features for fset and it will plot 
-#       for those features only
+# TODO: Make so that you can provide a manual set of selected features for fset and it will plot for those features only
 
 if __name__ == "__main__":
     # Accept command-line inputs
     parser = argparse.ArgumentParser(description='Analyse Tierpsy results (96-well)')
     parser.add_argument('-j', '--json', help="Path to JSON parameters file for analysis",
-                        default="analysis/analysis_params_20210224.json", type=str)
+                        default=JSON_PARAMETERS_PATH, type=str)
     args = parser.parse_args()  
     
     # Load params from JSON file
-    raw_json = open(args.json, 'r').read()
-    args = json.loads(raw_json)
-    args = dict2obj(**args)
+    args = load_json(args.json)
     
     assert args.project_dir is not None
     PROJECT_DIR = Path(args.project_dir) # str
@@ -116,16 +102,16 @@ if __name__ == "__main__":
     # args.max_features_plot_cap # int, Maximum number of (significant) features to plot
 
     #%% Compile and clean results
-    
+        
     # Process metadata    
-    metadata = process_metadata(aux_dir=AUX_DIR, 
+    metadata = process_metadata(aux_dir=AUX_DIR,
                                 imaging_dates=args.dates, 
                                 add_well_annotations=args.add_well_annotations)
     
     # # Calculate duration on food + L1 diapause duration
     # metadata = duration_on_food(metadata) 
     # metadata = duration_L1_diapause(metadata)
-       
+    
     # Process feature summary results
     features, metadata = process_feature_summaries(metadata, 
                                                    RESULTS_DIR,

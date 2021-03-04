@@ -8,8 +8,6 @@ Filter Tierpsy worm trajectory data (Phenix only)
 
 """
 
-# TODO: Check compatibility with Hydra camera 16-well videos + maintain backwards compatibility
-
 #%% Functions
 
 def filter_worm_trajectories(trajectory_df, threshold_move=10, threshold_time=25,
@@ -38,6 +36,8 @@ def filter_worm_trajectories(trajectory_df, threshold_move=10, threshold_time=25
         Filtered trajectory dataframe
     """
         
+    import numpy as np
+    
     group_worm = trajectory_df.groupby('worm_id')
     n_worms = group_worm.count().shape[0]
     
@@ -53,8 +53,8 @@ def filter_worm_trajectories(trajectory_df, threshold_move=10, threshold_time=25
               (n_worms - n_worms_time, threshold_time, threshold_time / fps))
             
     # Filter by MOVEMENT
-    filterMove_df = group_worm.filter((lambda x: x['x'].ptp() > threshold_move or 
-                                                 x['y'].ptp() > threshold_move))
+    filterMove_df = group_worm.filter((lambda x: np.ptp(x['x']) > threshold_move or 
+                                                 np.ptp(x['y']) > threshold_move))
     
     # Re-group by worm id
     group_worm = filterMove_df.groupby('worm_id')

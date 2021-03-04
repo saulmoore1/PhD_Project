@@ -8,25 +8,12 @@ Helper Functions
 
 """
 
-#%% Imports
-import sys
-import numpy as np
-import seaborn as sns
-from tqdm import tqdm
-from pathlib import Path
-# import scipy.spatial as sp
-# import scipy.cluster.hierarchy as hc
-from matplotlib import pyplot as plt
-from matplotlib import transforms
+#import scipy.spatial as sp
+#import scipy.cluster.hierarchy as hc
 
-# Path to Github helper functions (USER-DEFINED path to local copy of Github repo)
-PATH_LIST = ['/Users/sm5911/Tierpsy_Versions/tierpsy-tools-python/',
-             '/Users/sm5911/Documents/GitHub/PhD_Project/Python/']
-for sysPath in PATH_LIST:
-    if sysPath not in sys.path:
-        sys.path.insert(0, sysPath)
+#%% Globals
 
-CUSTOM_STYLE = 'analysis/analysis_20210126.mplstyle'
+CUSTOM_STYLE = 'visualisation/style_sheet_20210126.mplstyle'
 
 #%% Functions
 
@@ -54,6 +41,54 @@ def sig_asterix(pvalues_array):
             asterix.append('')
     return asterix
 
+def hexcolours(n):
+    """ A function for generating a list of n hexadecimal colours for plotting. """
+    
+    import colorsys
+    
+    hex_list = []
+    HSV = [(x*1/n,0.5,0.5) for x in range(n)]
+    # Generate RGB hex code
+    for RGB in HSV:
+        RGB = map(lambda x: int(x * 255), colorsys.hsv_to_rgb(*RGB))
+        hex_list.append('#%02x%02x%02x' % tuple(RGB)) 
+        
+    return(hex_list)
+
+def hex2rgb(hex):
+    """ A function for converting from hexadecimal to RGB colour format for plotting. """
+    
+    hex = hex.lstrip('#')
+    hlen = len(hex)
+    
+    return tuple(int(hex[i:i+hlen//3], 16) for i in range(0, hlen, hlen//3))
+
+def plot_points(fig, ax, x, y, **kwargs):
+    """ A function for plotting points onto an image. """
+    
+    from matplotlib import pyplot as plt
+
+    ax.plot(x, y, **kwargs)
+    plt.show()
+    
+    return(fig, ax)
+        
+def plot_pie(df, rm_empty=True, show=True, **kwargs):
+    """ A function to plot a pie chart from a labelled vector of values that sum to 1 """
+    
+    from matplotlib import pyplot as plt
+
+    if rm_empty: # Remove any empty rows
+        df = df.loc[df!=0]
+    fig = plt.pie(df, autopct='%1.1f%%', **kwargs)
+    plt.axis('equal')
+    plt.tight_layout()
+    
+    if show:
+        plt.show()
+        
+    return(fig)
+
 def plot_day_variation(feat_df,
                        meta_df,
                        group_by,
@@ -69,13 +104,14 @@ def plot_day_variation(feat_df,
                        dodge=False,
                        ranked=True,
                        drop_insignificant=True):
-    """
-    Parameters
-    ----------
-    pvalues : pandas.Series
+    """ """
     
-    """
-    
+    import numpy as np
+    import seaborn as sns
+    from tqdm import tqdm
+    from pathlib import Path
+    from matplotlib import pyplot as plt
+
     if feature_set is not None:
         assert all(f in feat_df.columns for f in feature_set)
     else:
@@ -183,6 +219,9 @@ def barplot_sigfeats(test_pvalues_df=None, saveDir=None, p_value_threshold=0.05,
                      test_name=None):
     """ Plot barplot of number of significant features from test p-values """
     
+    from pathlib import Path
+    from matplotlib import pyplot as plt
+
     if test_pvalues_df is not None:
         # Proportion of features significantly different from control
         prop_sigfeats = ((test_pvalues_df < p_value_threshold).sum(axis=1) /\
@@ -235,7 +274,12 @@ def boxplots_sigfeats(feat_meta_df,
                       drop_insignificant=True,
                       verbose=True):
     """ Box plots of most significantly different features between strains """    
-       
+    
+    import numpy as np
+    import seaborn as sns
+    from tqdm import tqdm
+    from matplotlib import pyplot as plt
+   
     if feature_set is not None:
         if not type(feature_set) == list:
             try:
@@ -380,7 +424,13 @@ def boxplots_grouped(feat_meta_df,
                      saveFormat=None,
                      **kwargs):
     """ Boxplots comparing all strains to control for each feature in feature set """
-        
+    
+    import seaborn as sns
+    from pathlib import Path
+    from tqdm import tqdm
+    from matplotlib import pyplot as plt
+    from matplotlib import transforms
+    
     if feature_set is not None:
         assert all(feat in feat_meta_df.columns for feat in feature_set)
         

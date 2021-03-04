@@ -11,7 +11,6 @@ Investigating CeMbio lawn growth rate
 
 #%% Imports 
 
-import sys
 import cv2
 import argparse
 import re
@@ -20,48 +19,21 @@ from tqdm import tqdm
 from pathlib import Path
 from matplotlib import pyplot as plt
 
-# Path to Tierpsy Github functions
-PATH_LIST = ['/Users/sm5911/Tierpsy_Versions/tierpsy-tracker',
-             '/Users/sm5911/Documents/GitHub/PhD_Project/Python/Psychobiotics_96WP']
-for sysPath in PATH_LIST:
-    if sysPath not in sys.path:
-        sys.path.insert(0, sysPath)
+from read_data.read import read_list_from_file
+from write_data.write import write_list_to_file
+from visualisation.plate_trajectories import CH2PLATE_dict
 
 from tierpsy.analysis.compress.selectVideoReader import selectVideoReader
 from tierpsy.analysis.split_fov.helper import CAM2CH_df, serial2channel, parse_camera_serial
 
 #%% Globals
 
-# Channel-to-plate mapping dictionary
-CH2PLATE_dict = {'Ch1':((0,0),True),
-                 'Ch2':((1,0),False),
-                 'Ch3':((0,1),True),
-                 'Ch4':((1,1),False),
-                 'Ch5':((0,2),True),
-                 'Ch6':((1,2),False)}
+VIDEO_NAME = 'timelapse'
 
-fps_timelapse = 25 #€ frames per second for timelapse video
+FPS_TIMELAPSE = 25 # frames per second for timelapse video
 
 #%% Functions
-
-def write_list_to_file(list_to_save, save_path):
-    """ Write a list to text file """
-    
-    with open(str(save_path), 'w') as fid:
-        for line in list_to_save:
-            fid.write("%s\n" % line)
                     
-def read_list_from_file(filepath):
-    """ Read a multi-line list from text file """   
-    
-    list_from_file = []
-    with open(filepath, 'r') as fid:
-        for line in fid:
-            info = line[:-1]
-            list_from_file.append(info)
-    
-    return list_from_file      
-
 def get_video_list(RAWVIDEO_DIR, EXP_DATES=None, video_list_save_path=None):
     """ Search directory for 'metadata.yaml' video files and return as a list """
     
@@ -284,40 +256,36 @@ def make_video_from_frames(IMAGES_DIR, video_name, fps=25):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Create timelapse video from a series of RawVideos')
-    parser.add_argument('--rawvideo_dir', help='Path to RawVideo directory',
-                        default="/Volumes/behavgenom$/Saul/CeMbioScreen/RawVideos") 
-                        # TODO: remove default option here
-    
-    known_args = parser.parse_known_args()
-    parser.add_argument('--save_dir', help='Path to save directory', 
-                        default= "/Users/sm5911/Desktop/CeMbio_Lawn_Timelapse")
-                        # TODO: default = Path(known_args.rawvideo_dir) / "timelapse_results"
-    
-    parser.add_argument('--dates', help='List of experiment dates to analyse', 
-                        default=['20201022','20201023'])
-                        # TODO: default = None
+    parser.add_argument('--rawvideo_dir', help='Path to RawVideo directory', default=None)    
+    parser.add_argument('--dates', help='List of experiment dates to analyse', default=None)
+    parser.add_argument('--save_dir', help='Path to save directory', default=None)
     args = parser.parse_args()
     
-    RAWVIDEO_DIR = Path(args.rawvideo_dir)
-    SAVE_DIR = Path(args.save_dir)
-    EXP_DATES = args.dates
-            
-    video_list_save_path = SAVE_DIR / "cembio_lawn_video_list.txt"
+    if not args.rawvideo_dir:
+        raise IOError("Please provide RawVideo directory")
+    else:
+        args.rawvideo_dir = Path(args.rawvideo_dir)
+    if not args.save_dir:
+        args.save_dir = Path(args.rawvideo_dir) / "timelapse_results"
+    else:
+        args.save_dir = Path(args.save_dir)
+                    
+    video_list_save_path = args.save_dir / "cembio_lawn_video_list.txt"
 
     if not Path(video_list_save_path).exists():
         # get video list
-        video_list = get_video_list(Path(RAWVIDEO_DIR), EXP_DATES, video_list_save_path)
+        video_list = get_video_list(args.rawvideo_dir, args.dates, video_list_save_path)
     else: 
         # read video list
         video_list = read_list_from_file(filepath=video_list_save_path)    
     print("%d videos found." % len(video_list))
     
     # save average frames for timelapse
-    video2frame_dict = save_avg_frames_for_timelapse(video_list, SAVE_DIR)
+    video2frame_dict = save_avg_frames_for_timelapse(video_list, args.save_dir)
         
     plate_frame_filename_dict = match_plate_frame_filenames(video_list)
     
-    plate_frames_from_camera_frames(plate_frame_filename_dict, video2frame_dict, SAVE_DIR)
+    plate_frames_from_camera_frames(plate_frame_filename_dict, video2frame_dict, args.save_dir)
 
-    timelapse_dir = SAVE_DIR / "plate_frame_timelapse"
-    make_video_from_frames(timelapse_dir, video_name='timelapse', fps=fps_timelapse)
+    timelapse_dir = args.save_dir / "plate_frame_timelapse"
+    make_video_from_frames(timelapse_dir, video_name=VIDEO_NAME, fps=FPS_TIMELAPSE)
