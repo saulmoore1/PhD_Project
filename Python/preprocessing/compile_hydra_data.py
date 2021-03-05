@@ -20,8 +20,7 @@ from pathlib import Path
 # Custom imports
 from tierpsytools.hydra.compile_metadata import add_imgstore_name                     
 from tierpsytools.read_data.compile_features_summaries import compile_tierpsy_summaries
-from tierpsytools.read_data.hydra_metadata import (read_hydra_metadata, 
-                                                   align_bluelight_conditions)
+from tierpsytools.read_data.hydra_metadata import read_hydra_metadata, align_bluelight_conditions
 from tierpsytools.hydra.match_wells_annotations import (import_wells_annoations_in_folder,
                                                         match_rawvids_annotations,
                                                         update_metadata)

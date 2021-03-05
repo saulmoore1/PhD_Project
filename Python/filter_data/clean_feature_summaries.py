@@ -42,7 +42,7 @@ def clean_summary_results(features,
         
         Returns
         -------
-        metadata, features
+        features, metadata
         
     """
 
@@ -140,3 +140,31 @@ def clean_summary_results(features,
                                                                     percentile_to_use))
         
     return features, metadata
+
+def subset_results(features, metadata, column, groups, omit=False):
+    """ Subset features and metadata for groups in a given column 
+    
+        Parameters
+        ----------
+        features, metadata : pd.DataFrame
+            Separate dataframes for data and metadata information
+        column : str
+            A column name belonging to a column in metadata
+        groups : list
+            List of groups that you would like to subset
+        omit : bool
+            If True, groups are omitted from dataframe, instead of extracted
+    """
+    
+    assert set(features.index) == set(metadata.index)
+    assert column in metadata.columns
+    
+    if omit:
+        subset_metadata = metadata[~metadata[column].isin(groups)]
+    else:
+        subset_metadata = metadata[metadata[column].isin(groups)]
+        
+    subset_features = features.reindex(subset_metadata.index)
+    
+    return subset_features, subset_metadata
+    

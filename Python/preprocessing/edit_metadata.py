@@ -81,5 +81,3 @@ def duration_on_food(df):
                                           timedelta in on_food_duration]
    
     return df
-
-

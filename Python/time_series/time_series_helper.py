@@ -10,22 +10,8 @@ Time-series Analysis
 
 #%% Imports
 
-import argparse
 import numpy as np
-import pandas as pd
-from pathlib import Path
 from matplotlib import pyplot as plt
-
-from preprocessing.compile_hydra_data import process_feature_summaries
-
-# TODO: Update timeseries plots for plotting windowed summaries
-# Luigi: making more summaries and handling windows is a pain, no tierpsytools functions exist yet
-
-#%% Globals
-
-EXAMPLE_METADATA_PATH = "/Volumes/hermes$/KeioScreen_96WP/AuxiliaryFiles/metadata_annotated.csv"
-EXAMPLE_RESULTS_DIR = "/Volumes/hermes$/KeioScreen_96WP/Results"
-EXAMPLE_FEATURE_LIST = ['speed_abs_50th']
 
 #%% Functions
 
@@ -111,52 +97,4 @@ def plot_timeseries_phenix(df, colour_dict, window=1000, acclimtime=0, annotate=
     if show:
         plt.show(); plt.pause(0.0001)
     return(plt)
-
-
-def plot_timeseries_hydra(metadata_df, features_df, feature):
-    """ """
-    
-    print(metadata_df, features_df, feature)
-    #FIXME - read the metadata.csv and the results (which are not aligned in the files) and not use the align_bluelight option
-    # whole summary for prestim, the whole summary for bluelight, the whole poststim summary = 3 timepoints
-    # use tierpsytools, so your metadata will have a column named ‘bluelight’ that can be either 
-    # ‘prestim’, ‘bluelight’, ‘poststim’. Map these values to 0, 1, 2. Do NOT use the ‘align bluelight’ 
-    # options. then use seaborn with bluelight as your x value
-    # keep bluelight not aligned - that leaves the df in a “long format” that seaborn likes a lot
-    # Luigi wrote something for Ida but is not ready for tierpsytools. 
-    # "Unless Andre is specifically telling you to look at windowed summaries, you should not go down the rabbit hole" - Luigi
-    pass
-    
-
-#%% Main
-
-if __name__ == '__main__':
-    # Accept feature list from command line
-    parser = argparse.ArgumentParser(description='Time-series analysis of selected features')
-    parser.add_argument("--compiled_metadata_path", help="Path to compiled metadata file",
-                        default=EXAMPLE_METADATA_PATH)
-    parser.add_argument("--results_dir", help="Path to 'Results' directory containing full features\
-                        and filenames summary files", default=EXAMPLE_RESULTS_DIR)
-    parser.add_argument('--feature_list', help="List of selected features for time-series analysis", 
-                        nargs='+', default=EXAMPLE_FEATURE_LIST)
-    args = parser.parse_args()
-
-    assert Path(args.compiled_metadata_path).exists()
-    assert Path(args.results_dir).is_dir()
-    assert type(args.feature_list) == list
-    
-    # Read metadata
-    metadata = pd.read_csv(args.compiled_metadata_path, dtype={"comments":str})
-    
-    # Ensure align bluelight is False
-    # NB: leaves the df in a “long format” that seaborn likes
-    metadata, features = process_feature_summaries(metadata, args.results_dir, align_bluelight=False)
-    
-    # Find masked HDF5 video files
-    print("%d selected features loaded." % len(args.feature_list))
-
-    # Perform time-series analysis for selected features
-    for f in args.feature_list:
-        plot_timeseries_hydra(metadata, features, f)
             
-        
