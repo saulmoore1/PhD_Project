@@ -47,6 +47,7 @@ def process_metadata(aux_dir,
         Returns
         -------
         Updated metadata
+        compiled metadata path
     """
     
     compiled_metadata_path = Path(aux_dir) / "metadata.csv"
@@ -160,13 +161,15 @@ def process_metadata(aux_dir,
             meta_df = update_metadata(aux_dir=aux_dir, 
                                       matched_long=matched_long, 
                                       saveto=annotated_metadata_path)
-            
+              
         prop_bad = meta_df.is_bad_well.sum()/len(meta_df.is_bad_well)
         print("%.1f%% of data are labelled as 'bad well' data" % (prop_bad*100))
+        
+        compiled_metadata_path = annotated_metadata_path
                 
-    return meta_df
+    return meta_df, compiled_metadata_path
 
-def process_feature_summaries(metadata, 
+def process_feature_summaries(metadata_path, 
                               results_dir, 
                               compile_day_summaries=False,
                               imaging_dates=None, 
@@ -197,8 +200,7 @@ def process_feature_summaries(metadata,
     combined_feats_path = Path(results_dir) / "full_features.csv"
     combined_fnames_path = Path(results_dir) / "full_filenames.csv"
  
-    if np.logical_and(combined_feats_path.is_file(), 
-                      combined_fnames_path.is_file()):
+    if np.logical_and(combined_feats_path.is_file(), combined_fnames_path.is_file()):
         print("Found existing full feature summaries")
     else:
         print("Compiling feature summary results")       
@@ -232,20 +234,9 @@ def process_feature_summaries(metadata,
                                   fname_files=fname_files)
 
     # Read features/filename summaries
-    feature_summaries = pd.read_csv(combined_feats_path, comment='#')
-    filename_summaries = pd.read_csv(combined_fnames_path, comment='#')
-    print("Feature summary results loaded.")
-
-    if imaging_dates:
-        if not all(filename_summaries.loc[i,'filename'].split('/')[-2].split('_')[-2] in 
-                   imaging_dates for i in filename_summaries.index):
-            raise Warning("Incorrect feature summaries for imaging dates provided.\n" +
-                          "Please delete and recompile:\n%s\n%s" % (combined_feats_path, 
-                                                                    combined_fnames_path))
-    
-    features, metadata = read_hydra_metadata(feature_summaries, 
-                                             filename_summaries,
-                                             metadata,
+    features, metadata = read_hydra_metadata(combined_feats_path, 
+                                             combined_fnames_path,
+                                             metadata_path,
                                              add_bluelight=align_bluelight)
     if align_bluelight:
         features, metadata = align_bluelight_conditions(feat=features, 

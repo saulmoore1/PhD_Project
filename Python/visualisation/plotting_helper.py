@@ -18,7 +18,7 @@ CUSTOM_STYLE = 'visualisation/style_sheet_20210126.mplstyle'
 #%% Functions
 
 def sig_asterix(pvalues_array):
-    """ A function for converting p-values to asterisks for showing significance on plots 
+    """ Convert p-values to asterisks for showing significance on plots 
         
         Parameters
         ----------
@@ -42,7 +42,7 @@ def sig_asterix(pvalues_array):
     return asterix
 
 def hexcolours(n):
-    """ A function for generating a list of n hexadecimal colours for plotting. """
+    """ Generate a list of n hexadecimal colours for plotting """
     
     import colorsys
     
@@ -56,7 +56,7 @@ def hexcolours(n):
     return(hex_list)
 
 def hex2rgb(hex):
-    """ A function for converting from hexadecimal to RGB colour format for plotting. """
+    """ Convert from hexadecimal to RGB colour format for plotting """
     
     hex = hex.lstrip('#')
     hlen = len(hex)
@@ -64,7 +64,7 @@ def hex2rgb(hex):
     return tuple(int(hex[i:i+hlen//3], 16) for i in range(0, hlen, hlen//3))
 
 def plot_points(fig, ax, x, y, **kwargs):
-    """ A function for plotting points onto an image. """
+    """ Plot points onto an image """
     
     from matplotlib import pyplot as plt
 
@@ -74,7 +74,7 @@ def plot_points(fig, ax, x, y, **kwargs):
     return(fig, ax)
         
 def plot_pie(df, rm_empty=True, show=True, **kwargs):
-    """ A function to plot a pie chart from a labelled vector of values that sum to 1 """
+    """ Plot pie chart from a labelled vector of values that sum to 1 """
     
     from matplotlib import pyplot as plt
 
@@ -171,8 +171,8 @@ def plot_day_variation(feat_df,
                           marker=".",
                           edgecolor='k',
                           linewidth=.3) #facecolors="none"
-        sns.swarmplot(x=group_by, 
-                      y=feature, 
+        sns.swarmplot(x=group_by,
+                      y=feature,
                       order=groups,
                       hue=day_var,
                       palette=date_dict,
@@ -188,15 +188,15 @@ def plot_day_variation(feat_df,
         plt.title(feature.replace('_',' '), fontsize=12, pad=20)
         plt.xlim(right=len(groups)-0.4)
         plt.ylabel(''); plt.xlabel('')
-       
-        # Add p-value to plot  
+
+        # Add p-value to plot
         if test_pvalues_df is not None:
             for ii, group in enumerate(groups[1:]):
                 pval = test_pvalues_df.loc[group, feature]
                 text = ax.get_xticklabels()[ii+1]
                 assert text.get_text() == group
                 if isinstance(pval, float) and pval < p_value_threshold:
-                    y = df[feature].max() 
+                    y = df[feature].max()
                     h = (y - df[feature].min()) / 50
                     plt.plot([0, 0, ii+1, ii+1], [y+h, y+2*h, y+2*h, y+h], lw=1.5, c='k')
                     pval_text = 'P < 0.001' if pval < 0.001 else 'P = %.3f' % pval
@@ -209,7 +209,7 @@ def plot_day_variation(feat_df,
             
         if saveDir is not None:
             Path(saveDir).mkdir(exist_ok=True, parents=True)
-            savePath = Path(saveDir) / ((('{0}_'.format(idx + 1) + feature) if ranked 
+            savePath = Path(saveDir) / ((('{0}_'.format(idx + 1) + feature) if ranked
                                          else feature) + '.png')
             plt.savefig(savePath, dpi=300) # dpi=600
         else:
@@ -221,8 +221,11 @@ def barplot_sigfeats(test_pvalues_df=None, saveDir=None, p_value_threshold=0.05,
     
     from pathlib import Path
     from matplotlib import pyplot as plt
-
+    
     if test_pvalues_df is not None:
+        # Transpose dataframe axes to make strain name the index, and features as columns
+        test_pvalues_df = test_pvalues_df.T
+
         # Proportion of features significantly different from control
         prop_sigfeats = ((test_pvalues_df < p_value_threshold).sum(axis=1) /\
                          len(test_pvalues_df.columns))*100
@@ -233,27 +236,27 @@ def barplot_sigfeats(test_pvalues_df=None, saveDir=None, p_value_threshold=0.05,
         # Plot proportion significant features for each strain
         plt.ioff() if saveDir else plt.ion()
         plt.close('all')
-        plt.style.use(CUSTOM_STYLE)  
+        plt.style.use(CUSTOM_STYLE)
         fig = plt.figure(figsize=[6, n/4 if n > 20 else 7]) # width, height
         ax = fig.add_subplot(1,1,1)
         ax.barh(prop_sigfeats,width=1)
-        prop_sigfeats.plot.barh(x=prop_sigfeats.index, 
-                                y=prop_sigfeats.values, 
+        prop_sigfeats.plot.barh(x=prop_sigfeats.index,
+                                y=prop_sigfeats.values,
                                 color='gray',
                                 ec='black') # fc
         ax.set_xlabel('% significant features') # fontsize=16, labelpad=10
         plt.xlim(0,100)
         for i, (l, v) in enumerate((test_pvalues_df < p_value_threshold).sum(axis=1).items()):
-            ax.text(prop_sigfeats.loc[l] + 2, i, str(v), color='k', 
+            ax.text(prop_sigfeats.loc[l] + 2, i, str(v), color='k',
                     va='center', ha='left') #fontweight='bold'
-        plt.text(0.85, 1, 'n = %d' % len(test_pvalues_df.columns), ha='center', va='bottom', 
-                 transform=ax.transAxes)  
-        plt.tight_layout(rect=[0.02, 0.02, 0.96, 1]) #
+        plt.text(0.85, 1, 'n = %d' % len(test_pvalues_df.columns), ha='center', va='bottom',
+                 transform=ax.transAxes)
+        plt.tight_layout(rect=[0.02, 0.02, 0.96, 1])
     
         if saveDir:
             Path(saveDir).mkdir(exist_ok=True, parents=True)
-            savePath = Path(saveDir) / ('percentage_sigfeats_{}.png'.format(test_name) if \
-                                        test_name is not None else 'percentage_sigfeats.png')
+            savePath = Path(saveDir) / ('percentage_sigfeats_{}.png'.format(test_name) if test_name 
+                                        is not None else 'percentage_sigfeats.png')
             print("Saving figure: %s" % savePath.name)
             plt.savefig(savePath, dpi=300)
         else:
@@ -261,11 +264,11 @@ def barplot_sigfeats(test_pvalues_df=None, saveDir=None, p_value_threshold=0.05,
         
         return prop_sigfeats
     
-def boxplots_sigfeats(feat_meta_df, 
-                      test_pvalues_df, 
-                      group_by, 
-                      control_strain, 
-                      saveDir=None, 
+def boxplots_sigfeats(feat_meta_df,
+                      test_pvalues_df,
+                      group_by,
+                      control_strain,
+                      saveDir=None,
                       p_value_threshold=0.05,
                       max_features_plot_cap=None,
                       feature_set=None,

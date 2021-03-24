@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Compare worm or bacterial strains to control strain Tierpsy results for Hydra rig videos
+Compare worm or bacterial strains to control (behavioural phenotype analysis)
 
 Stats:
     ANOVA/Kruskal - for significant features among all strains
@@ -51,7 +51,7 @@ from tierpsytools.drug_screenings.filter_compounds import compounds_with_low_eff
 
 #%% Globals
 
-EXAMPLE_JSON_PARAMETERS_PATH = "analysis/20210126_parameters_keio_screen.json"
+JSON_PARAMETERS_PATH = "analysis/20201028_parameters_filipe_tests.json"
             
 #%% Main
 
@@ -61,7 +61,7 @@ if __name__ == "__main__":
     # Accept command-line inputs
     parser = argparse.ArgumentParser(description='Analyse Tierpsy results (96-well)')
     parser.add_argument('-j', '--json', help="Path to JSON parameters file for analysis",
-                        default=EXAMPLE_JSON_PARAMETERS_PATH, type=str)
+                        default=JSON_PARAMETERS_PATH, type=str)
     args = parser.parse_args()  
     
     # Load params from JSON file + convert to python object
@@ -700,34 +700,29 @@ if __name__ == "__main__":
 
         tsne_dir = plot_dir / 'tSNE'
         perplexities = [5,15,30]
-        try:
-            tSNE_df = plot_tSNE(featZ=featZ_df,
-                                meta=meta_df,
-                                group_by=GROUPING_VAR,
-                                var_subset=None,
-                                saveDir=tsne_dir,
-                                perplexities=perplexities,
-                                 # NB: perplexity parameter should be roughly equal to group size
-                                sns_colour_palette="plasma")
-        except Exception as e:
-            print("WARNING: Could not plot tSNE\n", e)
-       
+        
+        tSNE_df = plot_tSNE(featZ=featZ_df,
+                            meta=meta_df,
+                            group_by=GROUPING_VAR,
+                            var_subset=None,
+                            saveDir=tsne_dir,
+                            perplexities=perplexities,
+                             # NB: perplexity parameter should be roughly equal to group size
+                            sns_colour_palette="plasma")
+   
         #%%     Uniform Manifold Projection (UMAP)
 
         umap_dir = plot_dir / 'UMAP'
         n_neighbours = [5,15,30]
         min_dist = 0.1 # Minimum distance parameter
-        try:
-            umap_df = plot_umap(featZ=featZ_df,
-                                meta=meta_df,
-                                group_by=GROUPING_VAR,
-                                var_subset=None,
-                                saveDir=umap_dir,
-                                n_neighbours=n_neighbours,
-                                # NB: n_neighbours parameter should be roughly equal to group size
-                                min_dist=min_dist,
-                                sns_colour_palette="tab10")
-        except Exception as e:
-            print("WARNING: Could not plot UMAP\n", e)
-            
+        
+        umap_df = plot_umap(featZ=featZ_df,
+                            meta=meta_df,
+                            group_by=GROUPING_VAR,
+                            var_subset=None,
+                            saveDir=umap_dir,
+                            n_neighbours=n_neighbours,
+                            # NB: n_neighbours parameter should be roughly equal to group size
+                            min_dist=min_dist,
+                            sns_colour_palette="tab10")
             

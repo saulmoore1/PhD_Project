@@ -18,7 +18,7 @@ for sysPath in PATH_LIST:
     if sysPath not in sys.path:
         sys.path.insert(0, sysPath)
 
-CUSTOM_STYLE = 'analysis/analysis_20210126.mplstyle'
+CUSTOM_STYLE = 'visualisation/style_sheet_20210126.mplstyle'
 
 #%% Functions
 

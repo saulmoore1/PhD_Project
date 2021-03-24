@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Compare worm or bacterial strains to control strain Tierpsy results for Hydra rig videos
+Compare Keio bacterial strains to control (E. coli K-12 BW25113)
 
 Stats:
     ANOVA/Kruskal - for significant features among all strains
@@ -25,20 +25,24 @@ import warnings
 import pandas as pd
 import numpy as np
 from pathlib import Path
-from scipy.stats import zscore # ttest_ind, f_oneway, kruskal
+from scipy.stats import ttest_ind, zscore # f_oneway, kruskal
 
 # Custom imports
-from read_data.read import load_json, load_top256
-from write_data.write import write_list_to_file
+from preprocessing.append_supplementary_info import load_supplementary_7, append_supplementary_7
+
 from preprocessing.compile_hydra_data import process_metadata, process_feature_summaries
-from filter_data.clean_feature_summaries import clean_summary_results, subset_results
-from statistical_testing.stats_helper import shapiro_normality_test
+from filter_data.clean_feature_summaries import clean_summary_results
+from statistical_testing.stats_helper import (shapiro_normality_test,
+                                              ranksumtest,
+                                              ttest_by_feature,
+                                              anova_by_feature)
+from read_data.read import load_json, load_top256
 from feature_extraction.decomposition.pca import plot_pca, remove_outliers_pca
 from feature_extraction.decomposition.tsne import plot_tSNE
 from feature_extraction.decomposition.umap import plot_umap
 from feature_extraction.decomposition.hierarchical_clustering import (plot_clustermap, 
                                                                       plot_barcode_heatmap)
-from visualisation.super_plots import superplot
+from visualisation.super_plots import superplot_1, superplot_2
 from visualisation.plotting_helper import (sig_asterix, 
                                            plot_day_variation, 
                                            barplot_sigfeats, 
@@ -46,12 +50,13 @@ from visualisation.plotting_helper import (sig_asterix,
                                            boxplots_grouped)
 
 from tierpsytools.analysis.significant_features import k_significant_feat
-from tierpsytools.analysis.statistical_tests import univariate_tests
 from tierpsytools.drug_screenings.filter_compounds import compounds_with_low_effect_univariate
 
 #%% Globals
 
-EXAMPLE_JSON_PARAMETERS_PATH = "analysis/20210126_parameters_keio_screen.json"
+JSON_PARAMETERS_PATH = "analysis/20210126_parameters_keio_screen.json"
+
+# 20191017_parameters_pangenome_tests
             
 #%% Main
 
@@ -61,43 +66,40 @@ if __name__ == "__main__":
     # Accept command-line inputs
     parser = argparse.ArgumentParser(description='Analyse Tierpsy results (96-well)')
     parser.add_argument('-j', '--json', help="Path to JSON parameters file for analysis",
-                        default=EXAMPLE_JSON_PARAMETERS_PATH, type=str)
+                        default=JSON_PARAMETERS_PATH, type=str)
     args = parser.parse_args()  
     
-    # Load params from JSON file + convert to python object
+    # Load params from JSON file
     args = load_json(args.json)
-
+    
     assert args.project_dir is not None
+
+    # Path to directories for 'AuxiliaryFiles' and 'Results' and for saving
     AUX_DIR = Path(args.project_dir) / "AuxiliaryFiles"
     RESULTS_DIR = Path(args.project_dir) / "Results"
     SAVE_DIR = (Path(args.save_dir) if args.save_dir is not None else 
                 Path(args.project_dir) / "Analysis")
-
-    # Update save path according to JSON parameters for features to use
-    fn = 'Top256' if args.use_top256 else 'All_features'
-    fn = fn + '_noSize' if args.drop_size_features else fn
-    fn = fn + '_norm' if args.norm_features_only else fn
-    fn = fn + '_' + args.percentile_to_use if args.percentile_to_use is not None else fn
-    fn = fn + '_noOutliers' if args.remove_outliers else fn
     
-    GROUPING_VAR = args.grouping_variable # categorical variable to investigate, eg.'worm_strain'
-    
-    CONTROL = args.control_dict[GROUPING_VAR] # control strain to use
+    GROUPING_VAR = args.grouping_variable # str, Categorical variable to investigate, eg.'worm_strain'
+    CONTROL = args.control_dict[GROUPING_VAR]
 
-    IS_NORMAL = args.is_normal 
-    # Perform t-tests/ANOVA if True, ranksum/kruskal if False. If None, Shapiro-Wilks tests for 
-    # normality are perofrmed to decide between parametric/non-parametric tests
+    IS_NORMAL = args.is_normal # bool, perform t-tests/ANOVA if True, ranksum/kruskal if False. 
+    # If None, Shapiro-Wilks tests for normality are perofrmed to decide parametric/non-parametric
 
     TEST_NAME = args.test # str, Choose between 'LMM' (if >1 day replicate), 'ANOVA' or 'Kruskal' 
     # Kruskal tests are performed instead of ANOVA if check_normal and data is not normally distributed) 
     # If significant features are found, pairwise t-tests are performed
-
+    
     #%% Compile and clean results
         
     # Process metadata    
     metadata, metadata_path = process_metadata(aux_dir=AUX_DIR,
                                                imaging_dates=args.dates, 
                                                add_well_annotations=args.add_well_annotations)
+    
+    # # Calculate duration on food + L1 diapause duration
+    # metadata = duration_on_food(metadata) 
+    # metadata = duration_L1_diapause(metadata)
     
     # Process feature summary results
     features, metadata = process_feature_summaries(metadata_path, 
@@ -116,30 +118,23 @@ if __name__ == "__main__":
                                                drop_size_related_feats=args.drop_size_features,
                                                norm_feats_only=args.norm_features_only,
                                                percentile_to_use=args.percentile_to_use)
-          
-    # # Calculate duration on food + duration in L1 diapause
-    # metadata = duration_on_food(metadata) 
-    # metadata = duration_L1_diapause(metadata)
+    
+    # Load supplementary info + append to metadata
+    if not 'COG category' in metadata.columns:
+        supplementary_7 = load_supplementary_7(args.path_sup_info)
+        updated_metadata = append_supplementary_7(metadata, supplementary_7)
 
-    #%% Subset results
-    
-    # Subset results (rows) to remove NA groups
-    metadata = metadata[~metadata[GROUPING_VAR].isna()]
-    features = features.reindex(metadata.index)
-    
-    # Check case-sensitivity
-    assert len(metadata[GROUPING_VAR].unique())==len(metadata[GROUPING_VAR].str.upper().unique())
-    
-    # Subset results (rows) to omit selected strains
-    if args.omit_strains is not None:
-        features, metadata = subset_results(features, metadata, GROUPING_VAR, args.omit_strains)
+    # Update save path
+    fn = 'Top256' if args.use_top256 else 'All_features'
+    fn = fn + '_noSize' if args.drop_size_features else fn
+    fn = fn + '_norm' if args.norm_features_only else fn
+    fn = fn + '_' + args.percentile_to_use if args.percentile_to_use is not None else fn
+    fn = fn + '_noOutliers' if args.remove_outliers else fn
 
-    # Subset results (rows) for imaging dates of interest    
-    if args.dates is not None:
-        features, metadata = subset_results(features, metadata, 'date_yyyymmdd', args.dates)
+    #%% IO assertions + subset results
     
-    # Load Tierpsy Top256 feature set + subset (columns) for Top256 features only
-    if args.use_top256:
+    # Load Tierpsy Top256 feature set
+    if args.use_top256:     
         top256_path = AUX_DIR / 'top256_tierpsy_no_blob_no_eigen_only_abs_no_norm.csv'
         top256 = load_top256(top256_path, add_bluelight=args.align_bluelight)
         
@@ -150,95 +145,116 @@ if __name__ == "__main__":
         
         # Select features for analysis
         features = features[top256_feat_list]
-
-    # Record imaging runs to analyse
-    run_list = list(metadata['imaging_run_number'].unique())
-    if args.runs is not None:
-        assert isinstance(args.runs, list)
-        assert all(run in run_list for run in args.runs)
-    else:
-        print("Found %d imaging runs to analyse: %s" % (len(run_list), run_list))
-        args.runs = run_list
     
-    # Stats test to use
+    # Subset results (rows) for imaging dates of interest
+    if args.dates is not None:
+        assert all([i in list(metadata['date_yyyymmdd'].unique().astype(str)) for 
+                    i in args.dates])
+        metadata = metadata[metadata['date_yyyymmdd'].isin(args.dates)]
+        features = features.reindex(metadata.index)
+            
+    # Subset results (rows) to remove NA groups
+    metadata = metadata[~metadata[GROUPING_VAR].isna()]
+    features = features.reindex(metadata.index)
+    
+    # Subset results (rows) for strains of interest (check case-sensitive)
+    strain_list = list(metadata[GROUPING_VAR].unique())
+    assert len(strain_list)==len(metadata[GROUPING_VAR].str.upper().unique())
+    
+    if args.omit_strains is not None:
+        strain_list = [s for s in strain_list if s.upper() not in 
+                       [o.upper() for o in args.omit_strains]]
+        metadata = metadata[metadata[GROUPING_VAR].isin(strain_list)]
+        features = features.reindex(metadata.index)
+       
+    # Record imaging runs to analyse
+    if args.runs is not None:
+        assert type(args.runs) == list
+        imaging_run_list = args.runs if type(args.runs) == list else [args.runs]
+    else:
+        imaging_run_list = list(metadata['imaging_run_number'].unique())
+        print("Found %d imaging runs to analyse: %s" % (len(imaging_run_list), imaging_run_list))
+    
+    # If LMM is chosen, ensure that there are multiple day replicates to compare at each timepoint
     assert TEST_NAME in ['ANOVA','Kruskal','LMM']
-    # If 'LMM' is chosen, ensure that there are multiple day replicates to compare at each timepoint
     if TEST_NAME == 'LMM':
         assert GROUPING_VAR in ['worm_strain','food_type','drug_type']
-        assert all(len(metadata.loc[metadata['imaging_run_number']==timepoint, 
-                   args.lmm_random_effect].unique()) > 1 for timepoint in args.runs)
+        assert all(len(metadata.loc[metadata['imaging_run_number']==t, 
+                                    args.lmm_random_effect].unique()) > 1 for t in imaging_run_list)
+        
+    if IS_NORMAL is None:
+        CHECK_NORMAL = True # Check normality if None
+    else:
+        CHECK_NORMAL = False # IS_NORMAL
 
-    #%% Check for normality + update decision of which test to use (parametric/non-parametric)
-    
-    CHECK_NORMAL = True if IS_NORMAL is None else False # Check normality if None
-
+#%% 
     if CHECK_NORMAL:        
         # Sample data from a random run to see if normal. If not, use Kruskal-Wallis test instead.
-        _r = np.random.choice(args.runs, size=1)[0]
+        _r = np.random.choice(imaging_run_list, size=1)[0]
         _rMeta = metadata[metadata['imaging_run_number']==_r]
         _rFeat = features.reindex(_rMeta.index)
         
+        normtest_savepath = SAVE_DIR / (fn + "_run{}_shapiro_results.csv".format(_r))
+        normtest_savepath.parent.mkdir(exist_ok=True, parents=True)
         (prop_features_normal, IS_NORMAL) = shapiro_normality_test(features_df=_rFeat,
                                                             metadata_df=_rMeta,
                                                             group_by=GROUPING_VAR,
                                                             p_value_threshold=args.pval_threshold,
                                                             verbose=True)  
-
-        normtest_savepath = SAVE_DIR / (fn + "_run{}_shapiro_results.csv".format(_r))
-        normtest_savepath.parent.mkdir(exist_ok=True, parents=True)
-
+        if IS_NORMAL:
+            TEST_NAME = 'ANOVA' if TEST_NAME == 'Kruskal' else TEST_NAME
+        else:
+            TEST_NAME = 'Kruskal' if TEST_NAME == 'ANOVA' else TEST_NAME
+            print("WARNING: Data is not normal! Kruskal-Wallis tests will be used instead of ANOVA")
+            
         # Save normailty test results to file
         prop_features_normal.to_csv(normtest_savepath, 
                                     index=True, 
                                     index_label=GROUPING_VAR, 
                                     header='prop_normal')
         
-    if IS_NORMAL:
-        TEST_NAME = 'ANOVA' if TEST_NAME == 'Kruskal' else TEST_NAME
-        T_TEST_NAME = 't-test'
-    else:
-        TEST_NAME = 'Kruskal' if TEST_NAME == 'ANOVA' else TEST_NAME
-        T_TEST_NAME = 'Mann-Whitney' # aka. Wilcoxon rank-sums
-        print("WARNING: Data is not normal! Kruskal-Wallis tests will be used instead of ANOVA")
-
     #%% Analyse variables
 
     print("\nInvestigating '%s' variation" % GROUPING_VAR)    
-    for run in args.runs:
+    for run in imaging_run_list:
         print("\nAnalysing imaging run %d" % run)
         
         # Subset results to investigate single imaging run
         meta_df = metadata[metadata['imaging_run_number']==run]
         feat_df = features.reindex(meta_df.index)
         
-        # Record n wells for imaging run
         print("n = %d wells for run %d" % (meta_df.shape[0], run))
-        
-        # Record mean sample size per group
         mean_sample_size = int(np.round(meta_df.join(feat_df).groupby([GROUPING_VAR, 
                                'date_yyyymmdd'], as_index=False).size().mean()))
         print("Mean sample size: %d" % mean_sample_size)
         
-        # Clean data after subset - zero std, etc
+        # Clean subsetted data: drop NaNs, zero std, etc
         feat_df, meta_df = clean_summary_results(feat_df, 
                                                  meta_df, 
                                                  max_value_cap=False,
                                                  imputeNaN=False)
-        # Record strain list
-        run_strain_list = list(meta_df[GROUPING_VAR].unique())
-        
         # Save paths
         run_save_dir = SAVE_DIR / fn / "Run_{}".format(run) / (GROUPING_VAR + '_variation')
         stats_dir =  run_save_dir / "Stats"
         plot_dir = run_save_dir / "Plots"
 
         #%% STATISTICS
-        #   One-way ANOVA / Kruskal-Wallis tests for significantly different features across groups
-                    
-        stats_path = stats_dir / '{}_results.csv'.format(TEST_NAME) # LMM/ANOVA/Kruskal  
-        ttest_path = stats_dir / '{}_results.csv'.format(T_TEST_NAME)
+        #   One-way ANOVA/Kruskal-Wallis tests for significantly different 
+        #   features across groups (e.g. strains)
+    
+        # When comparing more than 2 groups, perform ANOVA and proceed only to 
+        # pairwise two-sample t-tests if there is significant variability among 
+        # all groups for any feature
+        run_strain_list = list(meta_df[GROUPING_VAR].unique())
         
-        if not np.logical_and(stats_path.exists(), ttest_path.exists()):
+        # Record name of t-test
+        T_TEST = ttest_ind if IS_NORMAL else ranksumtest
+        T_TEST_NAME = str(T_TEST).split(' ')[1].split('.')[-1].split('(')[0].split('\'')[0]
+        
+        stats_path = stats_dir / '{}_results.csv'.format(TEST_NAME) # LMM/ANOVA/Kruskal
+        ttest_path = stats_dir / '{}_results.csv'.format(T_TEST_NAME) # ttest/ranksum
+
+        if not stats_path.exists():
             stats_path.parent.mkdir(exist_ok=True, parents=True)
 
             # Create table to store statistics results
@@ -246,46 +262,53 @@ if __name__ == "__main__":
             stats_table = grouped.mean().T
             mean_cols = ['mean ' + v for v in stats_table.columns.to_list()]
             stats_table.columns = mean_cols
-            for group in grouped.size().index: # store sample size
+            for group in grouped.size().index:
                 stats_table['sample size {}'.format(group)] = grouped.size().loc[group]
             
-            # ANOVA / Kruskal-Wallis tests
-            if (TEST_NAME == "ANOVA" or TEST_NAME == "Kruskal"):
-                if len(run_strain_list) > 2:                    
-                    stats, pvals, reject = univariate_tests(X=feat_df, 
-                                                            y=meta_df[GROUPING_VAR], 
-                                                            control=CONTROL, 
-                                                            test=TEST_NAME,
-                                                            comparison_type='multiclass',
-                                                            multitest_correction=args.fdr_method, 
-                                                            fdr=0.05,
-                                                            n_jobs=-1)
-                                                    
+            if (TEST_NAME == 'ANOVA' or TEST_NAME == 'Kruskal'):
+                if len(run_strain_list) > 2:
+                    pvalues, anova_sigfeats_list = anova_by_feature(feat_df=feat_df, 
+                                                            meta_df=meta_df, 
+                                                            group_by=GROUPING_VAR, 
+                                                            strain_list=run_strain_list, 
+                                                            p_value_threshold=args.pval_threshold, 
+                                                            is_normal=IS_NORMAL, 
+                                                            fdr_method=args.fdr_method)
+                    # TODO: Use TT function: compounds_with_low_effect_univariate
+                                
                     # Record name of statistical test used (kruskal/f_oneway)
                     col = '{} p-value'.format(TEST_NAME)
-                    stats_table[col] = pvals.loc[stats_table.index, TEST_NAME]
+                    stats_table[col] = pvalues.loc['pval', stats_table.index]
         
-                    # Sort pvals + record significant features
-                    pvals = pvals.sort_values(by=[TEST_NAME], ascending=True)
-                    fset = list(pvals.index[np.where(pvals < args.pval_threshold)[0]])
+                    # TODO: Save statistics at the end
+                    # Save test statistics to file
+                    pvalues.to_csv(stats_path)
+                    
+                    sigfeats_outpath = Path(str(stats_path).replace('_results.csv',
+                                                                    '_significant_features.csv'))
+                    anova_sigfeats_list.to_csv(sigfeats_outpath, index=False)
+                    
+                    # Record number of signficant features by ANOVA
+                    fset = list(pvalues.columns[pvalues.loc['pval'] < args.pval_threshold])  
+                    
                     if len(fset) > 0:
-                        print("\n%d significant features found by %s for %s (run %d, P<%.2f, %s)" %\
-                              (len(fset), TEST_NAME, GROUPING_VAR, run, args.pval_threshold, 
+                        print("%d significant features found for %s (run %d, %s, P<%.2f, %s)" %\
+                              (len(fset), GROUPING_VAR, run, TEST_NAME, args.pval_threshold, 
                                args.fdr_method))
                 else:
                     fset = []
-                    print("\nWARNING: Not enough groups for ANOVA (n=%d groups, run %d)" %\
+                    print("WARNING: Not enough groups for ANOVA (n=%d groups, run %d)" %\
                           (len(run_strain_list), run))
         
-            # Linear Mixed Models (LMMs), accounting for day-to-day variation
-            # NB: Ideally report:  parameter | beta | lower-95 | upper-95 | random effect (SD)
+            ###   Linear Mixed Models (LMMs) to account for day-to-day variation when comparing 
+            #     between worm/food/drug type
             elif TEST_NAME == 'LMM':
                 with warnings.catch_warnings():
                     # Filter warnings as parameter is often on the boundary
                     warnings.filterwarnings("ignore")
                     #warnings.simplefilter("ignore", ConvergenceWarning)
-                    (signif_effect, low_effect, 
-                     error, mask, pvals)=compounds_with_low_effect_univariate(feat=feat_df, 
+                    (signif_effect, low_effect, error, mask, 
+                     pvalues)=compounds_with_low_effect_univariate(feat=feat_df, 
                                                     drug_name=meta_df[GROUPING_VAR], 
                                                     drug_dose=None, 
                                                     random_effect=meta_df[args.lmm_random_effect], 
@@ -296,87 +319,85 @@ if __name__ == "__main__":
                                                     ignore_names=None, 
                                                     return_pvals=True)
                 assert len(error) == 0
+                
                 if len(run_strain_list) == 2:
                     col = '{} p-value'.format(TEST_NAME)
-                    stats_table[col] = pvals.loc[pvals.index[0], stats_table.index]  
-
-                # Significant features = if significant for ANY strain vs control
-                fset = list(pvals.columns[(pvals < args.pval_threshold).any()])
+                    stats_table[col] = pvalues.loc[pvalues.index[0], stats_table.index]  
+                
+                # Save LMM significant features
+                pvalues.to_csv(stats_path, header=True, index=True)
+                # Ideally report as: parameter | beta | lower-95 | upper-95 | random effect (SD)
+                
+                # Significant feature set = select feature if significant for any food vs control
+                fset = list(pvalues.columns[(pvalues < args.pval_threshold).any() > 0])
                 
                 if len(signif_effect) > 0:
-                    print(("%d significant features found (%d significant %ss vs %s control, "\
+                    print(("%d significant features found (%d significant %ss vs %s, "\
                           % (len(fset), len(signif_effect), GROUPING_VAR.replace('_',' '), 
                               CONTROL) if len(signif_effect) > 0 else\
                           "No significant differences found between %s "\
                           % GROUPING_VAR.replace('_',' '))
-                          + "after accounting for %s variation, run %d, %s, P<%.2f, %s)"\
+                          + "after accounting for %s variation (run %d, %s, P<%.2f, %s)"\
                           % (args.lmm_random_effect.split('_yyyymmdd')[0], run, TEST_NAME, 
                              args.pval_threshold, args.fdr_method))
-
-            # TODO: Use get_effect_sizes from tierpsytools
-
-            # Save statistics results + significant feature set to file
-            pvals.to_csv(stats_path, header=True, index=True)
-            
-            sigfeats_path = Path(str(stats_path).replace('_results.csv', 
-                                                         '_significant_features.txt'))
-            if len(fset) > 0:
-                write_list_to_file(fset, sigfeats_path)
-    
-            # T-TESTS: If significance is found by ANOVA/LMM, or only 2 groups, perform t-tests or 
-            # rank-sum tests for significant features between each group vs control
-            # When comparing >2 groups, perform ANOVA and proceed only to pairwise 2-sample t-tests 
-            # if there is significant variability among all groups for any feature
+            else:
+                fset = []
+                
+            ###   T-TESTS: If significance is found by ANOVA/LMM, or only 2 groups, perform 
+            #     t-tests/rank-sum tests for significant features between each group vs control        
             if len(fset) > 0 or len(run_strain_list) == 2:
-                if not ttest_path.exists():
-                    ttest_path.parent.mkdir(exist_ok=True, parents=True)
-                    ttest_sigfeats_outpath = Path(str(ttest_path).replace('_results.csv',
-                                                                          '_significant_features.csv'))
-                    # t-tests: each strain vs control
-                    stats_t, pvals_t, reject_t = univariate_tests(X=feat_df, 
-                                                                  y=meta_df[GROUPING_VAR], 
-                                                                  control=CONTROL, 
-                                                                  test=T_TEST_NAME,
-                                                                  comparison_type='binary_each_group',
-                                                                  multitest_correction=args.fdr_method, 
-                                                                  fdr=0.05,
-                                                                  n_jobs=-1)
+                ttest_path.parent.mkdir(exist_ok=True, parents=True)
+                ttest_sigfeats_outpath = Path(str(ttest_path).replace('_results.csv',
+                                                                      '_significant_features.csv'))
+                (pvalues_ttest, 
+                  sigfeats_table, 
+                  sigfeats_df) = ttest_by_feature(feat_df, 
+                                                  meta_df, 
+                                                  group_by=GROUPING_VAR, 
+                                                  control_strain=CONTROL, 
+                                                  is_normal=IS_NORMAL, 
+                                                  p_value_threshold=args.pval_threshold,
+                                                  fdr_method=args.fdr_method,
+                                                  verbose=False)
     
-                    # Record significant feature set
-                    fset_ttest = list(pvals_t.columns[(pvals_t < args.pval_threshold).sum(axis=0) > 0])
-                    if len(fset_ttest) > 0:
-                        print("%d signficant features found for any %s vs %s (run %d, %s, P<%.2f)" %\
-                              (len(fset_ttest), GROUPING_VAR, CONTROL, run, T_TEST_NAME, 
-                               args.pval_threshold))
-                    elif len(fset_ttest) == 0:
-                        print("No significant features found for any %s vs %s (run %d, %s, P<%.2f)" %\
-                              (GROUPING_VAR, CONTROL, run, T_TEST_NAME, args.pval_threshold))
-                                         
-                    # Save t-test results to file
-                    pvals_t.T.to_csv(ttest_path) # Save test results to CSV
-                    if len(fset_ttest) > 0:
-                        write_list_to_file(fset_ttest, ttest_sigfeats_outpath)
-                    
-                    # Barplot of number of significantly different features for each strain   
-                    prop_sigfeats = barplot_sigfeats(test_pvalues_df=pvals_t, 
-                                                     saveDir=plot_dir,
-                                                     p_value_threshold=args.pval_threshold,
-                                                     test_name=T_TEST_NAME)
-     
-                # Add pvalues to stats table
+                # Record significant feature set
+                fset_ttest = list(pvalues_ttest.columns[(pvalues_ttest < 
+                                                          args.pval_threshold).sum(axis=0) > 0])
+                if len(fset_ttest) > 0:
+                    print("%d signficant features found by %s (run %d, %s, P<%.2f)" %\
+                          (len(fset_ttest), T_TEST_NAME, run, GROUPING_VAR, args.pval_threshold))
+                elif len(fset_ttest) == 0:
+                    print("No significant features found for any %s (run %d, %s, P<%.2f)" %\
+                          (GROUPING_VAR, run, T_TEST_NAME, args.pval_threshold))
+                                     
+                # Save test statistics to file
+                sigfeats_df.to_csv(ttest_sigfeats_outpath, index=False) # Save feature list to file
+                pvalues_ttest.to_csv(ttest_path) # Save test results to CSV
+                
+                # Investigate t-test significant features if comparing just 2 strains
                 if len(run_strain_list) == 2:
+                    print("Only 2 groups. Preferring t-test over ANOVA")
+                    pvalues = pvalues_ttest
+                    fset = fset_ttest
+                    
+                    # Add pvalues to stats table
                     col = '{} p-value'.format(T_TEST_NAME)
-                    stats_table[col] = pvals.loc[pvals.index[0], stats_table.index]
+                    stats_table[col] = pvalues.loc[pvalues.index[0], stats_table.index]
     
             # Add stats results to stats table
             if len(run_strain_list) == 2:
-                stats_table['significance'] = sig_asterix(pvals.values)
+                stats_table['significance'] = sig_asterix(pvalues.values[0])
             else:
-                stats_table['significance'] = sig_asterix(pvals.loc[stats_table.index, 
-                                                                    TEST_NAME].values)
-                
-            #%% K significant features
+                stats_table['significance'] = sig_asterix(pvalues.loc['pval'].values)
+    
+            # Barplot of number of significantly different features for each strain   
+            prop_sigfeats = barplot_sigfeats(test_pvalues_df=(pvalues_ttest if (len(fset) > 0 or 
+                                                              len(run_strain_list) == 2) else None), 
+                                              saveDir=plot_dir,
+                                              p_value_threshold=args.pval_threshold,
+                                              test_name=T_TEST_NAME)
             
+            ### K significant features
             # k_sigfeat_dir = plot_dir / 'k_sig_feats'
             # k_sigfeat_dir.mkdir(exist_ok=True, parents=True)      
             fset_ksig, (scores, pvalues_ksig), support = k_significant_feat(feat=feat_df, 
@@ -420,58 +441,84 @@ if __name__ == "__main__":
                       + "Falling back on 'k_significant_feat' feature set for plotting.")
                 fset = fset_ksig
             
+                # TODO: Actually fall back on k_sig_feats for plotting :P
+            ## Save feature set to file
+            # save_test_name = T_TEST_NAME if len(run_strain_list) == 2 else TEST_NAME
+            # fset_out = run_save_dir / '{}_significant_feature_set.csv'.format(save_test_name)
+            # pd.Series(fset).to_csv(fset_out)
+
         #%% Load statistics results
+        
+        # Read stats results from file and infer fset
+        print("Loading feature set")
+        if stats_path.exists() and len(run_strain_list) > 2:
+            # Read ANOVA results and record significant features
+            pvalues_anova = pd.read_csv(stats_path, index_col=0)
+            fset = pvalues_anova.columns[pvalues_anova.loc['pval'] < args.pval_threshold].to_list()
+            print("%d significant features found by %s (run %d, P<%.2f)" %\
+                  (len(fset), TEST_NAME, run, args.pval_threshold))
+        elif ttest_path.exists() and len(run_strain_list) == 2:
+            # Read t-test results for feature summaries
+            pvalues_ttest = pd.read_csv(ttest_path, index_col=0)
+            assert all(f in pvalues_ttest.columns for f in feat_df.columns)
+                
+            # Record significant features by t-test
+            fset = list(pvalues_ttest.columns[(pvalues_ttest < args.pval_threshold).sum(axis=0)>0])
+        else:
+            raise Warning("Stats results not found! Please perform stats first.")
         
         # # Read feature set from file
         # fset_in = run_save_dir / '{}_significant_feature_set.csv'.format(load_test_name)
         # fset = pd.read_csv()
         
-        # Read ANOVA results and record significant features
-        print("Loading statistics results")
-        if stats_path.exists() and len(run_strain_list) > 2:
-            pval_stats = pd.read_csv(stats_path, index_col=0)
+        # Read pairwise t-test results from file for p-value annotations on plots
+        if len(fset) > 0 or len(run_strain_list) == 2:
+            print("Loading %s p-values for plotting" % T_TEST_NAME)
             
-            try: # tierpsytools version
-                pvals = pval_stats.sort_values(by=TEST_NAME, ascending=True)
-            except: # old version
-                pvals = pval_stats.loc['pval']
-                pvals = pvals.sort_values(ascending=True) # sort p-values
-            
-            # Record significant features by ANOVA
-            fset = pvals.index[pvals[TEST_NAME].values < args.pval_threshold].to_list()
-            print("%d significant features found by %s (run %d, P<%.2f)" %\
-                  (len(fset), TEST_NAME, run, args.pval_threshold))
-        
-        # Read t-test results and record significant features
-        if ttest_path.exists():
-            pvals_t = pd.read_csv(ttest_path, index_col=0)
-            assert all(f in pvals_t.columns for f in feat_df.columns)
+            if ttest_path.exists():
+                # Read t-test results for feature summaries
+                pvalues_ttest = pd.read_csv(ttest_path, index_col=0)
+                assert all(f in pvalues_ttest.columns for f in feat_df.columns)
                 
-            # Record significant features by t-test
-            fset_ttest = list(pvals_t.columns[(pvals_t < args.pval_threshold).sum(axis=0)>0])
-            
-            # Use t-test significant feature set if comparing just 2 strains
-            if len(run_strain_list) == 2:
-                pvals = pvals_t.T
-                fset = fset_ttest
-                                      
+                # Record significant features by t-test
+                fset_ttest = list(pvalues_ttest.columns[(pvalues_ttest < 
+                                                         args.pval_threshold).sum(axis=0) > 0])
+                if len(fset_ttest) == 0:
+                    pvalues_ttest = None
+            else:
+                raise Warning("T-test results not found! Please perform stats first.")
+                pvalues_ttest =  None
+        else:
+            pvalues_ttest = None
+                              
         #%% Plot day variation - visualisation with super-plots!
-     
+    
         superplot_dir = plot_dir / 'superplots'    
         for feat in fset[:args.k_sig_features]:
-
-            # TODO: Add t-test/LMM pvalues to superplots!
+            superplot_1(features, metadata, feat, 
+                        x1="food_type", x2="COG category", # 'imaging_run_number', 'instrument_name'
+                        sns_colour_palettes=["plasma","viridis"], 
+                        dodge=False, saveDir=superplot_dir)
+        
+            superplot_2(features, metadata, feat, 
+                        x1="well_name", x2='imaging_plate_id',
+                        sns_colour_palettes=["plasma","viridis"], 
+                        dodge=False, saveDir=superplot_dir)
             
-            # strain vs date yyyymmdd
-            superplot(features, metadata, feat, 
-                      x1=GROUPING_VAR, x2='date_yyyymmdd',
-                      plot_type='box', #show_points=True, sns_colour_palettes=["plasma","viridis"]
-                      dodge=True, saveDir=superplot_dir)
-
-            # plate ID vs run number
-            superplot(features, metadata, feat, 
-                      x1=GROUPING_VAR, x2='imaging_run_number',
-                      dodge=True, saveDir=superplot_dir)
+            superplot_2(features, metadata, feat, 
+                        x1="lawn_storage_type", x2='imaging_run_number',
+                        sns_colour_palettes=["plasma","viridis"], 
+                        dodge=True, saveDir=superplot_dir)
+            
+            superplot_2(features, metadata, feat, 
+                        x1="COG category", x2='imaging_run_number',
+                        sns_colour_palettes=["plasma","viridis"], 
+                        dodge=False, saveDir=superplot_dir)
+                    
+        # food type vs date yyyymmdd
+        # lawn storage type vs imagnig plate id
+        #
+        #
         
         # # TODO: Look into why these plots take so long?!
         # swarmDir = plot_dir / '{}_variation'.format(args.lmm_random_effect.split('_yyyymmdd')[0])
@@ -498,7 +545,7 @@ if __name__ == "__main__":
         boxplots_grouped(feat_meta_df=meta_df.join(feat_df), 
                          group_by=GROUPING_VAR,
                          control_group=CONTROL,
-                         test_pvalues_df=pvals_t,
+                         test_pvalues_df=pvalues_ttest,
                          feature_set=fset,
                          saveDir=(plot_dir / 'grouped_boxplots'),
                          max_features_plot_cap=None, 
@@ -510,17 +557,18 @@ if __name__ == "__main__":
                          saveFormat='png')
                 
         # Boxplots of significant features by pairwise t-test (for each group vs control)
-        boxplots_sigfeats(feat_meta_df=meta_df.join(feat_df), 
-                          test_pvalues_df=pvals_t, 
-                          group_by=GROUPING_VAR, 
-                          control_strain=CONTROL, 
-                          feature_set=fset, #['speed_norm_50th_bluelight'],
-                          saveDir=plot_dir / 'paired_boxplots',
-                          max_features_plot_cap=args.k_sig_features,
-                          p_value_threshold=args.pval_threshold,
-                          drop_insignificant=True,
-                          verbose=False)
-            
+        if pvalues_ttest is not None:
+            boxplots_sigfeats(feat_meta_df=meta_df.join(feat_df), 
+                              test_pvalues_df=pvalues_ttest, 
+                              group_by=GROUPING_VAR, 
+                              control_strain=CONTROL, 
+                              feature_set=fset, #['speed_norm_50th_bluelight'],
+                              saveDir=plot_dir / 'paired_boxplots',
+                              max_features_plot_cap=args.k_sig_features,
+                              p_value_threshold=args.pval_threshold,
+                              drop_insignificant=True,
+                              verbose=False)
+                
         # from tierpsytools.analysis.significant_features import plot_feature_boxplots
         # plot_feature_boxplots(feat_to_plot=fset,
         #                       y_class=GROUPING_VAR,
@@ -540,6 +588,9 @@ if __name__ == "__main__":
         # Extract data for control
         control_feat_df = feat_df[meta_df[GROUPING_VAR]==CONTROL]
         control_meta_df = meta_df.reindex(control_feat_df.index)
+        
+        # TODO: Investigate control variation module of helper functions for plotting PCA by day, 
+        #       rig, well & temperature/humidity during/across runs
         
         control_feat_df, control_meta_df = clean_summary_results(features=control_feat_df,
                                                                  metadata=control_meta_df,
@@ -627,9 +678,9 @@ if __name__ == "__main__":
             clustered_features = np.array(featZ_df.columns)[fg.dendrogram_col.reordered_ind]
         
         if len(run_strain_list) > 2:
-            pvalues_heatmap = pvals.loc[clustered_features, TEST_NAME]
+            pvalues_heatmap = pvalues_anova.loc['pval', clustered_features]
         elif len(run_strain_list) == 2:
-            pvalues_heatmap = pvals_t.loc[pvals_t.index[0], clustered_features]
+            pvalues_heatmap = pvalues_ttest.loc[pvalues_ttest.index[0], clustered_features]
         pvalues_heatmap.name = 'P < {}'.format(args.pval_threshold)
 
         assert all(f in featZ_df.columns for f in pvalues_heatmap.index)
@@ -638,8 +689,8 @@ if __name__ == "__main__":
         #   - Read in selected features list  
         if args.selected_features_path is not None and run == 3 and GROUPING_VAR == 'worm_strain':
             fset = pd.read_csv(Path(args.selected_features_path), index_col=None)
-            fset = [s for s in fset['feature'] if s in featZ_df.columns] 
-            # TODO: assert all(s in featZ_df.columns for s in fset['feature'])
+            fset = [s for s in fset['feature'] if s in featZ_df.columns] # TODO: Assert this?
+            #assert all(s in featZ_df.columns for s in fset['feature'])
             
         # Plot barcode heatmap (grouping by date)
         if len(control_meta_df[args.lmm_random_effect].unique()) > 1:
@@ -670,6 +721,15 @@ if __name__ == "__main__":
                                            len(run_strain_list) > 10 else 6)],
                              sns_colour_palette="Pastel1")        
                         
+        # feature sets for each stimulus type
+        featsets = {}
+        for stim in ['_prestim','_bluelight','_poststim']:
+            featsets[stim] = [f for f in features.columns if stim in f]
+
+        # TODO: Timeseries analysis of feature across timepoints/stimulus windows/on-off food/etc
+        # TODO: sns.relplot / sns.jointplot / sns.lineplot for visualising covariance/correlation
+        # between selected features
+    
         #%% Principal Components Analysis (PCA)
 
         if args.remove_outliers:

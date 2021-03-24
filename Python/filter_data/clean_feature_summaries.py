@@ -45,7 +45,7 @@ def clean_summary_results(features,
         features, metadata
         
     """
-
+    from tierpsytools.hydra.platechecker import fix_dtypes
     from tierpsytools.preprocessing.filter_data import (filter_nan_inf, 
                                                         feat_filter_std, 
                                                         drop_ventrally_signed,
@@ -68,7 +68,7 @@ def clean_summary_results(features,
     assert not any(features.sum(axis=1) == 0) # ensure no missing row data
 
     # Drop feature columns with too many NaN values
-    features = filter_nan_inf(features, threshold=nan_threshold, axis=0)
+    features = filter_nan_inf(features, threshold=nan_threshold, axis=0, verbose=False)
     nan_cols = [col for col in feature_columns if col not in features.columns]
     if len(nan_cols) > 0:
         print("Dropped %d features with >%.1f%% NaNs" % (len(nan_cols), nan_threshold*100))
@@ -124,13 +124,12 @@ def clean_summary_results(features,
         
     # Use '_norm' features only
     if norm_feats_only:
-        feature_columns = features.columns
-        not_norm = [f for f in feature_columns if not '_norm' in f]
+        not_norm = [f for f in features.columns if not '_norm' in f]
         if len(not_norm) > 0:
             features = features.drop(columns=not_norm)
             print("Dropped %d features that are not '_norm' features" % len(not_norm))
             
-    # Use '_50th' perrcentile data only
+    # Use '_50th' percentile data only
     if percentile_to_use is not None:
         assert type(percentile_to_use) == str
         not_perc = [f for f in features.columns if not percentile_to_use in f]
@@ -138,10 +137,12 @@ def clean_summary_results(features,
             features = features.drop(columns=not_perc)
             print("Dropped %d features that are not %s features" % (len(not_perc), 
                                                                     percentile_to_use))
-        
+    # fix data types
+    metadata = fix_dtypes(metadata) 
+
     return features, metadata
 
-def subset_results(features, metadata, column, groups, omit=False):
+def subset_results(features, metadata, column, groups, omit=False, verbose=True):
     """ Subset features and metadata for groups in a given column 
     
         Parameters
@@ -152,19 +153,30 @@ def subset_results(features, metadata, column, groups, omit=False):
             A column name belonging to a column in metadata
         groups : list
             List of groups that you would like to subset
-        omit : bool
+        omit_groups : bool
             If True, groups are omitted from dataframe, instead of extracted
     """
     
     assert set(features.index) == set(metadata.index)
     assert column in metadata.columns
+    assert isinstance(groups, list)
     
-    if omit:
-        subset_metadata = metadata[~metadata[column].isin(groups)]
-    else:
-        subset_metadata = metadata[metadata[column].isin(groups)]
+    if len(groups) > 0:
+        assert all([i in metadata[column].unique() for i in groups])
+    
+        if omit:
+            if verbose:
+                print("Omitting %d '%s'" % (len(groups), column))
+            subset_metadata = metadata[~metadata[column].isin(groups)]
+        else:
+            if verbose:
+                print("Subsetting for %d '%s'" % (len(groups), column))
+            subset_metadata = metadata[metadata[column].isin(groups)]
+            
+        subset_features = features.reindex(subset_metadata.index)
         
-    subset_features = features.reindex(subset_metadata.index)
-    
-    return subset_features, subset_metadata
+        return subset_features, subset_metadata
+    else:
+        print("No groups provided")
+        return features, metadata
     

@@ -19,12 +19,12 @@ from pathlib import Path
 # Main
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Fill food type data in metadata')
-    parser.add_argument('--plate_layout_path', help="Path to CSV file containing 96-well plate \
+    parser.add_argument('--plate_layout_path', help="Path to CSV file containing 96-well plate\
                         layout as a matrix (rows=A-H, cols=1-12)", default=None, type=str)
-    parser.add_argument('--metadata_path', help="Path to metadata to fill with extracted strain \
+    parser.add_argument('--metadata_path', help="Path to metadata to fill with extracted strain\
                         list for 'food_type'", default=None, type=str)
-    parser.add_argument('--saveto', help="Path to save updated metadata (If None, will overwrite \
-                        metadata)", default=None, type=str)
+    parser.add_argument('--save_path', help="Path to save updated metadata (If None, will save with\
+                        '_updated' appended to filename)", default=None, type=str)
     args = parser.parse_args()
     
     assert Path(args.plate_layout_path).exists() and Path(args.metadata_path).exists()
@@ -45,12 +45,11 @@ if __name__ == '__main__':
     metadata['food_type'] = metadata['well_name'].map(plate_layout_dict)
 
     # Save updated metadata
-    if args.saveto is not None:
-        saveto = Path(args.saveto)
+    if args.save_path is not None:
+        saveto = Path(args.save_path)
         saveto.parent.mkdir(exist_ok=True, parents=True)
     else:
-        saveto = Path(args.metadata_path)
-        #saveto = Path(str(args.metadata_path).replace('.csv', '_with_food.csv'))
+        saveto = Path(str(args.metadata_path).replace('.csv','_updated.csv'))
     
     # layout_df = pd.DataFrame(data=plate_layout_dict.values(), index=plate_layout_dict.keys())
     # layout_df = layout_df.reset_index(drop=False)
