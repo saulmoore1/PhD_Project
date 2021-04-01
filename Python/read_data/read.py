@@ -16,7 +16,7 @@ class dict2obj:
         self.__dict__.update(entries)
         
 def load_json(json_path):
-    """ A function for reading parameters from JSON and converting to a Python object """
+    """ Read parameters from JSON file and convert to a Python object """
     
     import json
 

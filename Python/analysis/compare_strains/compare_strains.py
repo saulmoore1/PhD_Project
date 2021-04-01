@@ -40,11 +40,12 @@ from feature_extraction.decomposition.hierarchical_clustering import (plot_clust
                                                                       plot_barcode_heatmap)
 from visualisation.super_plots import superplot
 from visualisation.plotting_helper import (sig_asterix, 
-                                           plot_day_variation, 
+                                           #plot_day_variation, 
                                            barplot_sigfeats, 
                                            boxplots_sigfeats,
                                            boxplots_grouped)
 
+# tierpsytools imports
 from tierpsytools.analysis.significant_features import k_significant_feat
 from tierpsytools.analysis.statistical_tests import univariate_tests
 from tierpsytools.drug_screenings.filter_compounds import compounds_with_low_effect_univariate
@@ -54,8 +55,6 @@ from tierpsytools.drug_screenings.filter_compounds import compounds_with_low_eff
 EXAMPLE_JSON_PARAMETERS_PATH = "analysis/20210126_parameters_keio_screen.json"
             
 #%% Main
-
-# TODO: Make so that you can provide a manual set of selected features for fset and it will plot for those features only
 
 if __name__ == "__main__":
     # Accept command-line inputs
@@ -70,8 +69,8 @@ if __name__ == "__main__":
     assert args.project_dir is not None
     AUX_DIR = Path(args.project_dir) / "AuxiliaryFiles"
     RESULTS_DIR = Path(args.project_dir) / "Results"
-    SAVE_DIR = (Path(args.save_dir) if args.save_dir is not None else 
-                Path(args.project_dir) / "Analysis")
+    SAVE_DIR = (Path(args.save_dir) if args.save_dir is not None 
+                else Path(args.project_dir) / "Analysis")
 
     # Update save path according to JSON parameters for features to use
     fn = 'Top256' if args.use_top256 else 'All_features'
@@ -98,7 +97,7 @@ if __name__ == "__main__":
     metadata, metadata_path = process_metadata(aux_dir=AUX_DIR,
                                                imaging_dates=args.dates, 
                                                add_well_annotations=args.add_well_annotations)
-    
+        
     # Process feature summary results
     features, metadata = process_feature_summaries(metadata_path, 
                                                    RESULTS_DIR,
@@ -138,7 +137,7 @@ if __name__ == "__main__":
     if args.dates is not None:
         features, metadata = subset_results(features, metadata, 'date_yyyymmdd', args.dates)
     
-    # Load Tierpsy Top256 feature set + subset (columns) for Top256 features only
+    # Load Tierpsy Top256 feature set + subset (columns) for Top256
     if args.use_top256:
         top256_path = AUX_DIR / 'top256_tierpsy_no_blob_no_eigen_only_abs_no_norm.csv'
         top256 = load_top256(top256_path, add_bluelight=args.align_bluelight)
@@ -148,7 +147,7 @@ if __name__ == "__main__":
         print("Dropped %d features in Top256 that are missing from results" %\
               (len(top256)-len(top256_feat_list)))
         
-        # Select features for analysis
+        # Use Top256 features for analysis
         features = features[top256_feat_list]
 
     # Record imaging runs to analyse
@@ -198,7 +197,7 @@ if __name__ == "__main__":
         T_TEST_NAME = 't-test'
     else:
         TEST_NAME = 'Kruskal' if TEST_NAME == 'ANOVA' else TEST_NAME
-        T_TEST_NAME = 'Mann-Whitney' # aka. Wilcoxon rank-sums
+        T_TEST_NAME = 'Mann-Whitney' # aka. Wilcoxon rank-sum
         print("WARNING: Data is not normal! Kruskal-Wallis tests will be used instead of ANOVA")
 
     #%% Analyse variables
@@ -375,7 +374,7 @@ if __name__ == "__main__":
                 stats_table['significance'] = sig_asterix(pvals.loc[stats_table.index, 
                                                                     TEST_NAME].values)
                 
-            #%% K significant features
+            ### K significant features
             
             # k_sigfeat_dir = plot_dir / 'k_sig_feats'
             # k_sigfeat_dir.mkdir(exist_ok=True, parents=True)      
@@ -448,7 +447,7 @@ if __name__ == "__main__":
             assert all(f in pvals_t.columns for f in feat_df.columns)
                 
             # Record significant features by t-test
-            fset_ttest = list(pvals_t.columns[(pvals_t < args.pval_threshold).sum(axis=0)>0])
+            fset_ttest = list(pvals_t.columns[(pvals_t < args.pval_threshold).sum(axis=0) > 0])
             
             # Use t-test significant feature set if comparing just 2 strains
             if len(run_strain_list) == 2:
@@ -730,4 +729,6 @@ if __name__ == "__main__":
         except Exception as e:
             print("WARNING: Could not plot UMAP\n", e)
             
+
+# TODO: Provide manual set of selected features for fset and plot for those features only
             

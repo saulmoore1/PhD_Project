@@ -58,7 +58,7 @@ def process_metadata(aux_dir,
         print("Metadata loaded.")
     else:
         # Compile metadata
-        print("Compiling from day-metadata in '%s'" % aux_dir)
+        print("Metadata not found.\nCompiling from day-metadata in '%s'" % aux_dir)
         
         AuxFileList = os.listdir(aux_dir)
         dates = sorted([date for date in AuxFileList if re.match(r'\d{8}', date)])
@@ -73,7 +73,7 @@ def process_metadata(aux_dir,
                     
             day_meta = pd.read_csv(day_meta_path, dtype={"comments":str})
             day_meta['row_order'] = np.arange(len(day_meta))
-            
+
             if update_colnames:
                 # Rename metadata columns for compatibility with TierpsyTools functions 
                 day_meta = day_meta.rename(columns={'date_recording_yyyymmdd': 'date_yyyymmdd',
@@ -90,24 +90,30 @@ def process_metadata(aux_dir,
                 # Delete camera_serial column as it will be recreated
                 if 'camera_serial' in day_meta.columns:
                      day_meta = day_meta.drop(columns='camera_serial')
+                     
+                day_meta_col_order = list(day_meta.columns)
+
                 # Add imgstore_name (+ camera_serial)
                 day_meta = add_imgstore_name(day_meta, rawDir)
-            
-            elif day_meta['imgstore_name'].isna().any():
-                # If imgstore_name column is incomplete, delete and re-attempt
-                day_meta = day_meta.drop(columns=['imgstore_name', 'camera_serial'])
-                day_meta = add_imgstore_name(day_meta, rawDir)                    
+                
+                day_meta_col_order.extend(['imgstore_name','camera_serial'])
+            else:
+                assert not day_meta['imgstore_name'].isna().any()
+                
+            # Restore column order
+            day_meta = day_meta[day_meta_col_order]
             
             # Get filename
             day_meta['filename'] = [rawDir.parent / day_meta.loc[i,'imgstore_name']\
                                     for i in range(len(day_meta['filename']))]
             
-            # Overwrite day metadata, keeping original row order
-            print("Updating day metadata for: %s" % date)
+            # save day metadata, keeping original row order
             day_meta = day_meta.sort_values(by='row_order').reset_index(drop=True)
             day_meta = day_meta.drop(columns='row_order')
-            day_meta.to_csv(day_meta_path, index=False)
+            day_meta_out_path = str(day_meta_path).replace(".csv", "_updated.csv")
+            day_meta.to_csv(day_meta_out_path, index=False)
             
+            # Append to compiled metadata list
             day_meta_list.append(day_meta)
         
         # Concatenate list of day metadata into full metadata
@@ -116,7 +122,8 @@ def process_metadata(aux_dir,
         # Ensure no NA values for filename or date recorded
         assert not any(meta_df['filename'].isna())
         
-        # Ensure no NA values in any columns with 'date' in the name (and drop if all NA)
+        # Ensure no NA values in any columns with 'date' in the name (and drop if all NA) for 
+        # compatibility with fix_dtypes from tierpsytools platechecker
         check_na_cols = [col for col in meta_df.columns if 'date' in col]
         for col in check_na_cols:
             if all(meta_df[col].isna()):
@@ -128,7 +135,8 @@ def process_metadata(aux_dir,
         # Save metadata
         meta_df.to_csv(compiled_metadata_path, index=None) 
         print("Metadata saved to: %s" % compiled_metadata_path)
-        
+    
+    # Add annotations to metadata
     if add_well_annotations:
         annotated_metadata_path = Path(str(compiled_metadata_path).replace('.csv', 
                                                                            '_annotated.csv'))
@@ -144,7 +152,6 @@ def process_metadata(aux_dir,
                 meta_df = meta_df.loc[meta_df['date_yyyymmdd'].isin(imaging_dates),:]
                 print("Extracted metadata for imaging dates provided")
         else:
-            # Add annotations to metadata
             print("Adding annotations to metadata")
 
             annotations_df = import_wells_annoations_in_folder(aux_dir=aux_dir)
@@ -233,11 +240,19 @@ def process_feature_summaries(metadata_path,
                                   compiled_fname_file=combined_fnames_path,
                                   fname_files=fname_files)
 
+    # Read metadata + record column order
+    metadata = pd.read_csv(metadata_path, dtype={"comments":str})
+    meta_col_order = metadata.columns.tolist()
+
     # Read features/filename summaries
     features, metadata = read_hydra_metadata(combined_feats_path, 
                                              combined_fnames_path,
                                              metadata_path,
                                              add_bluelight=align_bluelight)
+    
+    # Maintain metadata column order
+    meta_col_order.extend(['bluelight','featuresN_filename','file_id','is_good_well','n_skeletons'])
+
     if align_bluelight:
         features, metadata = align_bluelight_conditions(feat=features, 
                                                         meta=metadata, 
@@ -246,28 +261,35 @@ def process_feature_summaries(metadata_path,
                                                                        'imaging_run_number',
                                                                        'imaging_plate_id',
                                                                        'well_name'])
+        # Update metadata column order 
+        for col in ['bluelight','file_id','imgstore_name','n_skeletons']:
+            meta_col_order.remove(col)
+        # TODO: Use set(meta_col_order)-set(metadata.columns) to avoid hard coding column names
+        meta_col_order.extend(['bluelight_prestim','bluelight_bluelight','bluelight_poststim',
+                               'file_id_bluelight','file_id_poststim','file_id_prestim',
+                               'imgstore_name_bluelight','imgstore_name_poststim','imgstore_name_prestim',
+                               'n_skeletons_bluelight','n_skeletons_poststim','n_skeletons_prestim'])
+        
     assert set(features.index) == set(metadata.index)
     
-    return features, metadata
+    return features, metadata[meta_col_order]
 
 #%% Main
 if __name__ == "__main__":
     # Accept command-line inputs
     parser = argparse.ArgumentParser(description='Compile metadata and feature summary results \
                                      (Hydra 96-well)')
-    parser.add_argument('--project_dir', help="Project root directory,\
-                        containing 'AuxiliaryFiles', 'RawVideos',\
-                        'MaskedVideos' and 'Results' folders",
-                        default='/Volumes/hermes$/KeioScreen_96WP', type=str)
+    parser.add_argument('--project_dir', help="Project root directory, containing 'AuxiliaryFiles',\
+                        'RawVideos', 'MaskedVideos' and 'Results' folders", type=str)
     parser.add_argument('--compile_day_summaries', help="Compile feature summaries from \
-                        day summary results", default=True, action='store_false')
+                        day summary results", action='store_false', default=True)
     parser.add_argument('--dates', help="List of imaging dates for day summaries to compile \
                         If None, will compile from features summaries for all imaging dates", 
-                        nargs='+', default=['20210126', '20210127'])
+                        nargs='+', default=None)
     parser.add_argument('--align_bluelight', help="Features as separate columns for each bluelight \
-                        stimulus video?", default=True, type=bool)
-    parser.add_argument('--add_well_annotations', help="Add 'is_bad_well' labels \
-                        from WellAnnotator GUI", default=True, action='store_false')
+                        stimulus video?", type=bool, default=True)
+    parser.add_argument('--add_well_annotations', help="Add 'is_bad_well' labels from WellAnnotator\
+                        GUI", action='store_false', default=True)
     args = parser.parse_args()
     
     # Compile metadata
