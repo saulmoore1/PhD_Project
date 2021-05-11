@@ -46,6 +46,7 @@ from visualisation.plotting_helper import (sig_asterix,
                                            boxplots_grouped)
 
 # tierpsytools imports
+from tierpsytools.hydra.platechecker import fix_dtypes
 from tierpsytools.analysis.significant_features import k_significant_feat
 from tierpsytools.analysis.statistical_tests import univariate_tests
 from tierpsytools.drug_screenings.filter_compounds import compounds_with_low_effect_univariate
@@ -91,7 +92,7 @@ if __name__ == "__main__":
     # Kruskal tests are performed instead of ANOVA if check_normal and data is not normally distributed) 
     # If significant features are found, pairwise t-tests are performed
 
-    #%% Compile and clean results
+    #%% Compile results
         
     # Process metadata    
     metadata, metadata_path = process_metadata(aux_dir=AUX_DIR,
@@ -105,20 +106,8 @@ if __name__ == "__main__":
                                                    imaging_dates=args.dates,
                                                    align_bluelight=args.align_bluelight)
     
-    # Clean: remove data with too many NaNs/zero std and impute remaining NaNs
-    features, metadata = clean_summary_results(features, 
-                                               metadata,
-                                               feature_columns=None,
-                                               imputeNaN=args.impute_nans,
-                                               nan_threshold=args.nan_threshold,
-                                               max_value_cap=args.max_value_cap,
-                                               drop_size_related_feats=args.drop_size_features,
-                                               norm_feats_only=args.norm_features_only,
-                                               percentile_to_use=args.percentile_to_use)
-          
-    # # Calculate duration on food + duration in L1 diapause
-    # metadata = duration_on_food(metadata) 
-    # metadata = duration_L1_diapause(metadata)
+    # fix data types
+    metadata = fix_dtypes(metadata) 
 
     #%% Subset results
     
@@ -166,6 +155,21 @@ if __name__ == "__main__":
         assert GROUPING_VAR in ['worm_strain','food_type','drug_type']
         assert all(len(metadata.loc[metadata['imaging_run_number']==timepoint, 
                    args.lmm_random_effect].unique()) > 1 for timepoint in args.runs)
+    
+    #%% Clean results: remove data with too many NaNs/zero std and impute remaining NaNs
+    features, metadata = clean_summary_results(features, 
+                                               metadata,
+                                               feature_columns=None,
+                                               imputeNaN=args.impute_nans,
+                                               nan_threshold=args.nan_threshold,
+                                               max_value_cap=args.max_value_cap,
+                                               drop_size_related_feats=args.drop_size_features,
+                                               norm_feats_only=args.norm_features_only,
+                                               percentile_to_use=args.percentile_to_use)
+          
+    # # Calculate duration on food + duration in L1 diapause
+    # metadata = duration_on_food(metadata) 
+    # metadata = duration_L1_diapause(metadata)
 
     #%% Check for normality + update decision of which test to use (parametric/non-parametric)
     
@@ -457,7 +461,7 @@ if __name__ == "__main__":
         #%% Plot day variation - visualisation with super-plots!
      
         superplot_dir = plot_dir / 'superplots'    
-        for feat in fset[:args.k_sig_features]:
+        for feat in fset[:10]:
 
             # TODO: Add t-test/LMM pvalues to superplots!
             
@@ -729,6 +733,4 @@ if __name__ == "__main__":
         except Exception as e:
             print("WARNING: Could not plot UMAP\n", e)
             
-
-# TODO: Provide manual set of selected features for fset and plot for those features only
-            
+# TODO: Provide manual set of selected features for fset and plot for those features only            

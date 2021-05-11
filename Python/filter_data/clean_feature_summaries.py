@@ -45,7 +45,6 @@ def clean_summary_results(features,
         features, metadata
         
     """
-    from tierpsytools.hydra.platechecker import fix_dtypes
     from tierpsytools.preprocessing.filter_data import (filter_nan_inf, 
                                                         feat_filter_std, 
                                                         drop_ventrally_signed,
@@ -137,8 +136,6 @@ def clean_summary_results(features,
             features = features.drop(columns=not_perc)
             print("Dropped %d features that are not %s features" % (len(not_perc), 
                                                                     percentile_to_use))
-    # fix data types
-    metadata = fix_dtypes(metadata) 
 
     return features, metadata
 

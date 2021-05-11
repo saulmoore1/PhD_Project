@@ -47,6 +47,7 @@ from visualisation.plotting_helper import (sig_asterix,
                                            boxplots_sigfeats,
                                            boxplots_grouped)
 
+from tierpsytools.hydra.platechecker import fix_dtypes
 from tierpsytools.analysis.significant_features import k_significant_feat
 from tierpsytools.analysis.statistical_tests import univariate_tests
 from tierpsytools.drug_screenings.filter_compounds import compounds_with_low_effect_univariate
@@ -83,6 +84,7 @@ if __name__ == "__main__":
     GROUPING_VAR = args.grouping_variable # categorical variable to investigate, eg.'worm_strain'
     
     CONTROL = args.control_dict[GROUPING_VAR] # control strain to use
+    print("Investigating variation in '%s' (control '%s')" % (CONTROL, GROUPING_VAR))
 
     IS_NORMAL = args.is_normal 
     # Perform t-tests/ANOVA if True, ranksum/kruskal if False. If None, Shapiro-Wilks tests for 
@@ -92,7 +94,7 @@ if __name__ == "__main__":
     # Kruskal tests are performed instead of ANOVA if check_normal and data is not normally distributed) 
     # If significant features are found, pairwise t-tests are performed
 
-    #%% Compile and clean results
+    #%% Compile results
         
     # Process metadata    
     metadata, metadata_path = process_metadata(aux_dir=AUX_DIR,
@@ -105,34 +107,17 @@ if __name__ == "__main__":
                                                    compile_day_summaries=args.compile_day_summaries,
                                                    imaging_dates=args.dates,
                                                    align_bluelight=args.align_bluelight)
-    
-    # Clean: remove data with too many NaNs/zero std and impute remaining NaNs
-    features, metadata = clean_summary_results(features, 
-                                               metadata,
-                                               feature_columns=None,
-                                               imputeNaN=args.impute_nans,
-                                               nan_threshold=args.nan_threshold,
-                                               max_value_cap=args.max_value_cap,
-                                               drop_size_related_feats=args.drop_size_features,
-                                               norm_feats_only=args.norm_features_only,
-                                               percentile_to_use=args.percentile_to_use)
-          
-    # # Calculate duration on food + duration in L1 diapause
-    # metadata = duration_on_food(metadata) 
-    # metadata = duration_L1_diapause(metadata)
 
-    #%% Subset results
-    
-    # Subset results (rows) for control group
-    metadata = metadata[metadata[GROUPING_VAR]==CONTROL]
-    features = features.reindex(metadata.index)
+    # fix data types
+    metadata = fix_dtypes(metadata) 
+
+    #%% Subset for control results
     
     # Check case-sensitivity
     assert len(metadata[GROUPING_VAR].unique())==len(metadata[GROUPING_VAR].str.upper().unique())
-    
-    # Subset results (rows) to omit selected strains
-    if args.omit_strains is not None:
-        features, metadata = subset_results(features, metadata, GROUPING_VAR, args.omit_strains)
+
+    # Subset results (rows) for control group
+    features, metadata = subset_results(features, metadata, GROUPING_VAR, [CONTROL])
 
     # Subset results (rows) for imaging dates of interest    
     if args.dates is not None:
@@ -167,6 +152,22 @@ if __name__ == "__main__":
         assert GROUPING_VAR in ['worm_strain','food_type','drug_type']
         assert all(len(metadata.loc[metadata['imaging_run_number']==timepoint, 
                    args.lmm_random_effect].unique()) > 1 for timepoint in args.runs)
+
+    #%% Clean control results
+    # remove data with too many NaNs/zero std and impute remaining NaNs
+    features, metadata = clean_summary_results(features, 
+                                               metadata,
+                                               feature_columns=None,
+                                               imputeNaN=args.impute_nans,
+                                               nan_threshold=args.nan_threshold,
+                                               max_value_cap=args.max_value_cap,
+                                               drop_size_related_feats=args.drop_size_features,
+                                               norm_feats_only=args.norm_features_only,
+                                               percentile_to_use=args.percentile_to_use)
+          
+    # # Calculate duration on food + duration in L1 diapause
+    # metadata = duration_on_food(metadata) 
+    # metadata = duration_L1_diapause(metadata)
 
     #%% Check for normality + update decision of which test to use (parametric/non-parametric)
     
@@ -375,7 +376,7 @@ if __name__ == "__main__":
                 stats_table['significance'] = sig_asterix(pvals.loc[stats_table.index, 
                                                                     TEST_NAME].values)
                 
-            #%% K significant features
+            ### K significant features
             
             # k_sigfeat_dir = plot_dir / 'k_sig_feats'
             # k_sigfeat_dir.mkdir(exist_ok=True, parents=True)      
@@ -697,42 +698,35 @@ if __name__ == "__main__":
                                 saveDir=pca_dir,
                                 PCs_to_keep=10,
                                 n_feats2print=10,
-                                sns_colour_palette="tab10",
+                                sns_colour_palette="plasma",
                                 hypercolor=False) 
-        # TODO: Ensure sns colour palette doees not plot white points
+        # TODO: Ensure sns colour palette does not plot white points
          
         #%%     t-distributed Stochastic Neighbour Embedding (tSNE)
 
         tsne_dir = plot_dir / 'tSNE'
-        perplexities = [5,15,30]
-        try:
-            tSNE_df = plot_tSNE(featZ=featZ_df,
-                                meta=meta_df,
-                                group_by=GROUPING_VAR,
-                                var_subset=None,
-                                saveDir=tsne_dir,
-                                perplexities=perplexities,
-                                 # NB: perplexity parameter should be roughly equal to group size
-                                sns_colour_palette="plasma")
-        except Exception as e:
-            print("WARNING: Could not plot tSNE\n", e)
+        perplexities = [mean_sample_size, 5, 15, 30] # NB: should be roughly equal to group size
+        
+        tSNE_df = plot_tSNE(featZ=featZ_df,
+                            meta=meta_df,
+                            group_by=GROUPING_VAR,
+                            var_subset=None,
+                            saveDir=tsne_dir,
+                            perplexities=perplexities,
+                            sns_colour_palette="plasma")
        
         #%%     Uniform Manifold Projection (UMAP)
 
         umap_dir = plot_dir / 'UMAP'
-        n_neighbours = [5,15,30]
+        n_neighbours = [mean_sample_size, 5,15,30] # NB: should be roughly equal to group size
         min_dist = 0.1 # Minimum distance parameter
-        try:
-            umap_df = plot_umap(featZ=featZ_df,
-                                meta=meta_df,
-                                group_by=GROUPING_VAR,
-                                var_subset=None,
-                                saveDir=umap_dir,
-                                n_neighbours=n_neighbours,
-                                # NB: n_neighbours parameter should be roughly equal to group size
-                                min_dist=min_dist,
-                                sns_colour_palette="tab10")
-        except Exception as e:
-            print("WARNING: Could not plot UMAP\n", e)
         
+        umap_df = plot_umap(featZ=featZ_df,
+                            meta=meta_df,
+                            group_by=GROUPING_VAR,
+                            var_subset=None,
+                            saveDir=umap_dir,
+                            n_neighbours=n_neighbours,
+                            min_dist=min_dist,
+                            sns_colour_palette="plasma")        
         

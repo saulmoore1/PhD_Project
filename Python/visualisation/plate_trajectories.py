@@ -15,7 +15,7 @@ tracked worm trajectories throughout the video, for the entire 96-well plate
 
 #%% Imports 
 
-import sys
+import sys, os
 import argparse
 import pandas as pd
 from tqdm import tqdm
@@ -181,10 +181,10 @@ def plot_plate_trajectories(featurefilepath,
                             downsample=10,
                             filter_trajectories=False,
                             mark_endpoints=False,
-                            annotate_lawns=False,):
+                            del_if_exists=False):
     """ Tile plots and merge into a single plot for the 
         entire 96-well plate, correcting for camera orientation. """
-        
+
     file_dict = get_video_set(featurefilepath)
     
     # define multi-panel figure
@@ -200,8 +200,19 @@ def plot_plate_trajectories(featurefilepath,
     width = 0.3137      # for all but top left image
     width_tl = 0.3725   # for top left image
     height = 0.5        # for all images
-    
+
+    errlog = []    
     for channel, (maskedfilepath, featurefilepath) in file_dict.items():
+
+        if saveDir:
+            saveName = maskedfilepath.parent.stem + ('_filtered.png' if filter_trajectories else '.png')
+            savePath = Path(saveDir) / saveName
+            if savePath.exists():
+                if del_if_exists:
+                    os.remove(savePath)
+                else:
+                    print("Skipping file '%s' (already exists)" % savePath.name)
+                    continue
         
         _loc, rotate = CH2PLATE_dict[channel]
         _ri, _ci = _loc
@@ -217,45 +228,50 @@ def plot_plate_trajectories(featurefilepath,
         # get location of subplot for camera
         ax = axs[_loc]
         
-        # plot first frame of video + annotate wells
-        FOVsplitter = FOVMultiWellsSplitter(maskedfilepath)
-        FOVsplitter.plot_wells(is_rotate180=rotate, ax=ax, line_thickness=10)
-        
-        # plot worm trajectories
-        plot_trajectory(featurefilepath, 
-                        downsample=downsample,
-                        filter_trajectories=filter_trajectories,
-                        mark_endpoints=mark_endpoints,
-                        rotate=rotate,
-                        img_shape=FOVsplitter.img_shape,
-                        legend=False, 
-                        ax=ax)
+        try:
+            # plot first frame of video + annotate wells
+            FOVsplitter = FOVMultiWellsSplitter(maskedfilepath)
+            FOVsplitter.plot_wells(is_rotate180=rotate, ax=ax, line_thickness=10)
+            
+            # plot worm trajectories
+            plot_trajectory(featurefilepath, 
+                            downsample=downsample,
+                            filter_trajectories=filter_trajectories,
+                            mark_endpoints=mark_endpoints,
+                            rotate=rotate,
+                            img_shape=FOVsplitter.img_shape,
+                            legend=False, 
+                            ax=ax)
+        except Exception as e:
+            print("WARNING: Could not plot video file: '%s'\n%s" % (maskedfilepath, e))
+            errlog.append(maskedfilepath)
         
         # set image position in figure
         ax.set_position(bbox)
     
     if saveDir:
-        saveName = maskedfilepath.parent.stem + ('_filtered.png' if filter_trajectories else '.png')
-        savePath = Path(saveDir) / saveName
-        Path(saveDir).mkdir(exist_ok=True, parents=True)
-        fig.savefig(savePath,
-                    bbox_inches='tight',
-                    dpi=300,
-                    pad_inches=0,
-                    transparent=True)  
+        if savePath.exists():
+            print("Skipping file '%s' (already exists)" % savePath.name)
+        else:
+            Path(saveDir).mkdir(exist_ok=True, parents=True)
+            fig.savefig(savePath,
+                        bbox_inches='tight',
+                        dpi=300,
+                        pad_inches=0,
+                        transparent=True)  
     else:
         # TODO: Fix show plot figsize
         plt.tight_layout()
         plt.show()
-          
-    return(fig)
+    
+    print(errlog) # TODO: Save errlog to file?
+    return
 
 def plot_plate_trajectories_from_filenames_summary(filenames_path, 
                                                    saveDir=None, 
                                                    downsample=10,
                                                    filter_trajectories=False,
-                                                   mark_endpoints=False,
-                                                   annotate_lawns=False):
+                                                   mark_endpoints=False):
     """ Plot plate trajectories for all files in Tierpsy filenames summaries
         'filenames_path', and save results to 'saveDir' """
 

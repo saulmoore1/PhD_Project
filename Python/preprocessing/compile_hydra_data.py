@@ -18,7 +18,7 @@ import pandas as pd
 from pathlib import Path
 
 # Custom imports
-from tierpsytools.hydra.compile_metadata import add_imgstore_name                     
+from tierpsytools.hydra.hydra_helper import add_imgstore_name                     
 from tierpsytools.read_data.compile_features_summaries import compile_tierpsy_summaries
 from tierpsytools.read_data.hydra_metadata import read_hydra_metadata, align_bluelight_conditions
 from tierpsytools.hydra.match_wells_annotations import (import_wells_annoations_in_folder,
@@ -26,6 +26,73 @@ from tierpsytools.hydra.match_wells_annotations import (import_wells_annoations_
                                                         update_metadata)
 
 #%% Functions
+
+def compile_day_metadata(aux_dir, day, verbose=True, from_source_plate=False, from_robot_runlog=False):
+    """ Compile experiment day metadata from wormsorter and hydra rig metadata for a given day in 
+        'AuxilliaryFiles' directory 
+        
+        Parameters
+        ----------
+        aux_dir : str
+            Path to "AuxiliaryFiles" containing metadata  
+        day : str, None
+            Experiment day folder in format 'YYYYMMDD'
+            
+        Returns
+        -------
+        compiled_day_metadata
+    """
+
+    from tierpsytools.hydra.compile_metadata import (populate_96WPs, 
+                                                     get_day_metadata,
+                                                     #get_source_plate_metadata
+                                                     number_wells_per_plate, 
+                                                     day_metadata_check)
+
+    day_dir = Path(aux_dir) / str(day)
+    wormsorter_meta = day_dir / (str(day) + '_wormsorter.csv')
+    hydra_meta = day_dir / (str(day) + '_manual_metadata.csv')
+      
+    # Expand wormsorter metadata to have separate row for each well
+    plate_metadata = populate_96WPs(wormsorter_meta)
+    
+    # Create dataframe with treatment (drug/food) metadata for each well
+    if from_source_plate:
+        sourceplates_file = get_source_plate_metadata()
+        
+    if from_robot_runlog:
+        from tierpsytools.hydra.compile_metadata import merge_robot_metadata, merge_robot_wormsorter
+        drug_metadata = merge_robot_metadata(sourceplates_file,
+                                             randomized_by='column',
+                                             saveto=None,
+                                             drug_by_column=True,
+                                             compact_drug_plate=False,
+                                             del_if_exists=False)
+        plate_metadata = merge_robot_wormsorter(day_dir, 
+                                                drug_metadata,
+                                                plate_metadata,
+                                                bad_wells_csv=None,
+                                                merge_on=['imaging_plate_id', 'well_name'],
+                                                saveto=None,
+                                                del_if_exists=False)
+    
+    day_metadata = get_day_metadata(complete_plate_metadata=plate_metadata, 
+                                    manual_metadata_file=hydra_meta,
+                                    merge_on=['imaging_plate_id'],
+                                    n_wells=96,
+                                    run_number_regex='run\\d+_',
+                                    saveto=None,
+                                    del_if_exists=False,
+                                    include_imgstore_name=True,
+                                    raw_day_dir=None)
+    
+    # Check that day metadata is correct dimension
+    day_metadata_check(day_metadata, day_dir)
+    
+    if verbose:
+        print(number_wells_per_plate(day_metadata, day_dir))
+    
+    return day_metadata
 
 def process_metadata(aux_dir, 
                      imaging_dates=None, 
@@ -178,7 +245,7 @@ def process_metadata(aux_dir,
 
 def process_feature_summaries(metadata_path, 
                               results_dir, 
-                              compile_day_summaries=False,
+                              compile_day_summaries=True,
                               imaging_dates=None, 
                               align_bluelight=True):
     """ Compile feature summary results and join with metadata to produce
@@ -228,6 +295,8 @@ def process_feature_summaries(metadata_path,
             feat_files = list(Path(results_dir).glob('features_summary*.csv'))
             fname_files = list(Path(results_dir).glob('filenames_summary*.csv'))
                
+        # TODO: A check for multiple matches - throw warning
+            
         # Keep only features files for which matching filenames_summaries exist
         feat_files = [feat_fl for feat_fl,fname_fl in zip(np.unique(feat_files),
                       np.unique(fname_files)) if fname_fl is not None]
@@ -295,7 +364,6 @@ if __name__ == "__main__":
     # Compile metadata
     metadata = process_metadata(aux_dir=Path(args.project_dir) / 'AuxiliaryFiles',
                                 imaging_dates=args.dates,
-                                align_bluelight=args.align_bluelight,
                                 add_well_annotations=args.add_well_annotations)
                 
     # Process feature summary results
