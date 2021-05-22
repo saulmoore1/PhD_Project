@@ -237,7 +237,7 @@ def barplot_sigfeats(test_pvalues_df=None, saveDir=None, p_value_threshold=0.05,
         plt.ioff() if saveDir else plt.ion()
         plt.close('all')
         plt.style.use(CUSTOM_STYLE)
-        fig = plt.figure(figsize=[6, n/4 if n > 20 else 7]) # width, height
+        fig = plt.figure(figsize=[6, n/4 if (n > 20 and n < 1000) else 7]) # width, height
         ax = fig.add_subplot(1,1,1)
         ax.barh(prop_sigfeats,width=1)
         prop_sigfeats.plot.barh(x=prop_sigfeats.index,

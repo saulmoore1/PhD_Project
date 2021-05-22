@@ -55,7 +55,19 @@ from tierpsytools.drug_screenings.filter_compounds import compounds_with_low_eff
 #%% Globals
 
 EXAMPLE_JSON_PARAMETERS_PATH = "analysis/20210126_parameters_keio_screen.json"
-            
+       
+#%% Functions
+        
+def control_variation(feat, meta, variables, saveDir):
+    """ """
+    assert set(feat.index) == set(meta.index)
+    
+    for v in variables:
+        
+        for f in sigfeats:
+            superplot(feat, meta, f, x1=v, x2=(None if v == 'date_yyyymmdd' else 'date_yyyymmdd'),
+                      show_points=True, saveDir=saveDir)
+    
 #%% Main
 
 if __name__ == "__main__":

@@ -21,13 +21,13 @@ from pathlib import Path
 from tierpsytools.hydra.hydra_helper import add_imgstore_name                     
 from tierpsytools.read_data.compile_features_summaries import compile_tierpsy_summaries
 from tierpsytools.read_data.hydra_metadata import read_hydra_metadata, align_bluelight_conditions
-from tierpsytools.hydra.match_wells_annotations import (import_wells_annoations_in_folder,
+from tierpsytools.hydra.match_wells_annotations import (import_wells_annotations_in_folder,
                                                         match_rawvids_annotations,
                                                         update_metadata)
 
 #%% Functions
 
-def compile_day_metadata(aux_dir, day, verbose=True, from_source_plate=False, from_robot_runlog=False):
+def compile_day_metadata(aux_dir, day, from_source_plate=False, from_robot_runlog=False, verbose=True):
     """ Compile experiment day metadata from wormsorter and hydra rig metadata for a given day in 
         'AuxilliaryFiles' directory 
         
@@ -56,26 +56,30 @@ def compile_day_metadata(aux_dir, day, verbose=True, from_source_plate=False, fr
     # Expand wormsorter metadata to have separate row for each well
     plate_metadata = populate_96WPs(wormsorter_meta)
     
-    # Create dataframe with treatment (drug/food) metadata for each well
-    if from_source_plate:
-        sourceplates_file = get_source_plate_metadata()
+    # Create dataframe with metadata row for each well
+# =============================================================================
+#     if from_source_plate:
+#         sourceplates_file = get_source_plate_metadata()
+# =============================================================================
         
-    if from_robot_runlog:
-        from tierpsytools.hydra.compile_metadata import merge_robot_metadata, merge_robot_wormsorter
-        drug_metadata = merge_robot_metadata(sourceplates_file,
-                                             randomized_by='column',
-                                             saveto=None,
-                                             drug_by_column=True,
-                                             compact_drug_plate=False,
-                                             del_if_exists=False)
-        plate_metadata = merge_robot_wormsorter(day_dir, 
-                                                drug_metadata,
-                                                plate_metadata,
-                                                bad_wells_csv=None,
-                                                merge_on=['imaging_plate_id', 'well_name'],
-                                                saveto=None,
-                                                del_if_exists=False)
-    
+# =============================================================================
+#     if from_robot_runlog:
+#         from tierpsytools.hydra.compile_metadata import merge_robot_metadata, merge_robot_wormsorter
+#         drug_metadata = merge_robot_metadata(sourceplates_file,
+#                                              randomized_by='column',
+#                                              saveto=None,
+#                                              drug_by_column=True,
+#                                              compact_drug_plate=False,
+#                                              del_if_exists=False)
+#         plate_metadata = merge_robot_wormsorter(day_dir, 
+#                                                 drug_metadata,
+#                                                 plate_metadata,
+#                                                 bad_wells_csv=None,
+#                                                 merge_on=['imaging_plate_id', 'well_name'],
+#                                                 saveto=None,
+#                                                 del_if_exists=False)
+# =============================================================================
+
     day_metadata = get_day_metadata(complete_plate_metadata=plate_metadata, 
                                     manual_metadata_file=hydra_meta,
                                     merge_on=['imaging_plate_id'],
@@ -97,13 +101,16 @@ def compile_day_metadata(aux_dir, day, verbose=True, from_source_plate=False, fr
 def process_metadata(aux_dir, 
                      imaging_dates=None, 
                      add_well_annotations=True,
+                     update_day_meta=False,
                      update_colnames=True):
     """ Compile metadata from individual day metadata CSV files
     
         Parameters
         ----------
         aux_dir : str
-            Path to "AuxiliaryFiles" containing metadata  
+            Path to "AuxiliaryFiles" containing metadata 
+        update_day_meta : bool
+            Update existing day metadata files 
         imaging_dates : list of str, None
             List of day metadata imaging dates to compile
         add_well_annotations : bool
@@ -121,11 +128,18 @@ def process_metadata(aux_dir,
     
     if compiled_metadata_path.exists():
         # Load metadata
-        meta_df = pd.read_csv(compiled_metadata_path, dtype={"comments":str}, header=0)
+        meta_df = pd.read_csv(compiled_metadata_path, dtype={"comments":str, 
+                                                             "source_plate_id":str}, header=0)
+        # subset for imaging dates
+        if imaging_dates is not None:
+            assert 'date_yyyymmdd' in meta_df.columns
+            meta_df = meta_df[meta_df['date_yyyymmdd'].isin(imaging_dates)]
+            
         print("Metadata loaded.")
+        
     else:
         # Compile metadata
-        print("Metadata not found.\nCompiling from day-metadata in '%s'" % aux_dir)
+        print("Metadata not found.\nCompiling from day metadata in: %s" % aux_dir)
         
         AuxFileList = os.listdir(aux_dir)
         dates = sorted([date for date in AuxFileList if re.match(r'\d{8}', date)])
@@ -164,21 +178,24 @@ def process_metadata(aux_dir,
                 day_meta = add_imgstore_name(day_meta, rawDir)
                 
                 day_meta_col_order.extend(['imgstore_name','camera_serial'])
+                
+                # Restore column order
+                day_meta = day_meta[day_meta_col_order]
             else:
                 assert not day_meta['imgstore_name'].isna().any()
-                
-            # Restore column order
-            day_meta = day_meta[day_meta_col_order]
+                day_meta_col_order = list(day_meta.columns)
             
             # Get filename
             day_meta['filename'] = [rawDir.parent / day_meta.loc[i,'imgstore_name']\
-                                    for i in range(len(day_meta['filename']))]
+                                    for i in range(day_meta.shape[0])]
             
             # save day metadata, keeping original row order
             day_meta = day_meta.sort_values(by='row_order').reset_index(drop=True)
             day_meta = day_meta.drop(columns='row_order')
-            day_meta_out_path = str(day_meta_path).replace(".csv", "_updated.csv")
-            day_meta.to_csv(day_meta_out_path, index=False)
+            
+            if update_day_meta:
+                #day_meta_out_path = str(day_meta_path).replace(".csv", "_updated.csv")
+                day_meta.to_csv(day_meta_path, index=False)
             
             # Append to compiled metadata list
             day_meta_list.append(day_meta)
@@ -209,24 +226,25 @@ def process_metadata(aux_dir,
                                                                            '_annotated.csv'))
         if annotated_metadata_path.exists():
             # Load annotated metadata
-            meta_df = pd.read_csv(annotated_metadata_path, dtype={"comments":str}, header=0)
+            meta_df = pd.read_csv(annotated_metadata_path, dtype={"comments":str,
+                                                                  "source_plate_id":str}, header=0)
             print("Loaded annotated metadata")
             
             if not 'is_bad_well' in meta_df.columns:
                 raise Warning("Bad well annotations not found in metadata!")
                 
-            if imaging_dates:
+            if imaging_dates is not None:
                 meta_df = meta_df.loc[meta_df['date_yyyymmdd'].isin(imaging_dates),:]
                 print("Extracted metadata for imaging dates provided")
         else:
             print("Adding annotations to metadata")
 
-            annotations_df = import_wells_annoations_in_folder(aux_dir=aux_dir)
+            annotations_df = import_wells_annotations_in_folder(aux_dir=aux_dir)
             
             rawDir = aux_dir.parent / "RawVideos"
             matched_long = match_rawvids_annotations(rawvid_dir=rawDir, 
                                                      annotations_df=annotations_df)
-            if imaging_dates:
+            if imaging_dates is not None:
                 _idx = [i for i in matched_long.index if 
                         matched_long.loc[i, 'imgstore'].split('_')[-2] in imaging_dates]
                 matched_long = matched_long.loc[_idx, :]
@@ -234,9 +252,19 @@ def process_metadata(aux_dir,
             # annotate metadata + save
             meta_df = update_metadata(aux_dir=aux_dir, 
                                       matched_long=matched_long, 
-                                      saveto=annotated_metadata_path)
+                                      saveto=annotated_metadata_path,
+                                      del_if_exists=False)
+
+            assert annotated_metadata_path.exists()
+            
+            if imaging_dates is not None:
+                 meta_df = meta_df.loc[meta_df['date_yyyymmdd'].isin(imaging_dates),:]
+                 meta_df.to_csv(annotated_metadata_path, index=None)
+                 # NB: Also omits missing video data for some wells (ie. due to single camera failure)
+            
+            print("Annotated metadata saved to: %s" % annotated_metadata_path)
               
-        prop_bad = meta_df.is_bad_well.sum()/len(meta_df.is_bad_well)
+        prop_bad = meta_df['is_bad_well'].sum()/len(meta_df['is_bad_well'])
         print("%.1f%% of data are labelled as 'bad well' data" % (prop_bad*100))
         
         compiled_metadata_path = annotated_metadata_path
@@ -305,15 +333,15 @@ def process_feature_summaries(metadata_path,
         
         # Compile feature summaries for matched features/filename summaries
         compile_tierpsy_summaries(feat_files=feat_files, 
+                                  fname_files=fname_files,
                                   compiled_feat_file=combined_feats_path,
-                                  compiled_fname_file=combined_fnames_path,
-                                  fname_files=fname_files)
+                                  compiled_fname_file=combined_fnames_path)
 
-    # Read metadata + record column order
-    metadata = pd.read_csv(metadata_path, dtype={"comments":str})
+    # Read metadata first just to record column order
+    metadata = pd.read_csv(metadata_path, dtype={"comments":str, "source_plate_id":str})
     meta_col_order = metadata.columns.tolist()
 
-    # Read features/filename summaries
+    # Read features summaries + metadata and add bluelight column if aligning bluelight video results
     features, metadata = read_hydra_metadata(combined_feats_path, 
                                              combined_fnames_path,
                                              metadata_path,

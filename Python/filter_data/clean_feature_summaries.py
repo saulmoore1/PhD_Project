@@ -12,13 +12,18 @@ Clean feature summary and associated metadata to remove:
 def clean_summary_results(features, 
                           metadata, 
                           feature_columns=None, 
+                          nan_threshold_row=0.2, 
+                          nan_threshold_col=0.05,
+                          max_value_cap=1e15,
                           imputeNaN=True,
-                          nan_threshold=0.2, 
-                          percentile_to_use=None,
+                          min_nskel_per_video=None,
                           drop_size_related_feats=False,
                           norm_feats_only=False,
-                          max_value_cap=1e15):
+                          percentile_to_use=None):
     """ Clean features summary results
+        - Drop bad wells from WellAnnotator annotations file
+        - Drop samples with >nan_threshold_row proportion of NaN features
+        - Drop features with >nan_threshold_col proportion of NaNs
         - Drop features with zero standard deviation
         - Drop features that are ventrally signed
         - Drop features that are path curvature related
@@ -27,29 +32,34 @@ def clean_summary_results(features,
         ----------
         feature_columns : list, None
             List of feature column names to clean
+        nan_threshold_row : float
+            Drop samples with too many NaN/Inf values across features (> nan_threshold_row)
+        nan_threshold_col : float
+            Drop features with too many NaN/Inf values across samples (> nan_threshold_col)
+        max_value_cap : int, float
+            Maximum value for feature summary results (features will be capped at this value)
         imputeNaN : bool
             Impute remaining NaN values with global mean value for each feature
-        nan_threshold : float
-            Drop features with too many NaN/Inf values (> nan_threshold)
-        percentile_to_use : str, None
-            Use only given percentile of feature summary distribution
+        filter_based_on_skeletons : bool
+            Drop samples where Tierpsy did not find many worm skeletons throughout the video
         drop_size_related  : bool
             Drop features that are size-related
         norm_feats_only : bool
             Drop faetures that are not length-normalised (size-invariant)
-        max_value_cap : int, float
-            Maximum value for feature summary results (features will be capped at this value)
+        percentile_to_use : str, None
+            Use only given percentile of feature summary distribution
         
         Returns
         -------
         features, metadata
         
     """
-    from tierpsytools.preprocessing.filter_data import (filter_nan_inf, 
+    from tierpsytools.preprocessing.filter_data import (drop_bad_wells,
+                                                        filter_nan_inf, 
                                                         feat_filter_std, 
                                                         drop_ventrally_signed,
                                                         cap_feat_values,
-                                                        drop_bad_wells)
+                                                        filter_n_skeletons)
 
     assert set(features.index) == set(metadata.index)
 
@@ -66,12 +76,18 @@ def clean_summary_results(features,
                                         verbose=False)
     assert not any(features.sum(axis=1) == 0) # ensure no missing row data
 
+    # Drop rows based on percentage of NaN values across features for each row
+    # NB: axis=1 will sum the NaNs across all the columns for each row
+    features = filter_nan_inf(features, threshold=nan_threshold_row, axis=1, verbose=True)
+    metadata = metadata.reindex(features.index)
+    
     # Drop feature columns with too many NaN values
-    features = filter_nan_inf(features, threshold=nan_threshold, axis=0, verbose=False)
+    # NB: to remove features with NaNs across all results, eg. food_edge related features which are not calculated
+    features = filter_nan_inf(features, threshold=nan_threshold_col, axis=0, verbose=False)
     nan_cols = [col for col in feature_columns if col not in features.columns]
     if len(nan_cols) > 0:
-        print("Dropped %d features with >%.1f%% NaNs" % (len(nan_cols), nan_threshold*100))
-
+        print("Dropped %d features with >%.1f%% NaNs" % (len(nan_cols), nan_threshold_col*100))
+    
     # Drop feature columns with zero standard deviation
     feature_columns = features.columns
     features = feat_filter_std(features, threshold=0.0)
@@ -79,15 +95,6 @@ def clean_summary_results(features,
     if len(zero_std_feats) > 0:
         print("Dropped %d features with zero standard deviation" % len(zero_std_feats))
     
-    # Impute remaining NaN values (using global mean feature value for each strain)
-    if imputeNaN:
-        n_nans = features.isna().sum(axis=0).sum()
-        if n_nans > 0:
-            print("Imputing %d missing values (%.2f%% data) " % (n_nans, 
-                                                                 n_nans/features.count().sum()*100)
-                  + "using global mean value for each feature..") 
-            features = features.fillna(features.mean(axis=0))
-
     # Drop ventrally-signed features
     # In general, for the curvature and angular velocity features we should only 
     # use the 'abs' versions, because the sign is assigned based on whether the worm 
@@ -108,6 +115,15 @@ def clean_summary_results(features,
         features = features.drop(columns=path_curvature_feats)
         print("Dropped %d features that are derived from path curvature"\
               % len(path_curvature_feats))
+
+    # Impute remaining NaN values (using global mean feature value for each strain)
+    if imputeNaN:
+        n_nans = features.isna().sum(axis=0).sum()
+        if n_nans > 0:
+            print("Imputing %d missing values (%.2f%% data) " % (n_nans, 
+                                                                 n_nans/features.count().sum()*100)
+                  + "using global mean value for each feature..") 
+            features = features.fillna(features.mean(axis=0))
     
     # Drop size-related features
     if drop_size_related_feats:
@@ -136,6 +152,10 @@ def clean_summary_results(features,
             features = features.drop(columns=not_perc)
             print("Dropped %d features that are not %s features" % (len(not_perc), 
                                                                     percentile_to_use))
+    
+    if min_nskel_per_video is not None:
+        features, metadata = filter_n_skeletons(features, metadata, 
+                                                min_nskel_per_video=min_nskel_per_video)
 
     return features, metadata
 

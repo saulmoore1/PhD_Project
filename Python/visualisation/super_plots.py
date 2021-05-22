@@ -43,7 +43,7 @@ DODGE = True
 #%% Functions    
 def superplot(features, metadata, feat, 
               x1="food_type", x2="date_yyyymmdd", # 'imaging_run_number', 'instrument_name'
-              plot_type='box', show_points=None, max_points=30, 
+              plot_type='box', show_points=None, plot_means=True, max_points=30, 
               sns_colour_palettes=["plasma","viridis"], 
               dodge=False, saveDir=None, **kwargs):
     """ Plot timeseries for strains by Hydra day replicates """
@@ -90,8 +90,9 @@ def superplot(features, metadata, feat,
     plt.close('all')
     plt.style.use(CUSTOM_STYLE)
     plt.ioff() if saveDir is not None else plt.ion()
-    fig, ax = plt.subplots(figsize=[10,8])
-    mean_sample_size = df.groupby([x1, x2], as_index=False).size().mean()
+    fig, ax = plt.subplots(figsize=[20,7])
+    
+    mean_sample_size = df.groupby(([x1, x2] if x2 is not None else [x1]), as_index=False).size().mean()
     
     if x2 is not None:
         if len(x2_list) > max_points:
@@ -126,7 +127,7 @@ def superplot(features, metadata, feat,
         for violin, alpha in zip(ax.collections, np.repeat(0.5, len(ax.collections))):
             violin.set_alpha(alpha)
 
-    show_points = True if show_points is None and mean_sample_size < max_points else False
+    show_points = False if (show_points is None and mean_sample_size > max_points) else True
     if show_points:
         sns.stripplot(x=x1, 
                       y=feat, 
@@ -139,14 +140,15 @@ def superplot(features, metadata, feat,
                       dodge=dodge, ax=ax, data=df)
         
     # Plot group means
-    sns.swarmplot(x=x1, 
-                  y=feat, 
-                  order=x1_order, 
-                  hue=x2 if x2 is not None else None, 
-                  hue_order=x2_order if x2 is not None else None,
-                  palette=palette if x2 is not None else None, 
-                  size=13, edgecolor='k', linewidth=2, 
-                  dodge=dodge, ax=ax, data=av_df)
+    if plot_means:
+        sns.swarmplot(x=x1, 
+                      y=feat, 
+                      order=x1_order, 
+                      hue=x2 if x2 is not None else None, 
+                      hue_order=x2_order if x2 is not None else None,
+                      palette=palette if x2 is not None else None, 
+                      size=13, edgecolor='k', linewidth=2, 
+                      dodge=dodge, ax=ax, data=av_df)
 
     # from matplotlib import transforms
     # trans = transforms.blended_transform_factory(ax.transData, # y=none
@@ -166,12 +168,11 @@ def superplot(features, metadata, feat,
 #                 pval_text = 'P < 0.001' if pval < 0.001 else 'P = %.3f' % pval
 #                 ax.text((ii+1)/2, y+2*h, pval_text, fontsize=12, ha='center', va='bottom')
 #     plt.subplots_adjust(left=0.15) #top=0.9,bottom=0.1,left=0.2
-# 
-#     if len(groups) > 10:
-#         ax.set_xticklabels(ax.get_xticklabels(), rotation=90)
-#         plt.subplots_adjust(bottom=0.15)
 # =============================================================================
 
+    ax.set_xticklabels(ax.get_xticklabels(), rotation=90, fontsize=5)
+    plt.subplots_adjust(bottom=0.15)
+        
     # Add custom legend
     patch_labels = []
     patch_handles = []
@@ -204,7 +205,7 @@ def superplot(features, metadata, feat,
     #plt.tight_layout() #rect=[0.04, 0, 0.84, 0.96]
    
     if saveDir:
-        savePath = Path(saveDir) / (x1 + '_wrt_' + x2 + '/' + feat + '.png')
+        savePath = Path(saveDir) / (x1 + ('_wrt_' + x2 if x2 is not None else '')) / (feat + '.png')
         savePath.parent.mkdir(exist_ok=True, parents=True)
         plt.savefig(savePath, dpi=300)
     else:
