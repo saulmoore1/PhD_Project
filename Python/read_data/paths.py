@@ -52,3 +52,30 @@ def change_path(input_path, to):
     output_path = root + PATH_DICT[to.lower()][0] + suffix
     
     return output_path
+
+def get_save_dir(args):
+    """ Get save path for analysis results based on specified parameters in 'args'
+        - use_top256
+        - drop_size_features
+        - norm_features_only
+        - percentile_to_use
+        - remove_outliers
+        
+        Returns
+        -------
+        save_dir :  pathlib.PosixPath
+    """
+       
+    from pathlib import Path
+    
+    # Update save path according to JSON parameters for features to use
+    fn = 'Top256' if args.use_top256 else 'All_features'
+    fn = fn + '_noSize' if args.drop_size_features else fn
+    fn = fn + '_norm' if args.norm_features_only else fn
+    fn = fn + '_' + args.percentile_to_use if args.percentile_to_use is not None else fn
+    fn = fn + '_noOutliers' if args.remove_outliers else fn
+
+    save_dir = (Path(args.save_dir) if args.save_dir is not None else Path(args.project_dir) / 
+                "Analysis") / fn
+    
+    return save_dir

@@ -361,7 +361,7 @@ if __name__ == "__main__":
                         write_list_to_file(fset_ttest, ttest_sigfeats_outpath)
                     
                     # Barplot of number of significantly different features for each strain   
-                    prop_sigfeats = barplot_sigfeats(test_pvalues_df=pvals_t, 
+                    barplot_sigfeats(test_pvalues_df=pvals_t, 
                                                      saveDir=plot_dir,
                                                      p_value_threshold=args.pval_threshold,
                                                      test_name=T_TEST_NAME)

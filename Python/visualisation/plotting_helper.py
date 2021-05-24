@@ -261,9 +261,7 @@ def barplot_sigfeats(test_pvalues_df=None, saveDir=None, p_value_threshold=0.05,
             plt.savefig(savePath, dpi=300)
         else:
             plt.show()
-        
-        return prop_sigfeats
-    
+            
 def boxplots_sigfeats(feat_meta_df,
                       test_pvalues_df,
                       group_by,
@@ -424,7 +422,6 @@ def boxplots_grouped(feat_meta_df,
                      max_groups_plot_cap=None,
                      sns_colour_palette="tab10",
                      figsize=[8,12],
-                     saveFormat=None,
                      **kwargs):
     """ Boxplots comparing all strains to control for each feature in feature set """
     
@@ -443,15 +440,14 @@ def boxplots_grouped(feat_meta_df,
                                                                   p_value_threshold).any()]
         
         if max_features_plot_cap is not None and len(feature_set) > max_features_plot_cap:
-            print("WARNING: Too many features to plot! Capping at %d plots"\
+            print("\nWARNING: Too many features to plot! Capping at %d plots"\
                   % max_features_plot_cap)
             feature_set = feature_set[:max_features_plot_cap]
     elif test_pvalues_df is not None:
         # Plot all sig feats between any strain and control
         feature_set = [feature for feature in test_pvalues_df.columns if
                        (test_pvalues_df[feature] < p_value_threshold).any()]
-    else:
-        raise IOError()
+        test_pvalues_df.index = [i.replace("pvals_","") for i in test_pvalues_df.index]
     
     # OPTIONAL: Plot cherry-picked features
     #feature_set = ['speed_50th','curvature_neck_abs_50th','angular_velocity_neck_abs_50th']
@@ -466,7 +462,7 @@ def boxplots_grouped(feat_meta_df,
             strains2plt = [s for s in list(feat_meta_df[group_by].unique()) if s != control_group]
         
         if max_groups_plot_cap is not None and len(strains2plt) > max_groups_plot_cap:
-            print("Capping at %d strains" % max_groups_plot_cap)
+            print("\nCapping at %d strains" % max_groups_plot_cap)
             strains2plt = strains2plt[:max_groups_plot_cap]
             
         strains2plt.insert(0, control_group)
@@ -527,8 +523,7 @@ def boxplots_grouped(feat_meta_df,
         # Save boxplot
         if saveDir:
             saveDir.mkdir(exist_ok=True, parents=True)
-            saveFormat = saveFormat if saveFormat is not None else 'png'
-            plot_path = Path(saveDir) / (str(f + 1) + '_' + feature + '.{}'.format(saveFormat))
-            plt.savefig(plot_path, format=saveFormat, dpi=300)
+            plot_path = Path(saveDir) / (str(f + 1) + '_' + feature + '.png')
+            plt.savefig(plot_path, dpi=300)
         else:
             plt.show()
