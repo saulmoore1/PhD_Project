@@ -89,10 +89,10 @@ def main(features, metadata, args):
                                                                control_metadata, 
                                                                max_value_cap=False,
                                                                imputeNaN=False)
-    # control_variation(control_features, 
-    #                   control_metadata, 
-    #                   args,
-    #                   variables=['date_yyyymmdd','instrument_name','imaging_run_number'])
+    control_variation(control_features, 
+                      control_metadata, 
+                      args,
+                      variables=['date_yyyymmdd','instrument_name','imaging_run_number'])
     
     ##### STATISTICS #####
 
@@ -132,9 +132,9 @@ def main(features, metadata, args):
     ##### Plotting #####
 
     plot_dir = SAVE_DIR / GROUPING_VAR / "Plots"
-    superplot_dir = plot_dir / 'superplots'    
     
-    # if len(fset) > 1:        
+    # if len(fset) > 1:     
+    #     superplot_dir = plot_dir / 'superplots'    
     #     for feat in fset[:args.n_sig_features]:
             # plot variation with respect to 'date_yyyymmdd'
             # superplot(features, metadata, feat, 
@@ -254,7 +254,7 @@ def main(features, metadata, args):
     assert not (features.std(axis=1) == 0).any()
     
     # Z-normalise data
-    featZ = features.apply(zscore, axis=1)
+    featZ = features.apply(zscore, axis=0)
     #featZ = (features-features.mean())/features.std() # minus mean, divide by std
     
     #from tierpsytools.preprocessing.scaling_class import scalingClass
@@ -270,30 +270,30 @@ def main(features, metadata, args):
 
     ### Cluster analysis
     
-    column_linkage = linkage(featZ.T, method='complete', metric='correlation')
-    n_clusters = len(STRAIN_LIST)
-    clusters = fcluster(column_linkage, n_clusters, criterion='maxclust')
-    un,n = np.unique(clusters, return_counts=True)
-    cluster_centres = (featZ.T).groupby(by=clusters).mean() # get cluster centres
+    # column_linkage = linkage(featZ.T, method='complete', metric='correlation')
+    # n_clusters = len(STRAIN_LIST)
+    # clusters = fcluster(column_linkage, n_clusters, criterion='maxclust')
+    # un,n = np.unique(clusters, return_counts=True)
+    # cluster_centres = (featZ.T).groupby(by=clusters).mean() # get cluster centres
     
-    # get index of closest feature to cluster centre
-    central, _ = pairwise_distances_argmin_min(cluster_centres, featZ.T, metric='cosine')
-    assert(np.unique(central).shape[0] == n_clusters)
-    central = featZ.columns.to_numpy()[central]
+    # # get index of closest feature to cluster centre
+    # central, _ = pairwise_distances_argmin_min(cluster_centres, featZ.T, metric='cosine')
+    # assert(np.unique(central).shape[0] == n_clusters)
+    # central = featZ.columns.to_numpy()[central]
 
-    # make cluster dataframe
-    df = pd.DataFrame(index=featZ.columns, columns=['group_label', 'stat_label', 'motion_label'])
-    df['group_label'] = clusters
-    stats = np.array(['10th', '50th', '90th', 'IQR'])
-    df['stat_label'] = [np.unique([x for x in stats if x in ft]) for ft in df.index]
-    df['stat_label'] = df['stat_label'].apply(lambda x: x[0] if len(x)==1 else np.nan)
-    motions = np.array(['forward', 'backward', 'paused'])
-    df['motion_label'] = [[x for x in motions if x in ft] for ft in df.index]
-    df['motion_label'] = df['motion_label'].apply(lambda x: x[0] if len(x)==1 else np.nan)
-    df['representative_feature'] = False
-    df.loc[central, 'representative_feature'] = True
-    df = df.fillna('none')
-    df.to_csv(stats_dir / 'feature_clusters.csv', index=True) # save cluster df to file
+    # # make cluster dataframe
+    # df = pd.DataFrame(index=featZ.columns, columns=['group_label', 'stat_label', 'motion_label'])
+    # df['group_label'] = clusters
+    # stats = np.array(['10th', '50th', '90th', 'IQR'])
+    # df['stat_label'] = [np.unique([x for x in stats if x in ft]) for ft in df.index]
+    # df['stat_label'] = df['stat_label'].apply(lambda x: x[0] if len(x)==1 else np.nan)
+    # motions = np.array(['forward', 'backward', 'paused'])
+    # df['motion_label'] = [[x for x in motions if x in ft] for ft in df.index]
+    # df['motion_label'] = df['motion_label'].apply(lambda x: x[0] if len(x)==1 else np.nan)
+    # df['representative_feature'] = False
+    # df.loc[central, 'representative_feature'] = True
+    # df = df.fillna('none')
+    # df.to_csv(stats_dir / 'feature_clusters.csv', index=True) # save cluster df to file
     
 # =============================================================================
 #     ### Fingerprints
@@ -331,85 +331,85 @@ def main(features, metadata, args):
 
     ### Control clustermap
     
-    # control data is clustered and feature order is stored and applied to full data
-    if len(STRAIN_LIST) > 1:
-        control_clustermap_path = plot_dir / 'HCA' / (GROUPING_VAR + '_clustermap.pdf')
-        cg = plot_clustermap(featZ, metadata,
-                             group_by=([GROUPING_VAR] if GROUPING_VAR == 'date_yyyymmdd' 
-                                       else [GROUPING_VAR, 'date_yyyymmdd']),
-                             col_linkage=None,
-                             method='complete',#[linkage, complete, average, weighted, centroid]
-                             figsize=[18,6],
-                             saveto=control_clustermap_path)
+    # # control data is clustered and feature order is stored and applied to full data
+    # if len(STRAIN_LIST) > 1:
+    #     control_clustermap_path = plot_dir / 'HCA' / (GROUPING_VAR + '_clustermap.pdf')
+    #     cg = plot_clustermap(featZ, metadata,
+    #                          group_by=([GROUPING_VAR] if GROUPING_VAR == 'date_yyyymmdd' 
+    #                                    else [GROUPING_VAR, 'date_yyyymmdd']),
+    #                          col_linkage=None,
+    #                          method='complete',#[linkage, complete, average, weighted, centroid]
+    #                          figsize=[18,6],
+    #                          saveto=control_clustermap_path)
 
-        col_linkage = cg.dendrogram_col.calculated_linkage
-        clustered_features = np.array(featZ.columns)[cg.dendrogram_col.reordered_ind]
-    else:
-        clustered_features = None
+    #     col_linkage = cg.dendrogram_col.calculated_linkage
+    #     clustered_features = np.array(featZ.columns)[cg.dendrogram_col.reordered_ind]
+    # else:
+    #     clustered_features = None
                 
-    ## Save z-normalised values
-    # z_stats = featZ.join(metadata[GROUPING_VAR]).groupby(by=GROUPING_VAR).mean().T
-    # z_stats.columns = ['z-mean_' + v for v in z_stats.columns.to_list()]
-    # z_stats.to_csv(z_stats_path, header=True, index=None)
+    # ## Save z-normalised values
+    # # z_stats = featZ.join(metadata[GROUPING_VAR]).groupby(by=GROUPING_VAR).mean().T
+    # # z_stats.columns = ['z-mean_' + v for v in z_stats.columns.to_list()]
+    # # z_stats.to_csv(z_stats_path, header=True, index=None)
     
-    # Clustermap of full data       
-    full_clustermap_path = plot_dir / 'HCA' / (GROUPING_VAR + '_full_clustermap.pdf')
-    fg = plot_clustermap(featZ, metadata, 
-                         group_by=GROUPING_VAR,
-                         col_linkage=None,
-                         method='complete',
-                         figsize=[20, (len(STRAIN_LIST) / 4 if len(STRAIN_LIST) > 10 else 6)],
-                         saveto=full_clustermap_path)
+    # # Clustermap of full data       
+    # full_clustermap_path = plot_dir / 'HCA' / (GROUPING_VAR + '_full_clustermap.pdf')
+    # fg = plot_clustermap(featZ, metadata, 
+    #                      group_by=GROUPING_VAR,
+    #                      col_linkage=None,
+    #                      method='complete',
+    #                      figsize=[20, (len(STRAIN_LIST) / 4 if len(STRAIN_LIST) > 10 else 6)],
+    #                      saveto=full_clustermap_path)
     
-    # If no control clustering (due to no day variation) then use clustered features for all 
-    # strains to order barcode heatmaps
-    if clustered_features is None:
-        clustered_features = np.array(featZ.columns)[fg.dendrogram_col.reordered_ind]
+    # # If no control clustering (due to no day variation) then use clustered features for all 
+    # # strains to order barcode heatmaps
+    # if clustered_features is None:
+    #     clustered_features = np.array(featZ.columns)[fg.dendrogram_col.reordered_ind]
     
-    if len(STRAIN_LIST) > 2:
-        #pvals_heatmap = anova_table.loc[clustered_features, 'pvals']
-        pvals_heatmap = pval_stats.loc[clustered_features, args.test]
-    elif len(STRAIN_LIST) == 2:
-        #pvals_heatmap = pvals_t.loc[clustered_features, pvals_t.columns[0]]
-        pvals_heatmap = pvals_t.loc[pvals_t.index[0], clustered_features]
-    pvals_heatmap.name = 'P < {}'.format(args.pval_threshold)
+    # if len(STRAIN_LIST) > 2:
+    #     #pvals_heatmap = anova_table.loc[clustered_features, 'pvals']
+    #     pvals_heatmap = pval_stats.loc[clustered_features, args.test]
+    # elif len(STRAIN_LIST) == 2:
+    #     #pvals_heatmap = pvals_t.loc[clustered_features, pvals_t.columns[0]]
+    #     pvals_heatmap = pvals_t.loc[pvals_t.index[0], clustered_features]
+    # pvals_heatmap.name = 'P < {}'.format(args.pval_threshold)
 
-    assert all(f in featZ.columns for f in pvals_heatmap.index)
+    # assert all(f in featZ.columns for f in pvals_heatmap.index)
             
-    # Plot barcode heatmap (grouping by date)
-    if len(STRAIN_LIST) > 1:
-        heatmap_date_path = plot_dir / 'HCA' / (GROUPING_VAR + '_date_heatmap.pdf')
-        plot_barcode_heatmap(featZ=featZ[clustered_features], 
-                             meta=metadata, 
-                             group_by=[GROUPING_VAR, 'date_yyyymmdd'],
-                             pvalues_series=pvals_heatmap,
-                             p_value_threshold=args.pval_threshold,
-                             selected_feats=fset if len(fset) > 0 else None,
-                             saveto=heatmap_date_path,
-                             figsize=[20, (len(STRAIN_LIST) / 4 if len(STRAIN_LIST) > 10 else 6)],
-                             sns_colour_palette="Pastel1")
+    # # Plot barcode heatmap (grouping by date)
+    # if len(STRAIN_LIST) > 1:
+    #     heatmap_date_path = plot_dir / 'HCA' / (GROUPING_VAR + '_date_heatmap.pdf')
+    #     plot_barcode_heatmap(featZ=featZ[clustered_features], 
+    #                          meta=metadata, 
+    #                          group_by=[GROUPING_VAR, 'date_yyyymmdd'],
+    #                          pvalues_series=pvals_heatmap,
+    #                          p_value_threshold=args.pval_threshold,
+    #                          selected_feats=fset if len(fset) > 0 else None,
+    #                          saveto=heatmap_date_path,
+    #                          figsize=[20, (len(STRAIN_LIST) / 4 if len(STRAIN_LIST) > 10 else 6)],
+    #                          sns_colour_palette="Pastel1")
     
-    # Plot group-mean heatmap (averaged across days)
-    heatmap_path = plot_dir / 'HCA' / (GROUPING_VAR + '_heatmap.pdf')
-    plot_barcode_heatmap(featZ=featZ[clustered_features], 
-                         meta=metadata, 
-                         group_by=[GROUPING_VAR], 
-                         pvalues_series=pvals_heatmap,
-                         p_value_threshold=args.pval_threshold,
-                         selected_feats=fset if len(fset) > 0 else None,
-                         saveto=heatmap_path,
-                         figsize=[20, (len(STRAIN_LIST) / 4 if len(STRAIN_LIST) > 10 else 6)],
-                         sns_colour_palette="Pastel1")        
+    # # Plot group-mean heatmap (averaged across days)
+    # heatmap_path = plot_dir / 'HCA' / (GROUPING_VAR + '_heatmap.pdf')
+    # plot_barcode_heatmap(featZ=featZ[clustered_features], 
+    #                      meta=metadata, 
+    #                      group_by=[GROUPING_VAR], 
+    #                      pvalues_series=pvals_heatmap,
+    #                      p_value_threshold=args.pval_threshold,
+    #                      selected_feats=fset if len(fset) > 0 else None,
+    #                      saveto=heatmap_path,
+    #                      figsize=[20, (len(STRAIN_LIST) / 4 if len(STRAIN_LIST) > 10 else 6)],
+    #                      sns_colour_palette="Pastel1")        
                     
     ##### Principal Components Analysis #####
 
     if args.remove_outliers:
         outlier_path = plot_dir / 'mahalanobis_outliers.pdf'
         features, inds = remove_outliers_pca(df=features, 
-                                         features_to_analyse=None, 
-                                         saveto=outlier_path)
+                                             features_to_analyse=None, 
+                                             saveto=outlier_path)
         metadata = metadata.reindex(features.index) # reindex metadata
-        featZ = features.apply(zscore, axis=1) # re-normalise data
+        featZ = features.apply(zscore, axis=0) # re-normalise data
 
         # Drop features with NaN values after normalising
         n_cols = len(featZ.columns)
@@ -484,7 +484,7 @@ if __name__ == "__main__":
 
 #%%
 
-# # Scale the features (necessary if tou want to do PCA)
+# # Scale the features (necessary if you want to do PCA)
 # scaler = scalingClass(scaling='standardize')
 # features = scaler.fit_transform(features)
 
@@ -500,7 +500,7 @@ if __name__ == "__main__":
 # plt.legend()
 
 # # Hierarchical clutering
-# # Get row colors that show MOA and mathcing legend data
+# # Get row colors and mathcing legend data
 # labels = metadata['worm_strain']
 # unique_labels = labels.unique()
 

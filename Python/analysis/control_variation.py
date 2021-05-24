@@ -346,7 +346,7 @@ def control_variation(feat,
         assert not (feat.std(axis=1) == 0).any()
         
         # Z-normalise data
-        featZ = feat.apply(zscore, axis=1)
+        featZ = feat.apply(zscore, axis=0)
         #featZ = (feat-feat.mean())/feat.std() # minus mean, divide by std
         
         #from tierpsytools.preprocessing.scaling_class import scalingClass
@@ -499,7 +499,7 @@ def control_variation(feat,
                                              features_to_analyse=None, 
                                              saveto=outlier_path)
             meta = meta.reindex(feat.index) # reindex metadata
-            featZ = feat.apply(zscore, axis=1) # re-normalise data
+            featZ = feat.apply(zscore, axis=0) # re-normalise data
 
             # Drop features with NaN values after normalising
             n_cols = len(featZ.columns)
