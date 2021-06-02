@@ -108,4 +108,4 @@ if __name__ == "__main__":
     metadata.to_csv(metadata_path, index=False)
     
     toc = time()
-    print("\nDone in %.1f seconds (%.1f minutes)" % (toc-tic, (toc-tic)/60))
+    print("\nDone in %.1f seconds (%.1f minutes)" % (toc - tic, (toc - tic) / 60))

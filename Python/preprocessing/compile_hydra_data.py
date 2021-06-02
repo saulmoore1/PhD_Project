@@ -238,6 +238,12 @@ def process_metadata(aux_dir,
                 print("Extracted metadata for imaging dates provided")
         else:
             print("Adding annotations to metadata")
+            
+            # TODO: UPDATE ADD WELLS ANNOTATIONS
+            # from tierpsytools.hydra.match_wells_annotations import update_metadata_with_wells_annotations
+            # update_metadata_with_wells_annotations(aux_dir=aux_dir, 
+            #                                        saveto=annotated_metadata_path, 
+            #                                        del_if_exists=False)
 
             annotations_df = import_wells_annotations_in_folder(aux_dir=aux_dir)
             

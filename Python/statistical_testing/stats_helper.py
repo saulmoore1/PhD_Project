@@ -123,6 +123,65 @@ def shapiro_normality_test(features_df,
     
     return prop_features_normal, is_normal
 
+def levene_f_test(features, 
+                  metadata, 
+                  grouping_var, 
+                  p_value_threshold=0.05, 
+                  multitest_method='fdr_by', 
+                  saveto=None, 
+                  del_if_exists=False):
+    """ Apply Levene's F-test for equal variances between strains for each feature and return a 
+        dataframe of test results containing 'stat' and 'pval' columns
+    """
+    
+    import pandas as pd
+    from pathlib import Path
+    from functools import partial
+    from scipy.stats import levene
+    from statsmodels.stats import multitest as smm
+    from tierpsytools.analysis.statistical_tests_helper import stats_test
+    
+    levene_stats = None
+    
+    if saveto is not None:
+        if Path(saveto).exists() and not del_if_exists:
+            print("Reading Levene stats from file")
+            levene_stats = pd.read_csv(saveto, index_col=0)
+
+    if levene_stats is None:
+        func = partial(stats_test, test=levene, vectorized=False)
+        stats, pvals = func(X=features, 
+                            y=metadata[grouping_var], 
+                            n_jobs=-1)
+    
+        levene_stats = pd.DataFrame(data={'stat' : stats, 
+                                          'pval' : pvals}, index=features.columns)
+        # for feat in tqdm(features.columns):
+        #     stat, pval = levene(*[features[metadata[grouping_var]==strain][feat] for 
+        #                           strain in metadata[grouping_var].unique()], center='median')
+        #     levene_stats.loc[feat, :] = stat, pval
+     
+        # Perform correction for multiple comparisons
+        _corrArray = smm.multipletests(levene_stats['pval'], 
+                                       alpha=p_value_threshold, 
+                                       method=multitest_method,
+                                       is_sorted=False, 
+                                       returnsorted=False)
+        
+        # Update pvalues with Benjamini-Yekutieli correction
+        levene_stats['pval'] = _corrArray[1]
+
+                
+    if saveto is not None:
+        if del_if_exists and Path(saveto).exists():
+            Path(saveto).unlink()
+        else:        
+            print("Saving Levene stats to %s" %  saveto)
+            saveto.parent.mkdir(exist_ok=True, parents=True)       
+            levene_stats.to_csv(saveto, header=True, index=True)
+        
+    return levene_stats
+
 def ranksumtest(test_data, control_data):
     """ Wilcoxon rank sum test (column-wise between 2 dataframes of equal dimensions)
         Returns 2 lists: a list of test statistics, and a list of associated p-values
@@ -280,7 +339,7 @@ def anova_by_feature(feat_df,
         test_pvalues_df.loc['stat',feature] = test_stat
         test_pvalues_df.loc['pval',feature] = test_pvalue
 
-    # Perform Bonferroni correction for multiple comparisons on one-way ANOVA pvalues
+    # Perform correction for multiple comparisons on one-way ANOVA pvalues
     _corrArray = smm.multipletests(test_pvalues_df.loc['pval'], 
                                    alpha=p_value_threshold, 
                                    method=fdr_method,

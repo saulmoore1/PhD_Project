@@ -27,7 +27,7 @@ def load_json(json_path):
     
     return args
     
-def load_top256(top256_path, add_bluelight=True, remove_path_curvature=True, verbose=True):
+def load_topfeats(topfeats_path, add_bluelight=True, remove_path_curvature=True, verbose=True, header=0):
     """ Load Tierpsy Top256 set of features describing N2 behaviour on E. coli OP50 bacteria 
         
         Parameters
@@ -47,24 +47,24 @@ def load_top256(top256_path, add_bluelight=True, remove_path_curvature=True, ver
     """   
     import pandas as pd
     
-    top256_df = pd.read_csv(top256_path, header=0)
-    top256 = list(top256_df[top256_df.columns[0]])
-    n = len(top256)
+    topfeats_df = pd.read_csv(topfeats_path, header=header)
+    toplist = list(topfeats_df[topfeats_df.columns[0]])
+    n = len(toplist)
     if verbose:
         print("Feature list loaded (n=%d features)" % n)
 
     # Remove features from Top256 that are path curvature related
-    top256 = [feat for feat in top256 if "path_curvature" not in feat]
-    n_feats_after = len(top256)
+    toplist = [feat for feat in toplist if "path_curvature" not in feat]
+    n_feats_after = len(toplist)
     if verbose:
         print("Dropped %d features from Top%d that are related to path curvature"\
               % ((n - n_feats_after), n))
         
     if add_bluelight:
         bluelight_suffix = ['_prestim','_bluelight','_poststim']
-        top256 = [col + suffix for suffix in bluelight_suffix for col in top256]
+        toplist = [col + suffix for suffix in bluelight_suffix for col in toplist]
 
-    return top256
+    return toplist
 
 
 def read_list_from_file(filepath):

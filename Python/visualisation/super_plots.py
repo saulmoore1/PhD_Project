@@ -19,7 +19,7 @@ from pathlib import Path
 
 # Custom imports
 from filter_data.clean_feature_summaries import clean_summary_results
-from read_data.read import load_top256
+from read_data.read import load_topfeats
 
 from tierpsytools.read_data.hydra_metadata import read_hydra_metadata
 from tierpsytools.hydra.platechecker import fix_dtypes
@@ -28,7 +28,6 @@ from tierpsytools.hydra.platechecker import fix_dtypes
 
 EXAMPLE_METADATA_PATH = "/Volumes/hermes$/Keio_Tests_96WP/AuxiliaryFiles/metadata_annotated.csv"
 EXAMPLE_RESULTS_DIR = "/Volumes/hermes$/Keio_Tests_96WP/Results"
-TOP256_PATH = "/Volumes/hermes$/KeioScreen_96WP/AuxiliaryFiles/top256_tierpsy_no_blob_no_eigen_only_abs_no_norm.csv"
 
 IMAGING_RUN = 3
 
@@ -233,8 +232,7 @@ if __name__ == '__main__':
     combined_feats_path = Path(args.results_dir) / "full_features.csv"
     combined_fnames_path = Path(args.results_dir) / "full_filenames.csv"
     
-    # Ensure align bluelight is False
-    # NB: leaves the df in a "long format" that seaborn likes    
+    # NB: leaves the df in a "long format" that seaborn 'likes'   
     features, metadata = read_hydra_metadata(feat_file=combined_feats_path,
                                              fname_file=combined_fnames_path,
                                              meta_file=args.compiled_metadata_path,
@@ -252,8 +250,15 @@ if __name__ == '__main__':
         
         feature_list = pd.read_csv(args.feature_list_from_csv)
         feature_list = list(feature_list[feature_list.columns[0]].unique())
-    else:
-        feature_list = load_top256(TOP256_PATH, add_bluelight=False)
+    elif args.n_top_feats is not None:
+        top_feats_path = Path(args.tierpsy_top_feats_dir) / "tierpsy_{}.csv".format(str(args.n_top_feats))        
+        topfeats = load_topfeats(top_feats_path, add_bluelight=True, 
+                                 remove_path_curvature=True, header=None)
+
+        # Drop features that are not in results
+        feature_list = [feat for feat in list(topfeats) if feat in features.columns]
+        features = features[feature_list]
+
     print("%d features loaded." % len(feature_list))
 
     # # Subset data for given imaging run

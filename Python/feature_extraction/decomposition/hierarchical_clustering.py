@@ -171,9 +171,6 @@ def plot_barcode_heatmap(featZ,
     # Compute average value for strain for each feature (not each well)
     featZ_grouped = featZ.join(meta).groupby(group_by).mean()#.reset_index()
        
-    # Plot barcode clustermap
-    plt.ioff() if saveto else plt.ion()
-    plt.close('all')  
     # Make dataframe for heatmap plot
     heatmap_df = featZ_grouped[fset]
     
@@ -195,10 +192,14 @@ def plot_barcode_heatmap(featZ,
     cm.extend(['Greys', sns_colour_palette])
     vmin_max = [(-2,2) for i in range(len(var_list))]
     vmin_max.extend([(0,20), (1,3)])
+    
+    # Plot barcode clustermap
+    plt.ioff() if saveto else plt.ion()
+    plt.close('all')  
     plt.style.use(CUSTOM_STYLE) 
     sns.set_style('ticks')
     
-    f = plt.figure(figsize= (20,len(var_list)+1))
+    f = plt.figure(figsize=figsize)
     height_ratios = list(np.repeat(3,len(var_list)))
     height_ratios.extend([1,1])
     gs = GridSpec(len(var_list)+2, 1, wspace=0, hspace=0, height_ratios=height_ratios)
@@ -264,5 +265,3 @@ def plot_barcode_heatmap(featZ,
         plt.savefig(saveto, dpi=600)
     else:
         plt.show()
-
-

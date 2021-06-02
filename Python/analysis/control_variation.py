@@ -33,7 +33,7 @@ from sklearn.metrics import pairwise_distances_argmin_min
 
 # Custom imports
 from read_data.paths import get_save_dir
-from read_data.read import load_json, load_top256
+from read_data.read import load_json, load_topfeats
 from write_data.write import write_list_to_file
 from filter_data.clean_feature_summaries import clean_summary_results, subset_results
 #from statistical_testing.stats_helper import shapiro_normality_test
@@ -64,7 +64,7 @@ METADATA_PATH = "/Users/sm5911/Documents/Keio_Screen/metadata.csv"
 def control_variation(feat, 
                       meta, 
                       args,
-                      variables=['date_yyyymmdd','instrument_name','imaging_run_number','well_name']):
+                      variables=['date_yyyymmdd','instrument_name','imaging_run_number']):
     """ Analyse variation in control data with respect to each varaible in 'variables' in turn """
     
     assert set(feat.index) == set(meta.index)
@@ -76,9 +76,10 @@ def control_variation(feat,
     t_test = 't-test' if args.test == 'ANOVA' else 'Mann-Whitney' # aka. Wilcoxon rank-sums
     
     for GROUPING_VAR in variables:
+        
         # get control group for eg. date_yyyymmdd
         control_group = args.control_dict[GROUPING_VAR]
-        print("Investigating variation in '%s' (control: '%s')" % (GROUPING_VAR, control_group))
+        print("\nInvestigating variation in '%s' (control: '%s')" % (GROUPING_VAR, control_group))
 
         # convert to string for use as factor
         meta[GROUPING_VAR] = meta[GROUPING_VAR].astype(str)
@@ -166,7 +167,7 @@ def control_variation(feat,
                 ttest_table = pd.concat([stats_t, pvals_t, effect_sizes_t, reject_t], axis=1)
 
                 # Record t-test significant feature set (NOT ORDERED)
-                fset_ttest = list(pvals_t.index[(pvals_t < args.pval_threshold).sum(axis=0) > 0])
+                fset_ttest = list(pvals_t.index[(pvals_t < args.pval_threshold).sum(axis=1) > 0])
                 
                 # Save t-test results to file
                 ttest_table.to_csv(ttest_path, header=True, index=True) # Save test results to CSV
@@ -266,7 +267,8 @@ def control_variation(feat,
         # Read t-test results and record significant features (NOT ORDERED)
         ttest_table = pd.read_csv(ttest_path, index_col=0)
         pvals_t = ttest_table[[c for c in ttest_table if "pvals_" in c]]             
-        fset_ttest = pvals_t[(pvals_t < args.pval_threshold).sum(axis=0) > 0].index.to_list()
+        fset_ttest = pvals_t[(pvals_t < args.pval_threshold).sum(axis=1) > 0].index.to_list()
+        print("%d significant features found by %s (P<%.2f)" % (len(fset_ttest), t_test, args.pval_threshold))
             
         # Use t-test significant feature set if comparing just 2 strains
         if len(group_list) == 2:
@@ -278,6 +280,8 @@ def control_variation(feat,
 
         if len(fset) > 1:        
             for feature in fset[:args.n_sig_features]:
+                print("Plotting %s variation in %s" % (GROUPING_VAR, feature))
+                
                 # plot variation in variable with respect to 'date_yyyymmdd'
                 superplot(feat, meta, feature, 
                           x1=GROUPING_VAR, 
@@ -360,49 +364,49 @@ def control_variation(feat,
         if n_dropped > 0:
             print("Dropped %d features after normalisation (NaN)" % n_dropped)
     
-        ### Cluster analysis
-        
-        column_linkage = linkage(featZ.T, method='complete', metric='correlation')
-        n_clusters = len(group_list)
-        clusters = fcluster(column_linkage, n_clusters, criterion='maxclust')
-        un,n = np.unique(clusters, return_counts=True)
-        cluster_centres = (featZ.T).groupby(by=clusters).mean() # get cluster centres
-        
-        # get index of closest feature to cluster centre
-        central, _ = pairwise_distances_argmin_min(cluster_centres, featZ.T, metric='cosine')
-        assert(np.unique(central).shape[0] == n_clusters)
-        central = featZ.columns.to_numpy()[central]
-
-        # make cluster dataframe
-        df = pd.DataFrame(index=featZ.columns, columns=['group_label', 'stat_label', 'motion_label'])
-        df['group_label'] = clusters
-        stats = np.array(['10th', '50th', '90th', 'IQR'])
-        df['stat_label'] = [np.unique([x for x in stats if x in ft]) for ft in df.index]
-        df['stat_label'] = df['stat_label'].apply(lambda x: x[0] if len(x)==1 else np.nan)
-        motions = np.array(['forward', 'backward', 'paused'])
-        df['motion_label'] = [[x for x in motions if x in ft] for ft in df.index]
-        df['motion_label'] = df['motion_label'].apply(lambda x: x[0] if len(x)==1 else np.nan)
-        df['representative_feature'] = False
-        df.loc[central, 'representative_feature'] = True
-        df = df.fillna('none')
-        df.to_csv(stats_dir / 'feature_clusters.csv', index=True) # save cluster df to file
-    
 # =============================================================================
+#         ### Cluster analysis
+#         
+#         column_linkage = linkage(featZ.T, method='complete', metric='correlation')
+#         n_clusters = 100
+#         clusters = fcluster(column_linkage, n_clusters, criterion='maxclust')
+#         un,n = np.unique(clusters, return_counts=True)
+#         cluster_centres = (featZ.T).groupby(by=clusters).mean() # get cluster centres
+#         
+#         # get index of closest feature to cluster centre
+#         central, _ = pairwise_distances_argmin_min(cluster_centres, featZ.T, metric='cosine')
+#         assert(np.unique(central).shape[0] == n_clusters)
+#         central = featZ.columns.to_numpy()[central]
+# 
+#         # make cluster dataframe
+#         df = pd.DataFrame(index=featZ.columns, columns=['group_label', 'stat_label', 'motion_label'])
+#         df['group_label'] = clusters
+#         stats = np.array(['10th', '50th', '90th', 'IQR'])
+#         df['stat_label'] = [np.unique([x for x in stats if x in ft]) for ft in df.index]
+#         df['stat_label'] = df['stat_label'].apply(lambda x: x[0] if len(x)==1 else np.nan)
+#         motions = np.array(['forward', 'backward', 'paused'])
+#         df['motion_label'] = [[x for x in motions if x in ft] for ft in df.index]
+#         df['motion_label'] = df['motion_label'].apply(lambda x: x[0] if len(x)==1 else np.nan)
+#         df['representative_feature'] = False
+#         df.loc[central, 'representative_feature'] = True
+#         df = df.fillna('none')
+#         df.to_csv(stats_dir / 'feature_clusters.csv', index=True) # save cluster df to file
+#     
 #         ### Fingerprints
 #         from tierpsytools.analysis.fingerprints import tierpsy_fingerprints
 #         
 #         clusters = pd.read_csv(stats_dir / 'feature_clusters.csv', index_col=0)
 #         fingers = {}
 #         for group in group_list:
-#             if group == control_group:
+#             if str(group) == control_group:
 #                 continue
-#             print('Getting fingerprint of %s: %s' % (GROUPING_VAR, group))
-#             (stats_dir / group).mkdir(exist_ok=True)
+#             print('Getting fingerprint of %s: %s' % (GROUPING_VAR, str(group)))
+#             (stats_dir / str(group)).mkdir(exist_ok=True)
 #             mask = meta[GROUPING_VAR].isin([control_group, group])
 #             finger = tierpsy_fingerprints(bluelight=True, 
 #                                           test='Mann-Whitney', 
-#                                           multitest_method='fdr_by',
-#                                           significance_threshold=0.05, 
+#                                           multitest_method=args.fdr_method,
+#                                           significance_threshold=args.pval_threshold, 
 #                                           groups=clusters, 
 #                                           groupby=['group_label'],
 #                                           test_results=None, 
@@ -412,11 +416,15 @@ def control_variation(feat,
 #             finger.fit(feat[mask], meta.loc[mask, GROUPING_VAR], control=control_group)
 #             
 #             # Plot and save the fingerprint for this strain
-#             finger.plot_fingerprints(merge_bluelight=False, feature_names_as_xticks=True,
-#                                      saveto=(stats_dir / group /'fingerprint.png'))
+#             finger.plot_fingerprints(merge_bluelight=False, 
+#                                       feature_names_as_xticks=True,
+#                                       saveto=(stats_dir / str(group) / 'fingerprint.png'))
 # 
 #             # Plot and save boxplots for all the representative features
-#             finger.plot_boxplots(feat[mask], meta.loc[mask, GROUPING_VAR], stats_dir / group, control=control_group)
+#             finger.plot_boxplots(feat[mask], 
+#                                   meta.loc[mask, GROUPING_VAR], 
+#                                   (stats_dir / str(group)), 
+#                                   control=control_group)
 #             
 #             fingers[group] = finger # Store the fingerprint object
 # =============================================================================
@@ -434,7 +442,7 @@ def control_variation(feat,
                                  figsize=[18,6],
                                  saveto=control_clustermap_path)
     
-            col_linkage = cg.dendrogram_col.calculated_linkage
+            #col_linkage = cg.dendrogram_col.calculated_linkage
             clustered_features = np.array(featZ.columns)[cg.dendrogram_col.reordered_ind]
         else:
             clustered_features = None
@@ -476,7 +484,7 @@ def control_variation(feat,
                                  p_value_threshold=args.pval_threshold,
                                  selected_feats=fset if len(fset) > 0 else None,
                                  saveto=heatmap_date_path,
-                                 figsize=[20, (len(group_list) / 4 if len(group_list) > 10 else 6)],
+                                 figsize=[20, (int(len(group_list) / 4) if len(group_list) > 10 else 6)],
                                  sns_colour_palette="Pastel1")
         
         # Plot group-mean heatmap (averaged across days)
@@ -488,7 +496,7 @@ def control_variation(feat,
                              p_value_threshold=args.pval_threshold,
                              selected_feats=fset if len(fset) > 0 else None,
                              saveto=heatmap_path,
-                             figsize=[20, (len(group_list) / 4 if len(group_list) > 10 else 6)],
+                             figsize=[20, (int(len(group_list) / 4) if len(group_list) > 10 else 6)],
                              sns_colour_palette="Pastel1")        
                         
         ##### Principal Components Analysis #####
@@ -583,19 +591,16 @@ if __name__ == "__main__":
                                                                control_metadata, 
                                                                max_value_cap=False,
                                                                imputeNaN=False)
-    # Use Top256 features for analysis
-    if args.use_top256:
-        aux_dir = Path(args.project_dir) / "AuxiliaryFiles"
-        top256_path = aux_dir / 'top256_tierpsy_no_blob_no_eigen_only_abs_no_norm.csv'
+    
+    # Load Tierpsy Top feature set + subset (columns) for top feats only
+    if args.n_top_feats is not None:
+        top_feats_path = Path(args.tierpsy_top_feats_dir) / "tierpsy_{}.csv".format(str(args.n_top_feats))
+        topfeats = load_topfeats(top_feats_path, add_bluelight=True, 
+                                 remove_path_curvature=True, header=None)
         
-        # Load Tierpsy Top256 feature set
-        top256 = load_top256(top256_path, add_bluelight=args.align_bluelight)
-        
-        # Ensure results exist for features in featurelist
-        top256_feat_list = [feat for feat in top256 if feat in control_features.columns]
-        control_features = control_features[top256_feat_list]
-        print("Dropped %d features in Top256 that are missing from results" %\
-              (len(top256)-len(top256_feat_list)))
+        # Drop features that are not in results
+        top_feats_list = [feat for feat in list(topfeats) if feat in control_features.columns]
+        control_features = control_features[top_feats_list]
 
     print("Investigating variation in '%s' (control %s)" % (control_strain, args.grouping_variable))
     control_variation(control_features, 
@@ -604,5 +609,5 @@ if __name__ == "__main__":
                       variables=['date_yyyymmdd','instrument_name','imaging_run_number']) # 'well_name'
     
     toc = time()
-    print("\nDone in %.1f seconds (%.1f minutes)" % (toc-tic, (toc-tic)/60))
+    print("\nDone in %.1f seconds (%.1f minutes)" % (toc - tic, (toc - tic) / 60))
     

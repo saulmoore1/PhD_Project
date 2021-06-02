@@ -69,7 +69,7 @@ def get_save_dir(args):
     from pathlib import Path
     
     # Update save path according to JSON parameters for features to use
-    fn = 'Top256' if args.use_top256 else 'All_features'
+    fn = 'Top{}'.format(str(args.n_top_feats)) if args.n_top_feats is not None else 'All_features'
     fn = fn + '_noSize' if args.drop_size_features else fn
     fn = fn + '_norm' if args.norm_features_only else fn
     fn = fn + '_' + args.percentile_to_use if args.percentile_to_use is not None else fn
