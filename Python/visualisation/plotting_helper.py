@@ -96,7 +96,7 @@ def plot_day_variation(feat_df,
                        test_pvalues_df=None,
                        day_var='date_yyyymmdd',
                        feature_set=None,
-                       max_features_plot_cap=None,
+                       max_feats2plt=None,
                        p_value_threshold=0.05,
                        saveDir=None,
                        figsize=[6,6],
@@ -117,8 +117,8 @@ def plot_day_variation(feat_df,
     else:
         feature_set = [f for f in feat_df.columns]
     
-    if max_features_plot_cap is not None:
-        feature_set = feature_set[:max_features_plot_cap]
+    if max_feats2plt is not None:
+        feature_set = feature_set[:max_feats2plt]
     
     groups = list(meta_df[group_by].unique())
     groups.remove(control)  
@@ -261,14 +261,65 @@ def barplot_sigfeats(test_pvalues_df=None, saveDir=None, p_value_threshold=0.05,
             plt.savefig(savePath, dpi=300)
         else:
             plt.show()
+
+def errorbar_sigfeats(features, metadata, group_by, fset, control=None, 
+                      max_feats2plt=10, figsize=[130,6], fontsize=2, saveDir=None):
+    """ Plot mean feature value with errorbars (+/- 1.98 * std) for all groups in 
+        metadata['group_by'] for each feature in feature set provided 
+    """
+    from pathlib import Path
+    from tqdm import tqdm
+    from matplotlib import pyplot as plt
+    
+    plt.ioff() if saveDir is not None else plt.ion()
+    
+    # Boxplots of significant features by ANOVA/LMM (all groups)
+    grouped = metadata[[group_by]].join(features).groupby(group_by)
+    mean_strain = grouped.mean()
+    median_strain = grouped.median()
             
+    # Plot all strains (ranked by median) for top n significant features (ranked by ANOVA p-value)
+    for f, feat in enumerate(tqdm(fset[:max_feats2plt])):
+        # Errorbar plot
+        order = median_strain[feat].sort_values(ascending=True).index.to_list()
+        error = [1.98 * features.loc[metadata[group_by]==strain, feat].std() for strain in order]
+        if control is not None:
+            color = ['blue' if e == control else 'grey' for e in order]
+        else:
+            color = 'grey'
+        mean_ordered = mean_strain.reindex(order).reset_index(drop=False)      
+        fig, ax = plt.subplots(figsize=figsize)
+        plt.errorbar(x=group_by, 
+                     y=feat, 
+                     yerr=error, 
+                     data=mean_ordered, 
+                     fmt='.', elinewidth=0.5, ecolor=color, c='k', ms=5)
+        _ = plt.xticks(rotation=90, fontsize=fontsize)
+        plt.axhline(median_strain.loc[control, feat], c='dimgray', ls='--')
+        plt.tick_params(
+            axis='x',          # changes apply to the x-axis
+            which='both',      # both major and minor ticks are affected
+            bottom=False,      # ticks along the bottom edge are off
+            top=False,         # ticks along the top edge are off
+            labelbottom=True)  # labels along the bottom edge are off
+        plt.title(feat, pad=10)
+        
+        if saveDir is not None:
+            Path(saveDir).mkdir(exist_ok=True, parents=True)
+            plt.savefig(saveDir / (str(f + 1) + '_' + feat + '_errorbar.pdf'))
+        else:
+            plt.show(); plt.pause(5)
+        plt.close()
+        
+    return
+    
 def boxplots_sigfeats(feat_meta_df,
                       test_pvalues_df,
                       group_by,
                       control_strain,
                       saveDir=None,
                       p_value_threshold=0.05,
-                      max_features_plot_cap=None,
+                      max_feats2plt=None,
                       feature_set=None,
                       sns_colour_palette="tab10",
                       colour_by_date=False,
@@ -305,8 +356,8 @@ def boxplots_sigfeats(feat_meta_df,
                 select_feat_pvals = pvals[feature_set]
                 topfeats = select_feat_pvals.append(topfeats)
                 
-            if max_features_plot_cap is not None and len(topfeats) > max_features_plot_cap:
-                topfeats = topfeats[:max_features_plot_cap]
+            if max_feats2plt is not None and len(topfeats) > max_feats2plt:
+                topfeats = topfeats[:max_feats2plt]
                 if verbose:
                     print("\nCapping plots for %s at %d features..\n" % (strain, len(topfeats)))
             else:
@@ -418,7 +469,7 @@ def boxplots_grouped(feat_meta_df,
                      saveDir=None,
                      p_value_threshold=0.05,
                      drop_insignificant=False,
-                     max_features_plot_cap=None, 
+                     max_feats2plt=None, 
                      max_groups_plot_cap=None,
                      sns_colour_palette="tab10",
                      figsize=[8,12],
@@ -439,10 +490,10 @@ def boxplots_grouped(feat_meta_df,
             feature_set = [feature for feature in feature_set if (test_pvalues_df[feature] < 
                                                                   p_value_threshold).any()]
         
-        if max_features_plot_cap is not None and len(feature_set) > max_features_plot_cap:
+        if max_feats2plt is not None and len(feature_set) > max_feats2plt:
             print("\nWARNING: Too many features to plot! Capping at %d plots"\
-                  % max_features_plot_cap)
-            feature_set = feature_set[:max_features_plot_cap]
+                  % max_feats2plt)
+            feature_set = feature_set[:max_feats2plt]
     elif test_pvalues_df is not None:
         # Plot all sig feats between any strain and control
         feature_set = [feature for feature in test_pvalues_df.columns if
@@ -523,7 +574,7 @@ def boxplots_grouped(feat_meta_df,
         # Save boxplot
         if saveDir:
             saveDir.mkdir(exist_ok=True, parents=True)
-            plot_path = Path(saveDir) / (str(f + 1) + '_' + feature + '.png')
-            plt.savefig(plot_path, dpi=300)
+            plot_path = Path(saveDir) / (str(f + 1) + '_' + feature + '.pdf')
+            plt.savefig(plot_path)
         else:
             plt.show()

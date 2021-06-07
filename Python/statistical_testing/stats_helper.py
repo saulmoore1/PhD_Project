@@ -48,10 +48,9 @@ def multiple_test_correction(pvalues, fdr_method='fdr_by', fdr=0.05):
         pvalues.loc[idx,:] = _corrArray[1]
         
         # Record significant features (after correction)
-        sigfeats = pvalues.loc[idx, 
-                               pvalues.columns[_corrArray[1] < fdr]].sort_values(ascending=True)
-        print("%d significant features found for %s (method='%s', fdr=%s)"\
-              % (len(sigfeats), idx, fdr_method, fdr))
+        sigfeats = pvalues.loc[idx, pvalues.columns[_corrArray[1] < fdr]].sort_values(ascending=True)
+        print("%d significant features found for %s (method='%s', fdr=%s)" % (len(sigfeats), idx, 
+                                                                              fdr_method, fdr))
     
     return pvalues
 
@@ -149,6 +148,7 @@ def levene_f_test(features,
             levene_stats = pd.read_csv(saveto, index_col=0)
 
     if levene_stats is None:
+        # TODO: Investigate inputs with partial here
         func = partial(stats_test, test=levene, vectorized=False)
         stats, pvals = func(X=features, 
                             y=metadata[grouping_var], 
@@ -173,8 +173,9 @@ def levene_f_test(features,
 
                 
     if saveto is not None:
-        if del_if_exists and Path(saveto).exists():
-            Path(saveto).unlink()
+        if Path(saveto).exists():
+            if del_if_exists:
+                Path(saveto).unlink()
         else:        
             print("Saving Levene stats to %s" %  saveto)
             saveto.parent.mkdir(exist_ok=True, parents=True)       

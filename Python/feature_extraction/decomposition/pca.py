@@ -68,10 +68,12 @@ def plot_pca(featZ,
              var_subset=None,
              control=None,
              saveDir=None,
+             kde=False,
              PCs_to_keep=10,
              n_feats2print=10,
              sns_colour_palette="tab10",
-             hypercolor=False):
+             hypercolor=False,
+             n_colours=20):
     """ Perform principal components analysis 
         - group_by : column in metadata to group by for plotting (colours) 
         - n_dims : number of principal component dimensions to plot (2 or 3)
@@ -137,10 +139,10 @@ def plot_pca(featZ,
                                 index=featZ.index)
     
     # Create colour palette for plot loop
-    if len(var_subset) > 10:
+    if len(var_subset) > n_colours:
         if not control:
             raise IOError('Too many groups for plot color mapping!' + 
-                          'Please provide a control group or subset of groups (n<10) to color plot')
+                          'Please provide a control group or subset of groups (n<20) to color plot')
         elif hypercolor:
             # Recycle palette colours to make up to number of groups
             print("\nWARNING: Multiple groups plotted with the same colour (too many groups)")
@@ -151,7 +153,7 @@ def plot_pca(featZ,
             palette = {var : "blue" if var == control else "darkgray" 
                        for var in meta[group_by].unique()}
             
-    elif len(var_subset) <= 10:
+    elif len(var_subset) <= n_colours:
         # Colour strains of interest
         colour_labels = sns.color_palette(sns_colour_palette, len(var_subset))
         palette = dict(zip(var_subset, colour_labels))
@@ -178,7 +180,7 @@ def plot_pca(featZ,
                        label=key, 
                        color=palette[key])
             
-        if len(var_subset) <= 10:
+        if len(var_subset) <= n_colours and kde:
             sns.kdeplot(x='PC1', 
                         y='PC2', 
                         data=meta.join(projected_df), 
@@ -197,7 +199,7 @@ def plot_pca(featZ,
                       fontsize=20, labelpad=12)
         #ax.set_title("PCA by '{}'".format(group_by), fontsize=20)
         
-        if len(var_subset) <= 10:
+        if len(var_subset) <= n_colours:
             plt.tight_layout() # rect=[0.04, 0, 0.84, 0.96]
             ax.legend(var_subset, frameon=True, loc='upper right', fontsize=15, markerscale=1.5)
         elif hypercolor:
@@ -226,7 +228,7 @@ def plot_pca(featZ,
         ax.set_zlabel('Principal Component 3 (%.1f%%)' % (ex_variance_ratio[2]*100),
                       fontsize=15, labelpad=12)
         #ax.set_title("PCA by '{}'".format(group_by), fontsize=20)
-        if len(var_subset) <= 15:
+        if len(var_subset) <= n_colours:
             ax.legend(var_subset, frameon=True, fontsize=12)
         ax.grid(False)
     else:

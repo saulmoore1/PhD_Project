@@ -28,8 +28,6 @@ import numpy as np
 from time import time
 from pathlib import Path
 from scipy.stats import zscore # ttest_ind, f_oneway, kruskal
-from scipy.cluster.hierarchy import linkage, fcluster
-from sklearn.metrics import pairwise_distances_argmin_min
 
 # Custom imports
 from read_data.paths import get_save_dir
@@ -50,7 +48,9 @@ from visualisation.plotting_helper import (sig_asterix,
                                            boxplots_grouped)
 
 from tierpsytools.analysis.significant_features import k_significant_feat
-from tierpsytools.analysis.statistical_tests import univariate_tests, get_effect_sizes
+from tierpsytools.analysis.statistical_tests import (univariate_tests, 
+                                                     get_effect_sizes, 
+                                                     _multitest_correct)
 #from tierpsytools.drug_screenings.filter_compounds import compounds_with_low_effect_univariate
 
 #%% Globals
@@ -77,17 +77,15 @@ def control_variation(feat,
     
     for GROUPING_VAR in variables:
         
+        # convert grouping variable column to factor
+        meta[GROUPING_VAR] = meta[GROUPING_VAR].astype(str)
+                
         # get control group for eg. date_yyyymmdd
-        control_group = args.control_dict[GROUPING_VAR]
+        control_group = str(args.control_dict[GROUPING_VAR])
         print("\nInvestigating variation in '%s' (control: '%s')" % (GROUPING_VAR, control_group))
 
-        # convert to string for use as factor
-        meta[GROUPING_VAR] = meta[GROUPING_VAR].astype(str)
-
         # Record mean sample size per group
-        mean_sample_size = int(np.round(meta.join(feat).groupby(
-            ([GROUPING_VAR, 'date_yyyymmdd'] if GROUPING_VAR != "date_yyyymmdd" else [GROUPING_VAR]), 
-            as_index=False).size().mean()))
+        mean_sample_size = int(np.round(meta.groupby([GROUPING_VAR]).size().mean()))
         print("Mean sample size: %d" % mean_sample_size)
         
         group_list = list(meta[GROUPING_VAR].unique())
@@ -206,6 +204,11 @@ def control_variation(feat,
             ksig_table = pd.concat([pd.Series(scores), pd.Series(pvalues_ksig)], axis=1)
             ksig_table.columns = ['scores','pvals']
             ksig_table.index = fset_ksig
+
+            # Correct for multiple comparisons
+            _, ksig_table['pvals'] = _multitest_correct(ksig_table['pvals'], 
+                                                        multitest_method=args.fdr_method,
+                                                        fdr=args.pval_threshold)
             
             # Save k most significant features
             ksig_table.to_csv(stats_dir / 'k_significant_features.csv', header=True, index=True)   
@@ -316,7 +319,7 @@ def control_variation(feat,
                              test_pvalues_df=pvals_t.T, # ranked by test pvalue significance
                              feature_set=fset,
                              saveDir=(plot_dir / 'grouped_boxplots'),
-                             max_features_plot_cap=args.n_sig_features, 
+                             max_feats2plt=args.n_sig_features, 
                              max_groups_plot_cap=None,
                              p_value_threshold=args.pval_threshold,
                              drop_insignificant=False,
@@ -330,7 +333,7 @@ def control_variation(feat,
             #                   control_strain=control_group, 
             #                   feature_set=fset, #['speed_norm_50th_bluelight'],
             #                   saveDir=plot_dir / 'paired_boxplots',
-            #                   max_features_plot_cap=args.n_sig_features,
+            #                   max_feats2plt=args.n_sig_features,
             #                   p_value_threshold=args.pval_threshold,
             #                   drop_insignificant=True,
             #                   verbose=False)
@@ -518,16 +521,16 @@ def control_variation(feat,
 
         #from tierpsytools.analysis.decomposition import plot_pca
         pca_dir = plot_dir / 'PCA'
-        projected_df = plot_pca(featZ, meta, 
-                                group_by=GROUPING_VAR, 
-                                control=control_group,
-                                var_subset=None, 
-                                saveDir=pca_dir,
-                                PCs_to_keep=10,
-                                n_feats2print=10,
-                                sns_colour_palette="plasma",
-                                n_dims=2,
-                                hypercolor=False)
+        _ = plot_pca(featZ, meta, 
+                     group_by=GROUPING_VAR, 
+                     control=control_group,
+                     var_subset=None, 
+                     saveDir=pca_dir,
+                     PCs_to_keep=10,
+                     n_feats2print=10,
+                     sns_colour_palette="plasma",
+                     n_dims=2,
+                     hypercolor=False)
         # TODO: Ensure sns colour palette does not plot white points for PCA
 
         ##### t-distributed Stochastic Neighbour Embedding #####   
@@ -535,12 +538,12 @@ def control_variation(feat,
         tsne_dir = plot_dir / 'tSNE'
         perplexities = [5, 15, 30, mean_sample_size] # NB: should be roughly equal to group size
         
-        tSNE_df = plot_tSNE(featZ, meta,
-                            group_by=GROUPING_VAR,
-                            var_subset=None,
-                            saveDir=tsne_dir,
-                            perplexities=perplexities,
-                            sns_colour_palette="plasma")
+        _ = plot_tSNE(featZ, meta,
+                      group_by=GROUPING_VAR,
+                      var_subset=None,
+                      saveDir=tsne_dir,
+                      perplexities=perplexities,
+                      sns_colour_palette="plasma")
        
         ##### Uniform Manifold Projection #####  
         
@@ -548,13 +551,13 @@ def control_variation(feat,
         n_neighbours = [5, 15, 30, mean_sample_size] # NB: should be roughly equal to group size
         min_dist = 0.1 # Minimum distance parameter
         
-        umap_df = plot_umap(featZ, meta,
-                            group_by=GROUPING_VAR,
-                            var_subset=None,
-                            saveDir=umap_dir,
-                            n_neighbours=n_neighbours,
-                            min_dist=min_dist,
-                            sns_colour_palette="plasma")        
+        _ = plot_umap(featZ, meta,
+                      group_by=GROUPING_VAR,
+                      var_subset=None,
+                      saveDir=umap_dir,
+                      n_neighbours=n_neighbours,
+                      min_dist=min_dist,
+                      sns_colour_palette="plasma")        
     
 #%%
 if __name__ == "__main__":

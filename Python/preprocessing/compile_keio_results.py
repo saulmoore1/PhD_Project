@@ -80,6 +80,9 @@ def compile_keio_results(args):
                                                norm_feats_only=args.norm_features_only,
                                                percentile_to_use=args.percentile_to_use)
 
+    assert not features.isna().sum(axis=1).any()
+    assert not (features.std(axis=1) == 0).any()
+    
     return features, metadata
 
 #%% MAIN

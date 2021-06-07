@@ -17,14 +17,6 @@ import numpy as np
 import pandas as pd
 from pathlib import Path
 
-# Custom imports
-from tierpsytools.hydra.hydra_helper import add_imgstore_name                     
-from tierpsytools.read_data.compile_features_summaries import compile_tierpsy_summaries
-from tierpsytools.read_data.hydra_metadata import read_hydra_metadata, align_bluelight_conditions
-from tierpsytools.hydra.match_wells_annotations import (import_wells_annotations_in_folder,
-                                                        match_rawvids_annotations,
-                                                        update_metadata)
-
 #%% Functions
 
 def compile_day_metadata(aux_dir, day, from_source_plate=False, from_robot_runlog=False, verbose=True):
@@ -81,7 +73,7 @@ def compile_day_metadata(aux_dir, day, from_source_plate=False, from_robot_runlo
 # =============================================================================
 
     day_metadata = get_day_metadata(complete_plate_metadata=plate_metadata, 
-                                    manual_metadata_file=hydra_meta,
+                                    hydra_metadata_file=hydra_meta,
                                     merge_on=['imaging_plate_id'],
                                     n_wells=96,
                                     run_number_regex='run\\d+_',
@@ -124,6 +116,12 @@ def process_metadata(aux_dir,
         compiled metadata path
     """
     
+    from tierpsytools.hydra.match_wells_annotations import update_metadata_with_wells_annotations
+    # from tierpsytools.hydra.match_wells_annotations import (import_wells_annotations_in_folder,
+    #                                                         match_rawvids_annotations,
+    #                                                         update_metadata)
+
+    
     compiled_metadata_path = Path(aux_dir) / "metadata.csv"
     
     if compiled_metadata_path.exists():
@@ -132,8 +130,9 @@ def process_metadata(aux_dir,
                                                              "source_plate_id":str}, header=0)
         # subset for imaging dates
         if imaging_dates is not None:
+            
             assert 'date_yyyymmdd' in meta_df.columns
-            meta_df = meta_df[meta_df['date_yyyymmdd'].isin(imaging_dates)]
+            meta_df = meta_df[meta_df['date_yyyymmdd'].astype(str).isin(imaging_dates)]
             
         print("Metadata loaded.")
         
@@ -168,6 +167,8 @@ def process_metadata(aux_dir,
             
             # Get imgstore name
             if 'imgstore_name' not in day_meta.columns:
+                from tierpsytools.hydra.hydra_helper import add_imgstore_name                     
+
                 # Delete camera_serial column as it will be recreated
                 if 'camera_serial' in day_meta.columns:
                      day_meta = day_meta.drop(columns='camera_serial')
@@ -215,63 +216,57 @@ def process_metadata(aux_dir,
                 meta_df = meta_df.drop(columns=[col])
             else:
                 assert not any(meta_df[col].isna())
+                
+        # Convert 'date_yyyymmdd' column to string (factor)
+        meta_df['date_yyyymmdd'] = meta_df['date_yyyymmdd'].astype(str)
         
         # Save metadata
         meta_df.to_csv(compiled_metadata_path, index=None) 
         print("Metadata saved to: %s" % compiled_metadata_path)
     
     # Add annotations to metadata
-    if add_well_annotations:
+    if add_well_annotations:        
         annotated_metadata_path = Path(str(compiled_metadata_path).replace('.csv', 
                                                                            '_annotated.csv'))
-        if annotated_metadata_path.exists():
-            # Load annotated metadata
-            meta_df = pd.read_csv(annotated_metadata_path, dtype={"comments":str,
-                                                                  "source_plate_id":str}, header=0)
-            print("Loaded annotated metadata")
-            
-            if not 'is_bad_well' in meta_df.columns:
-                raise Warning("Bad well annotations not found in metadata!")
-                
-            if imaging_dates is not None:
-                meta_df = meta_df.loc[meta_df['date_yyyymmdd'].isin(imaging_dates),:]
-                print("Extracted metadata for imaging dates provided")
-        else:
+        if not annotated_metadata_path.exists():
             print("Adding annotations to metadata")
             
-            # TODO: UPDATE ADD WELLS ANNOTATIONS
-            # from tierpsytools.hydra.match_wells_annotations import update_metadata_with_wells_annotations
-            # update_metadata_with_wells_annotations(aux_dir=aux_dir, 
-            #                                        saveto=annotated_metadata_path, 
-            #                                        del_if_exists=False)
+            meta_df = update_metadata_with_wells_annotations(aux_dir=aux_dir, 
+                                                             saveto=annotated_metadata_path, 
+                                                             del_if_exists=False)
 
-            annotations_df = import_wells_annotations_in_folder(aux_dir=aux_dir)
+            # annotations_df = import_wells_annotations_in_folder(aux_dir=aux_dir)
+            # matched_long = match_rawvids_annotations(rawvid_dir=aux_dir.parent / "RawVideos", 
+            #                                          annotations_df=annotations_df)
             
-            rawDir = aux_dir.parent / "RawVideos"
-            matched_long = match_rawvids_annotations(rawvid_dir=rawDir, 
-                                                     annotations_df=annotations_df)
-            if imaging_dates is not None:
-                _idx = [i for i in matched_long.index if 
-                        matched_long.loc[i, 'imgstore'].split('_')[-2] in imaging_dates]
-                matched_long = matched_long.loc[_idx, :]
+            # if imaging_dates is not None:
+            #     _idx = [i for i in matched_long.index if 
+            #             matched_long.loc[i, 'imgstore'].split('_')[-2] in imaging_dates]
+            #     matched_long = matched_long.loc[_idx, :]
         
-            # annotate metadata + save
-            meta_df = update_metadata(aux_dir=aux_dir, 
-                                      matched_long=matched_long, 
-                                      saveto=annotated_metadata_path,
-                                      del_if_exists=False)
+            # # annotate metadata + save
+            # meta_df = update_metadata(aux_dir=aux_dir, 
+            #                           matched_long=matched_long, 
+            #                           saveto=annotated_metadata_path,
+            #                           del_if_exists=False)
 
             assert annotated_metadata_path.exists()
-            
-            if imaging_dates is not None:
-                 meta_df = meta_df.loc[meta_df['date_yyyymmdd'].isin(imaging_dates),:]
-                 meta_df.to_csv(annotated_metadata_path, index=None)
-                 # NB: Also omits missing video data for some wells (ie. due to single camera failure)
-            
-            print("Annotated metadata saved to: %s" % annotated_metadata_path)
-              
-        prop_bad = meta_df['is_bad_well'].sum()/len(meta_df['is_bad_well'])
-        print("%.1f%% of data are labelled as 'bad well' data" % (prop_bad*100))
+           
+        # Load annotated metadata
+        meta_df = pd.read_csv(annotated_metadata_path, dtype={"comments":str,
+                                                              "source_plate_id":str}, header=0)
+        if not 'is_bad_well' in meta_df.columns:
+            raise Warning("Bad well annotations not found in metadata!")
+        if imaging_dates is not None:
+            imaging_dates = [float(i) for i in imaging_dates]
+            meta_df = meta_df.loc[meta_df['date_yyyymmdd'].isin(imaging_dates),:]
+            meta_df['date_yyyymmdd'] = meta_df['date_yyyymmdd'].astype(int).astype(str)
+            meta_df.to_csv(annotated_metadata_path, index=None)
+            print("Saving annotated metadata for imaging datees provided: %s" % annotated_metadata_path)
+            # NB: Also omits missing video data for some wells (ie. due to single camera failure)
+                          
+        # prop_bad = meta_df['is_bad_well'].sum()/len(meta_df['is_bad_well'])
+        # print("%.1f%% of data are labelled as 'bad well' data" % (prop_bad*100))
         
         compiled_metadata_path = annotated_metadata_path
                 
@@ -304,6 +299,9 @@ def process_feature_summaries(metadata_path,
         metadata, features
         
     """    
+
+    from tierpsytools.read_data.hydra_metadata import read_hydra_metadata, align_bluelight_conditions
+    from tierpsytools.read_data.compile_features_summaries import compile_tierpsy_summaries
     
     combined_feats_path = Path(results_dir) / "full_features.csv"
     combined_fnames_path = Path(results_dir) / "full_filenames.csv"
@@ -311,7 +309,7 @@ def process_feature_summaries(metadata_path,
     if np.logical_and(combined_feats_path.is_file(), combined_fnames_path.is_file()):
         print("Found existing full feature summaries")
     else:
-        print("Compiling feature summary results")       
+        print("Compiling feature summary results")    
         if compile_day_summaries:
             if imaging_dates:
                 feat_files = []

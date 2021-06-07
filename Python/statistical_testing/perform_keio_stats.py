@@ -17,6 +17,7 @@ import numpy as np
 import pandas as pd
 from time import time
 from pathlib import Path
+
 from read_data.paths import get_save_dir
 from read_data.read import load_json, load_topfeats
 from write_data.write import write_list_to_file
@@ -24,7 +25,7 @@ from filter_data.clean_feature_summaries import subset_results
 from visualisation.plotting_helper import sig_asterix
 from statistical_testing.stats_helper import levene_f_test
 from tierpsytools.analysis.significant_features import k_significant_feat
-from tierpsytools.analysis.statistical_tests import univariate_tests, get_effect_sizes
+from tierpsytools.analysis.statistical_tests import univariate_tests, get_effect_sizes, _multitest_correct
 #from tierpsytools.drug_screenings.filter_compounds import compounds_with_low_effect_univariate
 
 #%% GLOBALS
@@ -101,9 +102,6 @@ def keio_stats(features, metadata, args):
 
     ##### STATISTICS #####
 
-    # t-test to use        
-    t_test = 't-test' if args.test == 'ANOVA' else 'Mann-Whitney' # aka. Wilcoxon rank-sum                            
-
     stats_dir =  SAVE_DIR / GROUPING_VAR / "Stats"                  
 
     # F-test for equal variances
@@ -116,8 +114,10 @@ def keio_stats(features, metadata, args):
 
     # if p < 0.05 then variances are not equal, and sample size matters
     prop_eqvar = (levene_stats['pval'] > args.pval_threshold).sum() / len(levene_stats['pval'])
+    print("Percentage equal variance %.1f%%" % (prop_eqvar * 100))
 
     if args.collapse_control:
+        print("Collapsing control data (mean of each day)")
         features, metadata = average_control_keio(features, metadata)
 
     # Record mean sample size per group
@@ -211,6 +211,10 @@ def keio_stats(features, metadata, args):
 # =============================================================================
     
     ### t-tests / Mann-Whitney tests
+    
+    # t-test to use        
+    t_test = 't-test' if args.test == 'ANOVA' else 'Mann-Whitney' # aka. Wilcoxon rank-sum                            
+
     ttest_path = stats_dir / '{}_results.csv'.format(t_test)
     if not ttest_path.exists():    
         ttest_path.parent.mkdir(exist_ok=True, parents=True)
@@ -237,6 +241,8 @@ def keio_stats(features, metadata, args):
 
             # Record t-test significant feature set (NOT ORDERED)
             fset_ttest = list(pvals_t.index[(pvals_t < args.pval_threshold).sum(axis=1) > 0])
+            print("%d signficant features found for any %s vs %s (%s, P<%.2f)" %\
+                  (len(fset_ttest), GROUPING_VAR, CONTROL, t_test, args.pval_threshold))
             
             # Save t-test results to file
             ttest_table.to_csv(ttest_path, header=True, index=True) # Save test results to CSV
@@ -244,8 +250,6 @@ def keio_stats(features, metadata, args):
             if len(fset_ttest) > 0:
                 ttest_sigfeats_path = Path(str(ttest_path).replace('_results.csv', '_sigfeats.txt'))
                 write_list_to_file(fset_ttest, ttest_sigfeats_path)
-                print("%d signficant features found for any %s vs %s (%s, P<%.2f)" %\
-                      (len(fset_ttest), GROUPING_VAR, CONTROL, t_test, args.pval_threshold))
                                  
     ### K significant features
     
@@ -271,38 +275,15 @@ def keio_stats(features, metadata, args):
         ksig_table.columns = ['scores','pvals']
         ksig_table.index = fset_ksig
         
+        # Correct for multiple comparisons
+        _, ksig_table['pvals'] = _multitest_correct(ksig_table['pvals'], 
+                                                    multitest_method=args.fdr_method,
+                                                    fdr=args.pval_threshold)
+        
         # Save k most significant features
         k_sigfeats_path.parent.mkdir(exist_ok=True, parents=True)      
         ksig_table.to_csv(k_sigfeats_path, header=True, index=True)   
-                            
-# =============================================================================
-#         ### mRMR feature selection: minimum Redunduncy, Maximum Relevance
-# 
-#         from sklearn.preprocessing import StandardScaler
-#         from sklearn.pipeline import Pipeline
-#         from sklearn.linear_model import LogisticRegression
-#         from sklearn.model_selection import cross_val_score
-#         from tierpsytools.analysis.significant_features import mRMR_feature_selection
-# 
-#         estimator = Pipeline([('scaler', StandardScaler()), ('estimator', LogisticRegression())])
-#         y = meta[GROUPING_VAR].values
-#         data = meta.drop(columns=GROUPING_VAR).join(feat)
-#         
-#         (mrmr_feat_set, 
-#          mrmr_scores, 
-#          mrmr_support) = mRMR_feature_selection(data, k=10, y_class=y,
-#                                                 redundancy_func='pearson_corr', 
-#                                                 relevance_func='kruskal',
-#                                                 n_bins=4, mrmr_criterion='MID',
-#                                                 plot=True, k_to_plot=5, 
-#                                                 close_after_plotting=False,
-#                                                 saveto=None, figsize=None)
-#         
-#         cv_scores_mrmr = cross_val_score(estimator, data[mrmr_feat_set], y, cv=5)
-#         print('MRMR')
-#         print(np.mean(cv_scores_mrmr))
-# =============================================================================
-            
+
 #%% MAIN
 
 if __name__ == "__main__":
