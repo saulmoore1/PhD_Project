@@ -250,26 +250,33 @@ def process_metadata(aux_dir,
             #                           saveto=annotated_metadata_path,
             #                           del_if_exists=False)
 
+            if imaging_dates is not None:
+                imaging_dates = [float(i) for i in imaging_dates]
+                meta_df = meta_df.loc[meta_df['date_yyyymmdd'].isin(imaging_dates),:]
+                meta_df['date_yyyymmdd'] = meta_df['date_yyyymmdd'].astype(int).astype(str)
+                # NB: Also omits missing video data for some wells (ie. due to single camera failure)
+
+                meta_df.to_csv(annotated_metadata_path, index=None)
+                print("Saving annotated metadata to: %s" % annotated_metadata_path)
+    
             assert annotated_metadata_path.exists()
            
         # Load annotated metadata
         meta_df = pd.read_csv(annotated_metadata_path, dtype={"comments":str,
                                                               "source_plate_id":str}, header=0)
-        if not 'is_bad_well' in meta_df.columns:
-            raise Warning("Bad well annotations not found in metadata!")
         if imaging_dates is not None:
             imaging_dates = [float(i) for i in imaging_dates]
             meta_df = meta_df.loc[meta_df['date_yyyymmdd'].isin(imaging_dates),:]
             meta_df['date_yyyymmdd'] = meta_df['date_yyyymmdd'].astype(int).astype(str)
-            meta_df.to_csv(annotated_metadata_path, index=None)
-            print("Saving annotated metadata for imaging datees provided: %s" % annotated_metadata_path)
-            # NB: Also omits missing video data for some wells (ie. due to single camera failure)
-                          
-        # prop_bad = meta_df['is_bad_well'].sum()/len(meta_df['is_bad_well'])
-        # print("%.1f%% of data are labelled as 'bad well' data" % (prop_bad*100))
         
         compiled_metadata_path = annotated_metadata_path
-                
+                          
+    if not 'is_bad_well' in meta_df.columns:
+        raise Warning("Bad well annotations not found in metadata!")
+    else:
+        prop_bad = meta_df['is_bad_well'].sum()/len(meta_df['is_bad_well'])
+        print("%.1f%% of data are labelled as 'bad well' data" % (prop_bad*100))
+                            
     return meta_df, compiled_metadata_path
 
 def process_feature_summaries(metadata_path, 
@@ -327,13 +334,11 @@ def process_feature_summaries(metadata_path,
             feat_files = list(Path(results_dir).glob('features_summary*.csv'))
             fname_files = list(Path(results_dir).glob('filenames_summary*.csv'))
                
-        # TODO: A check for multiple matches - throw warning
+        # TODO: check for multiple matches - throw warning
             
         # Keep only features files for which matching filenames_summaries exist
-        feat_files = [feat_fl for feat_fl,fname_fl in zip(np.unique(feat_files),
-                      np.unique(fname_files)) if fname_fl is not None]
-        fname_files = [fname_fl for fname_fl in np.unique(fname_files)
-                       if fname_fl is not None]
+        feat_files = [ft for ft, fn in zip(np.unique(feat_files), np.unique(fname_files)) if fn is not None]
+        fname_files = [fn for fn in np.unique(fname_files) if fn is not None]
         
         # Compile feature summaries for matched features/filename summaries
         compile_tierpsy_summaries(feat_files=feat_files, 
@@ -341,17 +346,16 @@ def process_feature_summaries(metadata_path,
                                   compiled_feat_file=combined_feats_path,
                                   compiled_fname_file=combined_fnames_path)
 
-    # Read metadata first just to record column order
+    # Read metadata + record column order
     metadata = pd.read_csv(metadata_path, dtype={"comments":str, "source_plate_id":str})
     meta_col_order = metadata.columns.tolist()
 
     # Read features summaries + metadata and add bluelight column if aligning bluelight video results
     features, metadata = read_hydra_metadata(combined_feats_path, 
                                              combined_fnames_path,
-                                             metadata_path,
+                                             metadata_path, 
                                              add_bluelight=align_bluelight)
-    
-    # Maintain metadata column order
+    # record new columns
     meta_col_order.extend(['bluelight','featuresN_filename','file_id','is_good_well','n_skeletons'])
 
     if align_bluelight:
@@ -365,11 +369,11 @@ def process_feature_summaries(metadata_path,
         # Update metadata column order 
         for col in ['bluelight','file_id','imgstore_name','n_skeletons']:
             meta_col_order.remove(col)
-        # TODO: Use set(meta_col_order)-set(metadata.columns) to avoid hard coding column names
         meta_col_order.extend(['bluelight_prestim','bluelight_bluelight','bluelight_poststim',
                                'file_id_bluelight','file_id_poststim','file_id_prestim',
                                'imgstore_name_bluelight','imgstore_name_poststim','imgstore_name_prestim',
                                'n_skeletons_bluelight','n_skeletons_poststim','n_skeletons_prestim'])
+        # TODO: Use set(meta_col_order)-set(metadata.columns) to avoid hard coding column names
         
     assert set(features.index) == set(metadata.index)
     

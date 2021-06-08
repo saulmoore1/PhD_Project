@@ -23,7 +23,6 @@ from read_data.read import load_json, load_topfeats
 from write_data.write import write_list_to_file
 from filter_data.clean_feature_summaries import subset_results
 from visualisation.plotting_helper import sig_asterix
-from statistical_testing.stats_helper import levene_f_test
 from tierpsytools.analysis.significant_features import k_significant_feat
 from tierpsytools.analysis.statistical_tests import univariate_tests, get_effect_sizes, _multitest_correct
 #from tierpsytools.drug_screenings.filter_compounds import compounds_with_low_effect_univariate
@@ -105,16 +104,17 @@ def keio_stats(features, metadata, args):
     stats_dir =  SAVE_DIR / GROUPING_VAR / "Stats"                  
 
     # F-test for equal variances
-    levene_stats_path = stats_dir / 'levene_results.csv'
-    levene_stats = levene_f_test(features, metadata, GROUPING_VAR, 
-                                 p_value_threshold=args.pval_threshold, 
-                                 multitest_method=args.fdr_method,
-                                 saveto=levene_stats_path,
-                                 del_if_exists=False)
-
-    # if p < 0.05 then variances are not equal, and sample size matters
-    prop_eqvar = (levene_stats['pval'] > args.pval_threshold).sum() / len(levene_stats['pval'])
-    print("Percentage equal variance %.1f%%" % (prop_eqvar * 100))
+    if args.f_test:
+        from statistical_testing.stats_helper import levene_f_test
+        levene_stats_path = stats_dir / 'levene_results.csv'
+        levene_stats = levene_f_test(features, metadata, GROUPING_VAR, 
+                                      p_value_threshold=args.pval_threshold, 
+                                      multitest_method=args.fdr_method,
+                                      saveto=levene_stats_path,
+                                      del_if_exists=False)
+        # if p < 0.05 then variances are not equal, and sample size matters
+        prop_eqvar = (levene_stats['pval'] > args.pval_threshold).sum() / len(levene_stats['pval'])
+        print("Percentage equal variance %.1f%%" % (prop_eqvar * 100))
 
     if args.collapse_control:
         print("Collapsing control data (mean of each day)")
@@ -227,7 +227,8 @@ def keio_stats(features, metadata, args):
                                                           comparison_type='binary_each_group',
                                                           multitest_correction=args.fdr_method, 
                                                           alpha=0.05)
-            effect_sizes_t =  get_effect_sizes(X=features, y=metadata[GROUPING_VAR], 
+            effect_sizes_t =  get_effect_sizes(X=features, 
+                                               y=metadata[GROUPING_VAR], 
                                                control=CONTROL,
                                                effect_type=None,
                                                linked_test=t_test)
@@ -236,7 +237,6 @@ def keio_stats(features, metadata, args):
             pvals_t.columns = ['pvals_' + str(c) for c in pvals_t.columns]
             reject_t.columns = ['reject_' + str(c) for c in reject_t.columns]
             effect_sizes_t.columns = ['effect_size_' + str(c) for c in effect_sizes_t.columns]
-            
             ttest_table = pd.concat([stats_t, pvals_t, effect_sizes_t, reject_t], axis=1)
 
             # Record t-test significant feature set (NOT ORDERED)

@@ -25,6 +25,28 @@ JSON_PARAMETERS_PATH = "analysis/20210406_parameters_keio_screen.json"
 #%% FUNCTIONS
 
 def compile_keio_results(args):
+    """ Compile metadata (from day meta if provided) and feature summary results (from day summaries),
+        for dates in imaging_dates if provided, else all dates found in AuxiliaryFiles directory; and 
+        clean feature summary results to:
+        Remove:
+            - Samples with < min_nskel_per_video number of skeletons tracked throughout the video
+            - Samples with > nan_threshold_row proportion of NaN features,
+            - Features with > nan_threshold_col proportion of NaN values across all samples
+            - Features that are size related (if drop_size_features=True)
+            - Features that are not normalised by length (if norm_features_only=True)
+            - Features from other percentiles of the distribution (if percentile_to_use is not None)
+        Replace:
+            - Feature values > max_value_cap (if max_value_cap is not None)
+            - Remaining NaN feature values with global mean of all samples (if impute_nans=True)
+        
+        Input
+        -----
+        args : Python object containing required variables
+        
+        Returns
+        -------
+        features, metadata
+    """
     
     assert args.project_dir is not None
     AUX_DIR = Path(args.project_dir) / "AuxiliaryFiles"

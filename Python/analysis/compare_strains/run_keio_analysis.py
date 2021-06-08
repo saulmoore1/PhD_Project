@@ -108,19 +108,20 @@ def compare_strains_keio(features, metadata, args):
     # equal sample sizes. So as long as your sample sizes are equal, you don't have to worry about 
     # homogeneity of variances. If they are not equal, perform F-tests first to see if variance is 
     # equal before doing a t-test
-    # F-test for equal variances
-    levene_stats_path = stats_dir / 'levene_results.csv'
-    levene_stats = levene_f_test(features, 
-                                 metadata,
-                                 grouping_var=GROUPING_VAR, 
-                                 p_value_threshold=args.pval_threshold, 
-                                 multitest_method=args.fdr_method,
-                                 saveto=levene_stats_path,
-                                 del_if_exists=False)
-
-    # if p < 0.05 then variances are not equal, and sample size matters
-    prop_eqvar = (levene_stats['pval'] > args.pval_threshold).sum() / len(levene_stats['pval'])
-    print("Percentage equal variance %.1f%%" % (prop_eqvar * 100))
+    if args.f_test:
+        # F-test for equal variances
+        levene_stats_path = stats_dir / 'levene_results.csv'
+        levene_stats = levene_f_test(features, 
+                                     metadata,
+                                     grouping_var=GROUPING_VAR, 
+                                     p_value_threshold=args.pval_threshold, 
+                                     multitest_method=args.fdr_method,
+                                     saveto=levene_stats_path,
+                                     del_if_exists=False)
+    
+        # if p < 0.05 then variances are not equal, and sample size matters
+        prop_eqvar = (levene_stats['pval'] > args.pval_threshold).sum() / len(levene_stats['pval'])
+        print("Percentage equal variance %.1f%%" % (prop_eqvar * 100))
     
     if args.collapse_control:
         print("Collapsing control data (mean of each day)")
@@ -237,10 +238,10 @@ def compare_strains_keio(features, metadata, args):
     # Select top 100 hit strains by n sigfeats
     # TODO: Choose strains with > 5 sigfeats as hit strains?
     hit_strains_nsig = ranked_nsig[ranked_nsig > 0].index.to_list()
-    print("\n%d significant strains (ie. with 1 or more sigfeats) found by t-test" % len(hit_strains_nsig))
+    print("%d significant strains (ie. with 1 or more sigfeats) found by t-test" % len(hit_strains_nsig))
     #hit_nuo = ranked_nsig[[i for i in ranked_nsig[ranked_nsig > 0].index if 'nuo' in i]]
 
-    # Plot top ranked strains by number of significant features
+    print("Plotting ranked strains by number of significant features")
     plt.ioff()
     fig, ax = plt.subplots()
     ax.plot(ranked_nsig)
@@ -254,7 +255,7 @@ def compare_strains_keio(features, metadata, args):
     # Select top 100 hit strains by lowest p-value for any feature
     hit_strains_pval = ranked_pval[ranked_pval < args.pval_threshold].index.to_list()
 
-    # Plot top ranked strains by lowest p-value for any feature
+    print("Plotting ranked strains by lowest p-value of any feature")
     plt.ioff()
     fig, ax = plt.subplots()
     ax.plot(ranked_pval)
