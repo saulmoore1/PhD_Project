@@ -43,9 +43,10 @@ DODGE = True
 def superplot(features, metadata, feat, 
               x1="food_type", x2="date_yyyymmdd", # 'imaging_run_number', 'instrument_name'
               plot_type='box', show_points=None, plot_means=True, max_points=30, 
-              sns_colour_palettes=["plasma","viridis"], 
+              sns_colour_palettes=["plasma","plasma"], 
               dodge=False, saveDir=None, **kwargs):
     """ Plot timeseries for strains by Hydra day replicates """
+    # TODO: Add t-test/LMM pvalues to superplots       
     
     import numpy as np
     import seaborn as sns
@@ -131,10 +132,10 @@ def superplot(features, metadata, feat,
         sns.stripplot(x=x1, 
                       y=feat, 
                       order=x1_order, 
-                      hue=x2 if x2 is not None else None, 
-                      hue_order=x2_order if x2 is not None else None,
-                      palette=palette if x2 is not None else None, 
-                      color=None if x2 is not None else 'gray',
+                      hue=None, #x2 if x2 is not None else None, 
+                      hue_order=None, #x2_order if x2 is not None else None,
+                      palette=None, #palette if x2 is not None else None, 
+                      color='dimgray', # None if x2 is not None else 'gray',
                       s=10, marker=".", edgecolor='k', linewidth=.3, # facecolors="none"
                       dodge=dodge, ax=ax, data=df)
         

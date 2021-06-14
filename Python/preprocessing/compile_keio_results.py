@@ -49,20 +49,20 @@ def compile_keio_results(args):
     """
     
     assert args.project_dir is not None
-    AUX_DIR = Path(args.project_dir) / "AuxiliaryFiles"
-    RESULTS_DIR = Path(args.project_dir) / "Results"
+    aux_dir = Path(args.project_dir) / "AuxiliaryFiles"
+    results_dir = Path(args.project_dir) / "Results"
     
     ##### Compile results #####
         
     # Process metadata 
-    metadata, metadata_path = process_metadata(aux_dir=AUX_DIR,
+    metadata, metadata_path = process_metadata(aux_dir=aux_dir,
                                                imaging_dates=args.dates, # 20210420, 20210504
                                                add_well_annotations=args.add_well_annotations,
                                                update_day_meta=False)
             
     # Process feature summary results
     features, metadata = process_feature_summaries(metadata_path,
-                                                   RESULTS_DIR,
+                                                   results_dir,
                                                    compile_day_summaries=args.compile_day_summaries,
                                                    imaging_dates=args.dates,
                                                    align_bluelight=args.align_bluelight)
@@ -82,6 +82,20 @@ def compile_keio_results(args):
         supplementary_7 = load_supplementary_7(args.path_sup_info)
         metadata = append_supplementary_7(metadata, supplementary_7, column_name='gene_name')
         assert set(metadata.index) == set(features.index)
+
+    COG_families = {'Information storage and processing' : ['J', 'K', 'L', 'D', 'O'], 
+                    'Cellular processes' : ['M', 'N', 'P', 'T', 'C', 'G', 'E'], 
+                    'Metabolism' : ['F', 'H', 'I', 'Q', 'R'], 
+                    'Poorly characterised' : ['S', 'U', 'V']}
+    COG_mapping_dict = {i : k for (k, v) in COG_families.items() for i in v}
+    
+    COG_info = []
+    for i in metadata['COG_category']:
+        try:
+            COG_info.append(COG_mapping_dict[i])
+        except:
+            COG_info.append('Unknown')
+    metadata['COG_info'] = COG_info
 
     # # Calculate duration on food + duration in L1 diapause
     # metadata = duration_on_food(metadata) 

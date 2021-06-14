@@ -8,6 +8,8 @@ Hierarchical Clustering and Heatmaps
 
 """
 
+# TODO: Remove lines from heatmap and add feature names
+
 #%% Imports
 
 import sys
@@ -28,9 +30,10 @@ def plot_clustermap(featZ,
                     group_by,
                     col_linkage=None,
                     method='complete',
+                    metric='euclidean',
                     saveto=None,
                     figsize=[10,8],
-                    sns_colour_palette="Pastel1"):
+                    sns_colour_palette="bright"):
     """ Seaborn clustermap (hierarchical clustering heatmap) of normalised """                
     
     import seaborn as sns
@@ -81,7 +84,7 @@ def plot_clustermap(featZ,
                         col_colors=fset.map(feat_colour_dict),
                         #standard_scale=1, z_score=1,
                         col_linkage=col_linkage,
-                        metric='euclidean', 
+                        metric=metric, 
                         method=method,
                         vmin=-2, vmax=2,
                         figsize=figsize,
@@ -92,12 +95,13 @@ def plot_clustermap(featZ,
                                   'label': None, #'Z-value'
                                   'shrink': 1,
                                   'ticks': [-2, -1, 0, 1, 2],
-                                  'drawedges': False})
+                                  'drawedges': False},
+                        linewidths=0)
     cg.ax_heatmap.set_yticklabels(cg.ax_heatmap.get_yticklabels(), rotation=0, 
                                   fontsize=15, ha='left', va='center')    
     #plt.setp(cg.ax_heatmap.yaxis.get_majorticklabels(), fontsize=15)
     #cg.ax_heatmap.axes.set_xticklabels([]); cg.ax_heatmap.axes.set_yticklabels([])
-    if len(fset) <= 256:
+    if len(fset) <= 768: # Top256 features * 3 bluelight stimuli = 768 features
         plt.setp(cg.ax_heatmap.xaxis.get_majorticklabels(), rotation=90)
     
     patch_list = []
@@ -118,7 +122,7 @@ def plot_clustermap(featZ,
                         left=0.02, right=0.9, 
                         hspace=0.01, wspace=0.01)
     #plt.tight_layout(rect=[0, 0, 1, 1], w_pad=0.5)
-    
+        
     # Add custom colorbar to right hand side
     # from mpl_toolkits.axes_grid1.axes_divider import make_axes_locatable
     # from mpl_toolkits.axes_grid1.colorbar import colorbar
@@ -223,7 +227,8 @@ def plot_barcode_heatmap(featZ,
                     cbar=n==0, #only plots colorbar for first plot
                     cbar_ax=None if n else cbar_ax,
                     #cbar_kws={'shrink':0.8},
-                    vmin=v[0], vmax=v[1])
+                    vmin=v[0], vmax=v[1],
+                    linewidths=0)
         plt.yticks(rotation=0, fontsize=20)
         plt.ylabel("")
         #cbar_ax.set_yticklabels(labels = cbar_ax.get_yticklabels())#, fontdict=font_settings)

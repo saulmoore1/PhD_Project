@@ -10,7 +10,7 @@
 "runs": null,
 "f_test": false,
 "test": "ANOVA",
-"n_top_feats": 256,
+"n_top_feats": 16,
 "tierpsy_top_feats_dir": "/Users/sm5911/Tierpsy_Versions/tierpsy-tools-python/tierpsytools/extras/feat_sets",
 "percentile_to_use": null,
 "drop_size_features": false,
@@ -34,6 +34,7 @@
 		 "imaging_run_number": "1",
 		 "well_name": "A1"},
 "fdr_method": "fdr_by",
+"use_corrected_pvals" : true,
 "lmm_random_effect": "date_yyyymmdd",
 "use_k_sig_feats_overlap": false,
 "max_features_plot_cap": 20

@@ -270,6 +270,7 @@ def errorbar_sigfeats(features, metadata, group_by, fset, control=None,
     from pathlib import Path
     from tqdm import tqdm
     from matplotlib import pyplot as plt
+    from scipy.stats import sem
     
     plt.ioff() if saveDir is not None else plt.ion()
     
@@ -282,18 +283,22 @@ def errorbar_sigfeats(features, metadata, group_by, fset, control=None,
     for f, feat in enumerate(tqdm(fset[:max_feats2plt])):
         # Errorbar plot
         order = median_strain[feat].sort_values(ascending=True).index.to_list()
-        error = [1.98 * features.loc[metadata[group_by]==strain, feat].std() for strain in order]
+        error = [sem(features.loc[metadata[group_by]==strain, feat]) for strain in order]
+        #error = [1.98 * features.loc[metadata[group_by]==strain, feat].std() for strain in order]
+
+        mean_ordered = mean_strain.reindex(order).reset_index(drop=False)[[group_by, feat]]  
+        
         if control is not None:
-            color = ['blue' if e == control else 'grey' for e in order]
+            colour = ['blue' if s == control else 'grey' for s in mean_ordered[group_by]]
         else:
-            color = 'grey'
-        mean_ordered = mean_strain.reindex(order).reset_index(drop=False)      
+            colour = ['grey' for s in mean_ordered[group_by]]
+            
         fig, ax = plt.subplots(figsize=figsize)
-        plt.errorbar(x=group_by, 
+        plt.errorbar(x=group_by,
                      y=feat, 
-                     yerr=error, 
+                     yerr=error,
                      data=mean_ordered, 
-                     fmt='.', elinewidth=0.5, ecolor=color, c='k', ms=5)
+                     fmt='.', elinewidth=0.5, ecolor=colour, c='dimgray', ms=5)
         _ = plt.xticks(rotation=90, fontsize=fontsize)
         plt.axhline(median_strain.loc[control, feat], c='dimgray', ls='--')
         plt.tick_params(
@@ -313,153 +318,180 @@ def errorbar_sigfeats(features, metadata, group_by, fset, control=None,
         
     return
     
-def boxplots_sigfeats(feat_meta_df,
-                      test_pvalues_df,
-                      group_by,
-                      control_strain,
-                      saveDir=None,
-                      p_value_threshold=0.05,
-                      max_feats2plt=None,
+def boxplots_sigfeats(features,
+                      y_class,
+                      control,
+                      pvals,
                       feature_set=None,
-                      sns_colour_palette="tab10",
-                      colour_by_date=False,
+                      saveDir=None,
                       drop_insignificant=True,
+                      p_value_threshold=0.05,
+                      max_sig_feats=10,
+                      max_strains=100,
+                      sns_colour_palette="tab10",
+                      colour_by=None,
                       verbose=True):
-    """ Box plots of most significantly different features between strains """    
+    """ Box plots of most significantly different features between each strain and the control 
     
+        Inputs
+        ------
+        features
+        y_class
+        control
+        pvals
+        feature_set
+        saveDir
+        drop_insignificant
+        p_value_threshold
+        sns_colour_palette
+        colour_by
+        verbose
+    
+    """    
+        
     import numpy as np
+    import pandas as pd
     import seaborn as sns
     from tqdm import tqdm
     from matplotlib import pyplot as plt
    
+    # features
     if feature_set is not None:
         if not type(feature_set) == list:
             try:
                 feature_set = list(feature_set)
             except:
-                raise IOError("Please provide selected features as a list!")
-        
-    for strain in tqdm(test_pvalues_df.index, position=0):
-        pvals = test_pvalues_df.loc[strain]
-        
-        n_sigfeats = sum(pvals < p_value_threshold)
-
-        if (pvals.isna().all() or n_sigfeats == 0) and verbose:
-            print("No signficant features found for %s" % strain)
-        elif n_sigfeats > 0 or not drop_insignificant:   
-            # ranked p-values
-            ranked_pvals = pvals.sort_values(ascending=True) # rank p-values in ascending order
-            ranked_pvals = ranked_pvals.dropna(axis=0) # drop NaNs
-            topfeats = ranked_pvals[ranked_pvals < p_value_threshold] # drop non-sig feats  
-            
-            if feature_set is not None:
-                select_feat_pvals = pvals[feature_set]
-                topfeats = select_feat_pvals.append(topfeats)
+                raise IOError("Please provide selected features as a list")
+        assert all(f in features.columns for f in feature_set)
+        features = features[feature_set]
+        pvals = pvals.loc[feature_set]
                 
-            if max_feats2plt is not None and len(topfeats) > max_feats2plt:
-                topfeats = topfeats[:max_feats2plt]
-                if verbose:
-                    print("\nCapping plots for %s at %d features..\n" % (strain, len(topfeats)))
+    # pvals
+    assert all(f in features.columns for f in pvals.index)
+    ranked_min_pval = pvals.min(axis=0).sort_values(ascending=True)
+
+    # strains
+    if drop_insignificant:    
+        # drop insignificant strains
+        strain_list = ranked_min_pval[ranked_min_pval < p_value_threshold].index.to_list()
+    else:
+        strain_list = ranked_min_pval.index.to_list()
+        #list(y_class.unique()); strain_list.remove(control)
+
+    data = pd.concat([y_class, features], axis=1)
+
+    # Top10 features for each strain vs control    
+    for s, strain in enumerate(tqdm(strain_list[:max_strains], position=0)):
+
+        strain_pvals = pvals[strain]
+
+        # drop NaNs + rank features by min pval
+        strain_pvals = strain_pvals.dropna(axis=0)
+        strain_pvals = strain_pvals.sort_values(ascending=True) # rank p-values (top features for strain)
+                
+        # drop insignificant features
+        if drop_insignificant:
+            strain_pvals = strain_pvals.loc[strain_pvals < p_value_threshold]
+            if verbose:
+                print("%d significant features found for %s" % (len(strain_pvals.index), str(strain)))
+
+        if strain_pvals.shape[0] > max_sig_feats and verbose:
+            print("\tPlotting only top %d features for %s\n" % (max_sig_feats, str(strain)))
+
+        # Subset for strain + control only
+        strain_data = data[np.logical_or(data[y_class.name]==control, data[y_class.name]==strain)]    
+        
+        # Create colour palette
+        colour_labels = sns.color_palette(sns_colour_palette, 2)
+        colour_dict = {control:colour_labels[0], str(strain):colour_labels[1]}
+        
+        if colour_by is not None:
+            cols = sns.color_palette("Paired", len(strain_data[colour_by].unique()))
+            colby_dict = dict(zip(data[colour_by].unique(), cols))
+            
+        order = list(strain_data[y_class.name].unique())
+        order.remove(control)
+        order.insert(0, control)
+                                              
+        # Boxplots of control vs test-strain for each top-ranked significant feature
+        plt.ioff() if saveDir else plt.ion()
+        for f, feature in enumerate(strain_pvals.index.to_list()[:max_sig_feats]):
+            plt.close('all')
+            plt.style.use(CUSTOM_STYLE) 
+            sns.set_style('ticks')
+            fig = plt.figure(figsize=[10,8])
+            ax = fig.add_subplot(1,1,1)
+            sns.boxplot(x=y_class.name, 
+                        y=feature, 
+                        data=strain_data, 
+                        order=order,
+                        palette=colour_dict,
+                        showfliers=False, 
+                        showmeans=True if colour_by is not None else False,
+                        #meanline=True,
+                        meanprops={"marker":"x", 
+                                   "markersize":5,
+                                   "markeredgecolor":"k"},
+                        flierprops={"marker":"x", 
+                                    "markersize":15, 
+                                    "markeredgecolor":"r"})
+            sns.stripplot(x=y_class.name, 
+                          y=feature, 
+                          data=strain_data,
+                          s=20,
+                          order=order,
+                          hue=colour_by if colour_by is not None else None,
+                          palette=colby_dict if colour_by is not None else None,
+                          color=None if colour_by is not None else 'gray',
+                          marker=".",
+                          edgecolor='k',
+                          linewidth=.3) #facecolors="none"
+            ax.axes.get_xaxis().get_label().set_visible(False) # remove x axis label
+            plt.ylabel("")
+            plt.title(feature.replace('_',' '), fontsize=18, pad=20)
+            # ylab = ' '.join(feature.split('_')[:-2])
+            # if any(f in feature for f in ['length','width']):
+            #     ylab = r'{} ($\mu m$)'.format(ylab)
+            # elif 'speed' in feature:
+            #     ylab = r'{} ($\mu m/s$)'.format(ylab)
+            # elif 'area' in feature:
+            #     ylab = r'{} ($\mu m^2$)'.format(ylab)
+            # plt.ylabel(ylab, fontsize=18) #fontsize=15, labelpad=12
+
+            if colour_by is not None:
+                plt.xlim(right=len(order)-0.3)
+                plt.legend(loc='upper right', title=str(colour_by))
+            
+            # Add p-value to plot
+            p = strain_pvals.loc[feature]
+            text = ax.get_xticklabels()[-1]
+            assert text.get_text() == strain
+            y = strain_data[feature].max() 
+            h = (y - strain_data[feature].min()) / 50
+            plt.plot([0, 0, 1, 1], [y+h, y+2*h, y+2*h, y+h], lw=1.5, c='k')
+            p_text = 'P < 0.001' if p < 0.001 else 'P = %.3f' % p
+            # TODO: Write pvalue as scientific abbrev standard form 
+            ax.text(0.5, y+2*h, p_text, fontsize=12, ha='center', va='bottom')
+            
+            # # Custom legend
+            # from matplotlib import patches
+            # patch_list = []
+            # for l, key in enumerate(colour_dict.keys()):
+            #     patch = patches.Patch(color=colour_dict[key], label=key)
+            #     patch_list.append(patch)
+            # plt.tight_layout(rect=[0.04, 0, 0.84, 0.96])
+            # plt.legend(handles=patch_list, labels=colour_dict.keys(), loc=(1.02, 0.8),\
+            #           borderaxespad=0.4, frameon=False, fontsize=15)
+            plt.subplots_adjust(left=0.15)
+
+            # Save figure
+            if saveDir:
+                plot_path = saveDir / ('{0}_'.format(s + 1) + str(strain)) /\
+                                      ('{0}_'.format(f + 1) + feature + '.pdf')
+                plot_path.parent.mkdir(exist_ok=True, parents=True)
+                plt.savefig(plot_path, dpi=300)
             else:
-                if verbose:
-                    print("%d significant features found for %s" % (n_sigfeats, str(strain)))
-
-            # Subset feature summary results for test-strain + control only
-            plot_df = feat_meta_df[np.logical_or(feat_meta_df[group_by]==control_strain,
-                                                 feat_meta_df[group_by]==str(strain))]
-        
-            # Colour/legend dictionary
-            # Create colour palette for plot loop
-            colour_labels = sns.color_palette(sns_colour_palette, 2)
-            colour_dict = {control_strain:colour_labels[0], str(strain):colour_labels[1]}
-            
-            if colour_by_date:
-                date_colours = sns.color_palette("Paired", len(plot_df['date_yyyymmdd'].unique()))
-                date_dict = dict(zip(plot_df['date_yyyymmdd'].unique(), date_colours))
-                
-            order = list(plot_df[group_by].unique())
-            order.remove(control_strain)
-            order.insert(0, control_strain)
-                                                  
-            # Boxplots of control vs test-strain for each top-ranked significant feature
-            plt.ioff() if saveDir else plt.ion()
-            for f, feature in enumerate(topfeats.index):
-                plt.close('all')
-                plt.style.use(CUSTOM_STYLE) 
-                sns.set_style('ticks')
-                fig = plt.figure(figsize=[10,8])
-                ax = fig.add_subplot(1,1,1)
-                sns.boxplot(x=group_by, 
-                            y=feature, 
-                            data=plot_df, 
-                            order=order,
-                            palette=colour_dict,
-                            showfliers=False, 
-                            showmeans=True if colour_by_date else None,
-                            #meanline=True,
-                            meanprops={"marker":"x", 
-                                       "markersize":5,
-                                       "markeredgecolor":"k"},
-                            flierprops={"marker":"x", 
-                                        "markersize":15, 
-                                        "markeredgecolor":"r"})
-                sns.stripplot(x=group_by, 
-                              y=feature, 
-                              data=plot_df,
-                              s=10,
-                              order=order,
-                              hue='date_yyyymmdd' if colour_by_date else None,
-                              palette=date_dict if colour_by_date else None,
-                              color=None if colour_by_date else 'gray',
-                              marker=".",
-                              edgecolor='k',
-                              linewidth=.3) #facecolors="none"
-                ax.axes.get_xaxis().get_label().set_visible(False) # remove x axis label
-
-                ylab = ' '.join(feature.split('_')[:-2])
-                if any(f in feature for f in ['length','width']):
-                    ylab = r'{} ($\mu m$)'.format(ylab)
-                elif 'speed' in feature:
-                    ylab = r'{} ($\mu m/s$)'.format(ylab)
-                elif 'area' in feature:
-                    ylab = r'{} ($\mu m^2$)'.format(ylab)
-                plt.ylabel(ylab, fontsize=18) #fontsize=15, labelpad=12
-
-                if colour_by_date:
-                    plt.xlim(right=len(order)-0.3)
-                    plt.legend(loc='upper right', title='Date')
-                #plt.title(feature.replace('_',' '), fontsize=18, pad=20)
-                
-                # Add p-value to plot
-                for i, strain in enumerate(order[1:]):
-                    pval = test_pvalues_df.loc[strain, feature]
-                    text = ax.get_xticklabels()[i+1]
-                    assert text.get_text() == strain
-                    if ((isinstance(pval, float) or isinstance(pval, int)) and 
-                        (pval < p_value_threshold or feature in feature_set)):
-                        y = plot_df[feature].max() 
-                        h = (y - plot_df[feature].min()) / 50
-                        plt.plot([0, 0, i+1, i+1], [y+h, y+2*h, y+2*h, y+h], lw=1.5, c='k')
-                        pval_text = 'P < 0.001' if pval < 0.001 else 'P = %.3f' % pval
-                        ax.text((i+1)/2, y+2*h, pval_text, fontsize=12, ha='center', va='bottom')
-                
-                plt.subplots_adjust(left=0.15)
-                # #Custom legend
-                # patch_list = []
-                # for l, key in enumerate(colour_dict.keys()):
-                #     patch = patches.Patch(color=colour_dict[key], label=key)
-                #     patch_list.append(patch)
-                # plt.tight_layout(rect=[0.04, 0, 0.84, 0.96])
-                # plt.legend(handles=patch_list, labels=colour_dict.keys(), loc=(1.02, 0.8),\
-                #           borderaxespad=0.4, frameon=False, fontsize=15)
-    
-                # Save figure
-                if saveDir:
-                    plot_path = saveDir / str(strain) / ('{0}_'.format(f + 1) + feature + '.pdf')
-                    plot_path.parent.mkdir(exist_ok=True, parents=True)
-                    plt.savefig(plot_path, dpi=300)
-                else:
-                    plt.show(); plt.pause(2)
+                plt.show(); plt.pause(2)
                      
 def boxplots_grouped(feat_meta_df,
                      group_by,
@@ -547,11 +579,13 @@ def boxplots_grouped(feat_meta_df,
                     showfliers=False,
                     meanline=False,
                     showmeans=True,
-                    meanprops={"marker":"x","markersize":10,"markeredgecolor":"k"},
-                    flierprops={"marker":"x","markersize":15,"markeredgecolor":"r"},
+                    meanprops={"marker":"x","markersize":3,"markeredgecolor":"k"},
+                    flierprops={"marker":"x","markersize":3,"markeredgecolor":"r"},
                     palette=colour_dict) # **kwargs
         ax.set_xlabel(feature.replace('_',' '), fontsize=18, labelpad=10)
         ax.axes.get_yaxis().get_label().set_visible(False) # remove y axis label
+        _, ylabels = plt.yticks()
+        ax.set_yticklabels(ylabels, size=3)
         #ax.set_ylabel(group_by, fontsize=18, labelpad=10)
         
         # Add p-value to plot
@@ -568,7 +602,7 @@ def boxplots_grouped(feat_meta_df,
                     trans = transforms.blended_transform_factory(ax.transAxes, # x=scaled
                                                                  ax.transData) # y=none
                     text = 'P < 0.001' if pval < 0.001 else 'P = %.3f' % pval
-                    ax.text(1.02, i, text, fontsize=12, ha='left', va='center', transform=trans)
+                    ax.text(1.02, i, text, fontsize=3, ha='left', va='center', transform=trans)
         plt.subplots_adjust(right=0.85) #top=0.9,bottom=0.1,left=0.2
 
         # Save boxplot
