@@ -12,11 +12,12 @@ Clean feature summary and associated metadata to remove:
 def clean_summary_results(features, 
                           metadata, 
                           feature_columns=None, 
-                          nan_threshold_row=0.2, 
+                          nan_threshold_row=0.8, 
                           nan_threshold_col=0.05,
                           max_value_cap=1e15,
                           imputeNaN=True,
                           min_nskel_per_video=None,
+                          min_nskel_sum=None,
                           drop_size_related_feats=False,
                           norm_feats_only=False,
                           percentile_to_use=None):
@@ -115,6 +116,17 @@ def clean_summary_results(features,
         features = features.drop(columns=path_curvature_feats)
         print("Dropped %d features that are derived from path curvature"\
               % len(path_curvature_feats))
+    
+    # Drop rows from feature summaries where any videos has less than min_nskel_per_video
+    if min_nskel_per_video is not None:
+        features, metadata = filter_n_skeletons(features, metadata, 
+                                                min_nskel_per_video=min_nskel_per_video)
+        
+    # Drop rows from feature summaries where the sum number of skeletons across 
+    # prestim/bluelight/poststim videos is less than min_nskel_sum
+    if min_nskel_sum is not None:
+        features, metadata = filter_n_skeletons(features, metadata, 
+                                                min_nskel_sum=min_nskel_sum)
 
     # Impute remaining NaN values (using global mean feature value for each strain)
     if imputeNaN:
@@ -152,10 +164,6 @@ def clean_summary_results(features,
             features = features.drop(columns=not_perc)
             print("Dropped %d features that are not %s features" % (len(not_perc), 
                                                                     percentile_to_use))
-    
-    if min_nskel_per_video is not None:
-        features, metadata = filter_n_skeletons(features, metadata, 
-                                                min_nskel_per_video=min_nskel_per_video)
 
     return features, metadata
 

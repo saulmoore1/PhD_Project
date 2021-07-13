@@ -42,7 +42,7 @@ DODGE = True
 #%% Functions    
 def superplot(features, metadata, feat, 
               x1="food_type", x2="date_yyyymmdd", # 'imaging_run_number', 'instrument_name'
-              plot_type='box', show_points=None, plot_means=True, max_points=30, 
+              plot_type='box', show_points=None, plot_means=True, max_points=30,
               sns_colour_palettes=["plasma","plasma"], 
               dodge=False, saveDir=None, **kwargs):
     """ Plot timeseries for strains by Hydra day replicates """
@@ -95,10 +95,7 @@ def superplot(features, metadata, feat,
     mean_sample_size = df.groupby(([x1, x2] if x2 is not None else [x1]), as_index=False).size().mean()
     
     if x2 is not None:
-        if len(x2_list) > max_points:
-            palette = None
-        else:
-            palette = x2_col_dict
+        palette = None if len(x2_list) > max_points else x2_col_dict
     else:
         palette = x1_col_dict
         
@@ -144,9 +141,10 @@ def superplot(features, metadata, feat,
         sns.swarmplot(x=x1, 
                       y=feat, 
                       order=x1_order, 
-                      hue=x2 if x2 is not None else None, 
-                      hue_order=x2_order if x2 is not None else None,
-                      palette=palette if x2 is not None else None, 
+                      hue=None, #x2 if x2 is not None else None, 
+                      hue_order=None, #x2_order if x2 is not None else None,
+                      palette=None, #palette if x2 is not None else None, 
+                      color='dimgray',
                       size=13, edgecolor='k', linewidth=2, 
                       dodge=dodge, ax=ax, data=av_df)
 
@@ -169,10 +167,7 @@ def superplot(features, metadata, feat,
 #                 ax.text((ii+1)/2, y+2*h, pval_text, fontsize=12, ha='center', va='bottom')
 #     plt.subplots_adjust(left=0.15) #top=0.9,bottom=0.1,left=0.2
 # =============================================================================
-
-    ax.set_xticklabels(ax.get_xticklabels(), rotation=90, fontsize=5)
-    plt.subplots_adjust(bottom=0.15)
-        
+            
     # Add custom legend
     patch_labels = []
     patch_handles = []
@@ -191,7 +186,7 @@ def superplot(features, metadata, feat,
     # handles, labels = ax.get_legend_handles_labels()        
     plt.legend(labels=patch_labels, 
                handles=patch_handles,
-               loc=(1.05, 0.8), #'upper right'
+               loc=(1.05, 0.75), #'upper right'
                borderaxespad=0.4, 
                frameon=True, 
                framealpha=1, 
@@ -200,8 +195,9 @@ def superplot(features, metadata, feat,
     
     plt.xlim(right=len(x1_order)-0.4)
     plt.ylabel(''); plt.xlabel('')
+    ax.set_xticklabels(ax.get_xticklabels(), rotation=0, fontsize=15)
     plt.title(feat.replace('_',' '), fontsize=20, pad=20)
-    plt.subplots_adjust(right=0.85) # bottom, right, top, wspace, hspace
+    plt.subplots_adjust(bottom=0.15, right=0.85) # bottom, right, top, wspace, hspace
     #plt.tight_layout() #rect=[0.04, 0, 0.84, 0.96]
    
     if saveDir:

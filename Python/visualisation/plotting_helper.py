@@ -262,7 +262,7 @@ def barplot_sigfeats(test_pvalues_df=None, saveDir=None, p_value_threshold=0.05,
         else:
             plt.show()
 
-def errorbar_sigfeats(features, metadata, group_by, fset, control=None, 
+def errorbar_sigfeats(features, metadata, group_by, fset, control=None, rank_by='median',
                       max_feats2plt=10, figsize=[130,6], fontsize=2, saveDir=None):
     """ Plot mean feature value with errorbars (+/- 1.98 * std) for all groups in 
         metadata['group_by'] for each feature in feature set provided 
@@ -276,13 +276,18 @@ def errorbar_sigfeats(features, metadata, group_by, fset, control=None,
     
     # Boxplots of significant features by ANOVA/LMM (all groups)
     grouped = metadata[[group_by]].join(features).groupby(group_by)
+    
     mean_strain = grouped.mean()
     median_strain = grouped.median()
             
     # Plot all strains (ranked by median) for top n significant features (ranked by ANOVA p-value)
     for f, feat in enumerate(tqdm(fset[:max_feats2plt])):
         # Errorbar plot
-        order = median_strain[feat].sort_values(ascending=True).index.to_list()
+        if rank_by == 'median':
+            order = median_strain[feat].sort_values(ascending=True).index.to_list()
+        elif rank_by == 'mean':
+            order = mean_strain[feat].sort_values(ascending=True).index.to_list()
+            
         error = [sem(features.loc[metadata[group_by]==strain, feat]) for strain in order]
         #error = [1.98 * features.loc[metadata[group_by]==strain, feat].std() for strain in order]
 
@@ -300,7 +305,12 @@ def errorbar_sigfeats(features, metadata, group_by, fset, control=None,
                      data=mean_ordered, 
                      fmt='.', elinewidth=0.5, ecolor=colour, c='dimgray', ms=5)
         _ = plt.xticks(rotation=90, fontsize=fontsize)
-        plt.axhline(median_strain.loc[control, feat], c='dimgray', ls='--')
+        
+        if rank_by == 'median':
+            plt.axhline(median_strain.loc[control, feat], c='dimgray', ls='--')
+        elif rank_by == 'mean':
+            plt.axhline(mean_strain.loc[control, feat], c='dimgray', ls='--')
+            
         plt.tick_params(
             axis='x',          # changes apply to the x-axis
             which='both',      # both major and minor ticks are affected
@@ -354,7 +364,7 @@ def boxplots_sigfeats(features,
     import seaborn as sns
     from tqdm import tqdm
     from matplotlib import pyplot as plt
-   
+
     # features
     if feature_set is not None:
         if not type(feature_set) == list:
@@ -365,18 +375,22 @@ def boxplots_sigfeats(features,
         assert all(f in features.columns for f in feature_set)
         features = features[feature_set]
         pvals = pvals.loc[feature_set]
-                
-    # pvals
-    assert all(f in features.columns for f in pvals.index)
-    ranked_min_pval = pvals.min(axis=0).sort_values(ascending=True)
 
-    # strains
-    if drop_insignificant:    
-        # drop insignificant strains
-        strain_list = ranked_min_pval[ranked_min_pval < p_value_threshold].index.to_list()
+    assert all(f in features.columns for f in pvals.index)
+                    
+    # Strain list
+    if drop_insignificant:
+        # Rank strains by number of sigfeats by t-test 
+        ranked_nsig = (pvals < p_value_threshold).sum(axis=0).sort_values(ascending=False)
+
+        # Select strains with at least one significant feature
+        strain_list = ranked_nsig[ranked_nsig > 0].index.to_list()
     else:
+        # Rank strain by minumum p-value (any feature)
+        ranked_min_pval = pvals.min(axis=0).sort_values(ascending=True) 
         strain_list = ranked_min_pval.index.to_list()
-        #list(y_class.unique()); strain_list.remove(control)
+        
+    strain_list = [s for s in strain_list if s in list(y_class.unique())]
 
     data = pd.concat([y_class, features], axis=1)
 

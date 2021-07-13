@@ -29,16 +29,17 @@ from tierpsytools.analysis.significant_features import mRMR_feature_selection
 
 from read_data.paths import get_save_dir
 from read_data.read import load_json, load_topfeats
+from write_data.write import write_list_to_file
 from analysis.control_variation import control_variation
 # from write_data.write import write_list_to_file
 from filter_data.clean_feature_summaries import clean_summary_results, subset_results
-from statistical_testing.stats_helper import levene_f_test #shapiro_normality_test
+from statistical_testing.stats_helper import levene_f_test # shapiro_normality_test
 from statistical_testing.perform_keio_stats import average_control_keio
+from clustering.hierarchical_clustering import plot_clustermap # plot_barcode_heatmap
 from feature_extraction.decomposition.pca import plot_pca, remove_outliers_pca
 from feature_extraction.decomposition.tsne import plot_tSNE
 from feature_extraction.decomposition.umap import plot_umap
-from feature_extraction.decomposition.hierarchical_clustering import plot_clustermap # plot_barcode_heatmap
-from visualisation.plotting_helper import boxplots_grouped, errorbar_sigfeats, boxplots_sigfeats # barplot_sigfeats, plot_day_variations 
+from visualisation.plotting_helper import errorbar_sigfeats, boxplots_sigfeats # boxplots_grouped, barplot_sigfeats, plot_day_variations 
 
 #%% GLOBALS
 
@@ -59,22 +60,22 @@ def compare_strains_keio(features, metadata, args):
             Matching features summaries and metadata
         
         args : Object 
-            Python object from JSON dictionary with the following required parameters as attributes:
+            Python object with the following attributes:
             - drop_size_features : bool
             - norm_features_only : bool
             - percentile_to_use : str
             - remove_outliers : bool
-            - omit_strains (optional): list
+            - omit_strains : list
             - grouping_variable : str
             - control_dict : dict
             - collapse_control : bool
-            - n_top_feats (optional) : int
+            - n_top_feats : int
             - tierpsy_top_feats_dir (if n_top_feats) : str
             - test : str
             - f_test : bool
             - pval_threshold : float
             - fdr_method : str
-            - n_sig_features (optional): int
+            - n_sig_features : int
     """
 
     assert set(features.index) == set(metadata.index)
@@ -105,9 +106,21 @@ def compare_strains_keio(features, metadata, args):
         features = features[top_feats_list]
 
     save_dir = get_save_dir(args)
-    stats_dir =  save_dir / grouping_var / "Stats"
-    plot_dir = save_dir / grouping_var / "Plots"
+    stats_dir =  save_dir / grouping_var / "Stats_{}".format(args.fdr_method)
+    plot_dir = save_dir / grouping_var / "Plots_{}".format(args.fdr_method)
 
+# =============================================================================
+#     ##### Pairplot Tierpsy 16 #####
+#     if args.n_top_feats == 16:
+#         g = sns.pairplot(features, height=1.5)
+#         for ax in g.axes.flatten():
+#             # rotate x and y axis labels
+#             ax.set_xlabel(ax.get_xlabel(), rotation = 90)
+#             ax.set_ylabel(ax.get_ylabel(), rotation = 0)
+#         plt.subplots_adjust(left=0.3, bottom=0.3)
+#         plt.show()
+# =============================================================================
+            
     ##### Control variation #####
                 
     # Subset results for control data
@@ -194,7 +207,7 @@ def compare_strains_keio(features, metadata, args):
     
     print("Loading statistics results")
 
-    ##### ANOVA #####
+    ### ANOVA
 
     if not args.use_corrected_pvals:
         anova_path = stats_dir / '{}_results_uncorrected.csv'.format(args.test)
@@ -208,7 +221,7 @@ def compare_strains_keio(features, metadata, args):
     print("\n%d significant features found by %s (P<%.2f, %s)" % (len(fset), args.test, 
           args.pval_threshold, ('uncorrected' if not args.use_corrected_pvals else args.fdr_method)))
     
-    ##### k-significant features #####     
+    ### k-significant features 
     
     if len(fset) > 0:
         # Compare k sigfeat and ANOVA significant feature set overlap
@@ -231,7 +244,7 @@ def compare_strains_keio(features, metadata, args):
         if args.use_k_sig_feats_overlap:
             fset = list(ksig_table.loc[fset_overlap].sort_values(by='pvals', ascending=True).index)
             
-        ##### t-test #####
+        ### t-test
             
         t_test = 't-test' if args.test == 'ANOVA' else 'Mann-Whitney' # aka. Wilcoxon rank-sum
     
@@ -245,7 +258,7 @@ def compare_strains_keio(features, metadata, args):
         pvals_t = ttest_table[[c for c in ttest_table if "pvals_" in c]] 
         pvals_t.columns = [c.split('pvals_')[-1] for c in pvals_t.columns]       
         fset_ttest = pvals_t[(pvals_t < args.pval_threshold).sum(axis=1) > 0].index.to_list()
-        print("\n%d significant features found by %s (P<%.2f, %s)" % (len(fset_ttest), t_test, 
+        print("%d significant features found by %s (P<%.2f, %s)" % (len(fset_ttest), t_test, 
               args.pval_threshold, ('uncorrected' if not args.use_corrected_pvals else args.fdr_method)))
     
     else:
@@ -256,73 +269,120 @@ def compare_strains_keio(features, metadata, args):
     if len(fset) > 0:
         # Rank strains by number of sigfeats by t-test 
         ranked_nsig = (pvals_t < args.pval_threshold).sum(axis=0).sort_values(ascending=False)
+        # Select top hit strains by n sigfeats (select strains with > 5 sigfeats as hit strains?)
+        hit_strains_nsig = ranked_nsig[ranked_nsig > 0].index.to_list()
+        #hit_nuo = ranked_nsig[[i for i in ranked_nsig[ranked_nsig > 0].index if 'nuo' in i]]
+        # if no sigfaets, subset for top strains ranked by lowest p-value by t-test for any feature
+        print("%d significant strains (with 1 or more significant features)" % len(hit_strains_nsig))
+        if len(hit_strains_nsig) > 0:
+            write_list_to_file(hit_strains_nsig, save_dir / 'hit_strains.txt')
+
+        # Rank strains by lowest p-value for any feature
+        ranked_pval = pvals_t.min(axis=0).sort_values(ascending=True)
+        # Select top 100 hit strains by lowest p-value for any feature
+        hit_strains_pval = ranked_pval[ranked_pval < args.pval_threshold].index.to_list()
+        max_n_hits = max(len(hit_strains_pval), 100)
+        hit_strains_pval = ranked_pval.index[:max_n_hits].to_list()
+        write_list_to_file(hit_strains_pval, save_dir / 'Top100_lowest_pval.txt')
         
-        print("Plotting ranked strains by number of significant features")
-        ranked_nsig_path = plot_dir / ('ranked_number_sigfeats' + 
-                                       ('_uncorrected.png' if not args.use_corrected_pvals else '.png'))
+        print("\nPlotting ranked strains by number of significant features")
+        ranked_nsig_path = plot_dir / ('ranked_number_sigfeats' + ('_uncorrected.png' if not 
+                                       args.use_corrected_pvals else '.png'))
         plt.ioff()
         fig, ax = plt.subplots()
         ax.plot(ranked_nsig)
-        plt.xticks(rotation=90, fontsize=3)
-        #plt.axhline(y=5, c='dimgray', ls='--')
+        ax.set_xticklabels([])
+        plt.xlabel("Strains (ranked)", fontsize=10)
+        plt.ylabel("Number of significant features", fontsize=10)
         plt.savefig(ranked_nsig_path, dpi=600)
         plt.close()
-    
-        # Select top 100 hit strains by n sigfeats
-        # TODO: Choose strains with > 5 sigfeats as hit strains?
-        hit_strains_nsig = ranked_nsig[ranked_nsig > 0].index.to_list()
-        print("%d significant strains (ie. with 1 or more sigfeats) found by t-test" % len(hit_strains_nsig))
-        #hit_nuo = ranked_nsig[[i for i in ranked_nsig[ranked_nsig > 0].index if 'nuo' in i]]
-        
-        max_n_hits = 100
-        if len(hit_strains_nsig) > 0:
-            hit_strains_nsig = hit_strains_nsig[:max_n_hits]
-            hit_strains_nsig.insert(0, control)
-                         
-            # Individual boxplots of significant features by pairwise t-test (each group vs control)
-            boxplots_sigfeats(features,
-                              y_class=metadata[grouping_var],
-                              control=control,
-                              pvals=pvals_t, 
-                              feature_set=fset[:args.n_sig_features],
-                              saveDir=plot_dir / ('paired_boxplots' +
-                                                  ('_uncorrected' if not args.use_corrected_pvals else '')),
-                              p_value_threshold=args.pval_threshold,
-                              drop_insignificant=True,
-                              max_sig_feats=10,
-                              max_strains=100,
-                              sns_colour_palette="tab10",
-                              colour_by=None,
-                              verbose=False)
-
-            # # superplots of variation with respect to 'date_yyyymmdd'
-            # from visualisation.super_plots import superplot
-            # print("Plotting superplots of date variation for significant features")
-            # for feat in tqdm(fset[:args.n_sig_features]):
-            #     superplot(hit_features, hit_metadata, feat, 
-            #               x1=grouping_var, 
-            #               x2='date_yyyymmdd',
-            #               saveDir=plot_dir / 'superplots',
-            #               show_points=True, 
-            #               plot_means=True,
-            #               dodge=False)
-    
-        # Rank strains by lowest p-value for any feature
-        ranked_pval = pvals_t.min(axis=0).sort_values(ascending=True)
-        
-        # Select top 100 hit strains by lowest p-value for any feature
-        hit_strains_pval = ranked_pval[ranked_pval < args.pval_threshold].index.to_list()
         
         print("Plotting ranked strains by lowest p-value of any feature")
-        lowest_pval_path = plot_dir / ('ranked_lowest_pval' + 
-                                       ('_uncorrected.png' if not args.use_corrected_pvals else '.png'))
+        lowest_pval_path = plot_dir / ('ranked_lowest_pval' + ('_uncorrected.png' if not 
+                                       args.use_corrected_pvals else '.png'))
         plt.ioff()
         fig, ax = plt.subplots()
         ax.plot(ranked_pval)
-        plt.xticks(rotation=45, fontsize=3)
         plt.axhline(y=args.pval_threshold, c='dimgray', ls='--')
+        ax.set_xticklabels([])
+        plt.xlabel("Strains (ranked)", fontsize=10)
+        plt.ylabel("Lowest p-value by t-test", fontsize=10)
         plt.savefig(lowest_pval_path, dpi=600)
         plt.close()
+
+        print("Making errorbar plots")
+        errorbar_sigfeats(features, metadata, 
+                          group_by=grouping_var, 
+                          fset=fset, 
+                          control=control, 
+                          rank_by='mean',
+                          max_feats2plt=args.n_sig_features, 
+                          figsize=[130,6], 
+                          fontsize=2, 
+                          saveDir=plot_dir / 'errorbar')
+        
+# =============================================================================
+#         print("Making boxplots")
+#         boxplots_grouped(feat_meta_df=metadata.join(features), 
+#                           group_by=grouping_var,
+#                           control_group=control,
+#                           test_pvalues_df=(pvals_t.T if len(fset) > 0 else None), # ranked by test pvalue significance
+#                           feature_set=fset,
+#                           max_feats2plt=args.n_sig_features, 
+#                           max_groups_plot_cap=None,
+#                           p_value_threshold=args.pval_threshold,
+#                           drop_insignificant=False,
+#                           sns_colour_palette="tab10",
+#                           figsize=[6,130], 
+#                           saveDir=plot_dir / ('boxplots' + 
+#                                               ('_uncorrected' if not args.use_corrected_pvals else '')))
+# =============================================================================
+
+        # If no sigfeats, subset for top strains ranked by lowest p-value by t-test for any feature    
+        if len(hit_strains_nsig) == 0:
+            print("Subsetting for top %d strains ranked by lowest p-value of any feature" % max_n_hits)
+            hit_strains_pval.insert(0, control)
+            features, metadata = subset_results(features, 
+                                                metadata, 
+                                                column=grouping_var,
+                                                groups=hit_strains_pval)
+            write_list_to_file(hit_strains_pval, save_dir / 'Top100_lowest_pval.txt')
+        elif len(hit_strains_nsig) > 0:
+            print("Subsetting for %d significant strains" % max_n_hits)
+            hit_strains_nsig = hit_strains_nsig[:max_n_hits]
+            hit_strains_nsig.insert(0, control)
+            features, metadata = subset_results(features,
+                                                metadata,
+                                                column=grouping_var,
+                                                groups=hit_strains_nsig)
+                         
+        # Individual boxplots of significant features by pairwise t-test (each group vs control)
+        boxplots_sigfeats(features,
+                          y_class=metadata[grouping_var],
+                          control=control,
+                          pvals=pvals_t, 
+                          feature_set=None,
+                          saveDir=plot_dir / ('paired_boxplots' + ('_uncorrected' if not 
+                                                                   args.use_corrected_pvals else '')),
+                          p_value_threshold=args.pval_threshold,
+                          drop_insignificant=(True if len(hit_strains_nsig) > 0 else False),
+                          max_sig_feats=args.n_sig_features,
+                          max_strains=max_n_hits,
+                          sns_colour_palette="tab10",
+                          colour_by=None,
+                          verbose=False)
+        
+        # # superplots of variation with respect to 'date_yyyymmdd'
+        # from visualisation.super_plots import superplot
+        # print("Plotting superplots of date variation for significant features")
+        # for feat in tqdm(fset[:args.n_sig_features]):
+        #     superplot(hit_features, hit_metadata, feat, 
+        #               x1=grouping_var, 
+        #               x2='date_yyyymmdd',
+        #               saveDir=plot_dir / 'superplots',
+        #               show_points=True, 
+        #               plot_means=True,
+        #               dodge=False)
 
         # from tierpsytools.analysis.significant_features import plot_feature_boxplots
         # plot_feature_boxplots(feat_to_plot=hit_features,
@@ -332,47 +392,8 @@ def compare_strains_keio(features, metadata, args):
         #                       saveto=None,
         #                       close_after_plotting=True)
            
-        print("Making errorbar plots")
-        errorbar_sigfeats(features, metadata, 
-                          group_by=grouping_var, 
-                          fset=fset, 
-                          control=control, 
-                          max_feats2plt=args.n_sig_features, 
-                          figsize=[130,6], 
-                          fontsize=2, 
-                          saveDir=plot_dir / 'errorbar')
-        
-        print("Making boxplots")
-        boxplots_grouped(feat_meta_df=metadata.join(features), 
-                         group_by=grouping_var,
-                         control_group=control,
-                         test_pvalues_df=(pvals_t.T if len(fset) > 0 else None), # ranked by test pvalue significance
-                         feature_set=fset,
-                         max_feats2plt=args.n_sig_features, 
-                         max_groups_plot_cap=None,
-                         p_value_threshold=args.pval_threshold,
-                         drop_insignificant=False,
-                         sns_colour_palette="tab10",
-                         figsize=[6,130], 
-                         saveDir=plot_dir / ('boxplots' + 
-                                             ('_uncorrected' if not args.use_corrected_pvals else '')))
-        
-        # if no sigfaets subset for top strains ranked by lowest p-value of any feature    
-        if len(hit_strains_nsig) == 0:
-            print("No significant p-values found")
-            print("Subsetting for top %d strains by lowest p-value of any feature" % max_n_hits)
-            hit_strains_pval = ranked_pval.index[:max_n_hits].to_list()
-            hit_strains_pval.insert(0, control)
-            features, metadata = subset_results(features, 
-                                                metadata, 
-                                                column=grouping_var,
-                                                groups=hit_strains_pval) # OR hit_strains_pval
-        
     ##### Hierarchical Clustering Analysis #####
-    
-    # TODO: Look into why heatmaps are faint - remove gridlines from hca, reduce text size 
-    #       - double check this fixes faint colours for bluelight condition
-    
+        
     # Z-normalise data
     featZ = features.apply(zscore, axis=0)
     #featZ = (features-features.mean())/features.std() # minus mean, divide by std
@@ -391,14 +412,15 @@ def compare_strains_keio(features, metadata, args):
     ### Control clustermap
     
     # control data is clustered and feature order is stored and applied to full data
-    print("Plotting control clustermap")
+    print("\nPlotting control clustermap")
     control_clustermap_path = plot_dir / 'heatmaps' / (grouping_var + '_clustermap.pdf')
     cg = plot_clustermap(featZ, metadata,
                          group_by=([grouping_var] if grouping_var == 'date_yyyymmdd' 
                                    else [grouping_var, 'date_yyyymmdd']),
-                         method='complete',#[linkage, complete, average, weighted, centroid]
-                         #metric: ['euclidean', 'cosine', 'correlation']
+                         method='complete', # metric=['euclidean','cosine','correlation']
+                         #[linkage, complete, average, weighted, centroid]
                          figsize=[18,6],
+                         sub_adj={'top':1,'bottom':0.3,'left':0,'right':0.9},
                          saveto=control_clustermap_path)
 
     #col_linkage = cg.dendrogram_col.calculated_linkage
@@ -415,9 +437,9 @@ def compare_strains_keio(features, metadata, args):
     fg = plot_clustermap(featZ, 
                          metadata, 
                          group_by=grouping_var,
-                         method='complete',
-                         #metric: ['euclidean', 'cosine', 'correlation']
-                         figsize=[20, 30],
+                         method='complete', # metric=['euclidean','cosine','correlation']
+                         figsize=[15,30],
+                         sub_adj={'top':1,'bottom':0.3,'left':0,'right':0.9},
                          saveto=full_clustermap_path)
     
     # If no control clustering (due to no day variation) then use clustered features for all 
@@ -464,7 +486,6 @@ def compare_strains_keio(features, metadata, args):
     # Z-normalise data for all strains
     featZ = features.apply(zscore, axis=0)
 
-    # TODO: plot colour as hue in PCA not each strain but each 'group' ie. colour
     if args.remove_outliers:
         outlier_path = pca_dir / 'mahalanobis_outliers.pdf'
         features, inds = remove_outliers_pca(df=features, saveto=outlier_path)

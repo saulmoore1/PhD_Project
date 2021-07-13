@@ -8,19 +8,14 @@ Hierarchical Clustering and Heatmaps
 
 """
 
-# TODO: Remove lines from heatmap and add feature names
-
-#%% Imports
+#%% Imports + pre-amble
 
 import sys
 
-# Path to Github helper functions (USER-DEFINED path to local copy of Github repo)
-PATH_LIST = ['/Users/sm5911/Tierpsy_Versions/tierpsy-tools-python/',
-             '/Users/sm5911/Documents/GitHub/PhD_Project/Python/']
-for sysPath in PATH_LIST:
-    if sysPath not in sys.path:
-        sys.path.insert(0, sysPath)
+# Path to Github helper functions (USER-DEFINED path to local copy of Github repo)             ]
+sys.path.insert(0, '/Users/sm5911/Documents/GitHub/PhD_Project/Python/')
 
+# Custom style for plotting
 CUSTOM_STYLE = 'visualisation/style_sheet_20210126.mplstyle'
 
 #%% Functions
@@ -33,7 +28,8 @@ def plot_clustermap(featZ,
                     metric='euclidean',
                     saveto=None,
                     figsize=[10,8],
-                    sns_colour_palette="bright"):
+                    sns_colour_palette="Pastel1",
+                    sub_adj={'top':1,'bottom':0,'left':0,'right':1}):
     """ Seaborn clustermap (hierarchical clustering heatmap) of normalised """                
     
     import seaborn as sns
@@ -78,7 +74,7 @@ def plot_clustermap(featZ,
     # Plot clustermap
     plt.ioff() if saveto else plt.ion()
     plt.close('all')
-    sns.set(font_scale=0.6)
+    sns.set(font_scale=0.8)
     cg = sns.clustermap(data=featZ_grouped[fset], 
                         row_colors=row_colours,
                         col_colors=fset.map(feat_colour_dict),
@@ -88,7 +84,7 @@ def plot_clustermap(featZ,
                         method=method,
                         vmin=-2, vmax=2,
                         figsize=figsize,
-                        xticklabels=fset if len(fset) < 256 else False,
+                        xticklabels=fset if len(fset) < 768 else False,
                         yticklabels=featZ_grouped[group_by].astype(str).agg('-'.join, axis=1),
                         cbar_pos=(0.98, 0.02, 0.05, 0.5), #None
                         cbar_kws={'orientation': 'horizontal',
@@ -118,8 +114,8 @@ def plot_clustermap(featZ,
                     fontsize=12, handletextpad=0.2)
     lg.get_title().set_fontsize(15)
     
-    plt.subplots_adjust(top=0.98, bottom=0.02, 
-                        left=0.02, right=0.9, 
+    plt.subplots_adjust(top=sub_adj['top'], bottom=sub_adj['bottom'], 
+                        left=sub_adj['left'], right=sub_adj['right'], 
                         hspace=0.01, wspace=0.01)
     #plt.tight_layout(rect=[0, 0, 1, 1], w_pad=0.5)
         
@@ -155,7 +151,7 @@ def plot_barcode_heatmap(featZ,
                          selected_feats=None,
                          figsize=[18,6],
                          saveto=None,
-                         sns_colour_palette="Pastel1"):
+                         sns_colour_palette="bright"):
     """  """
     
     import numpy as np

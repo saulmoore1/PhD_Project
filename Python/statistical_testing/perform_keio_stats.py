@@ -4,6 +4,7 @@
 Perform Keio screen statistics
 - Significant features across all groups by ANOVA/Kruskal
 - Significant features for each strain vs control using t-tests/Mann-Whitney
+- k-significant feature selection (for agreement with ANOVA significant feature set)
 
 @author: sm5911
 @date: 21/05/2021
@@ -18,14 +19,15 @@ import pandas as pd
 from time import time
 from pathlib import Path
 
+from tierpsytools.analysis.significant_features import k_significant_feat
+from tierpsytools.analysis.statistical_tests import univariate_tests, get_effect_sizes, _multitest_correct
+#from tierpsytools.drug_screenings.filter_compounds import compounds_with_low_effect_univariate
+
 from read_data.paths import get_save_dir
 from read_data.read import load_json, load_topfeats
 from write_data.write import write_list_to_file
 from filter_data.clean_feature_summaries import subset_results
 from visualisation.plotting_helper import sig_asterix
-from tierpsytools.analysis.significant_features import k_significant_feat
-from tierpsytools.analysis.statistical_tests import univariate_tests, get_effect_sizes, _multitest_correct
-#from tierpsytools.drug_screenings.filter_compounds import compounds_with_low_effect_univariate
 
 #%% GLOBALS
 
@@ -96,23 +98,23 @@ def keio_stats(features, metadata, args):
         features, metadata : pd.DataFrame
             Clean feature summaries and accompanying metadata
         
-        args : object
-            Python object containing required variables:
+        args : Object
+            Python object with the following attributes:
             - drop_size_features : bool
             - norm_features_only : bool
             - percentile_to_use : str
             - remove_outliers : bool
-            - omit_strains (optional): list
+            - omit_strains : list
             - grouping_variable : str
             - control_dict : dict
             - collapse_control : bool
-            - n_top_feats (optional) : int
+            - n_top_feats : int
             - tierpsy_top_feats_dir (if n_top_feats) : str
             - test : str
             - f_test : bool
             - pval_threshold : float
             - fdr_method : str
-            - n_sig_features (optional): int           
+            - n_sig_features : int           
     """
 
     save_dir = get_save_dir(args)
@@ -135,14 +137,13 @@ def keio_stats(features, metadata, args):
         top_feats_list = [feat for feat in list(topfeats) if feat in features.columns]
         features = features[top_feats_list]
     
-    # TODO: All caps for globals only 
     strain_list = list(metadata[grouping_var].unique())
     control = args.control_dict[grouping_var] # control strain to use
     assert control in strain_list
 
     ##### STATISTICS #####
 
-    stats_dir =  save_dir / grouping_var / "Stats"                  
+    stats_dir =  save_dir / grouping_var / "Stats_{}".format(args.fdr_method)                 
 
     # F-test for equal variances
     if args.f_test:
@@ -216,8 +217,6 @@ def keio_stats(features, metadata, args):
                 if len(fset) > 0:
                     anova_sigfeats_path = stats_dir / '{}_sigfeats.txt'.format(args.test)
                     write_list_to_file(fset, anova_sigfeats_path)
-                    print("\n%d significant features found by %s for '%s' (P<%.2f, %s)" %\
-                          (len(fset), args.test, grouping_var, args.pval_threshold, args.fdr_method))
             else:
                 fset = []
                 print("\nWARNING: Not enough groups for %s for '%s' (n=%d groups)" %\
@@ -226,9 +225,13 @@ def keio_stats(features, metadata, args):
             raise IOError("Test '{}' not recognised".format(args.test))
     else:
         # Load ANOVA results
+        print("Loading %s results" % args.test)
         anova_corrected = pd.read_csv(anova_path_corrected, index_col=0)
         pvals = anova_corrected.sort_values(by='pvals', ascending=True)['pvals']
         fset = pvals[pvals < args.pval_threshold].index.to_list()
+
+    print("%d significant features found by %s for '%s' (P<%.2f, %s)" % (len(fset), args.test, 
+          grouping_var, args.pval_threshold, args.fdr_method))
 
     # TODO: LMMs using compounds_with_low_effect_univariate
 # =============================================================================
@@ -315,7 +318,7 @@ def keio_stats(features, metadata, args):
             # record t-test significant features (not ordered)
             fset_ttest = pvals_t[np.asmatrix(reject_t)].index.unique().to_list()
             #assert set(fset_ttest) == set(pvals_t.index[(pvals_t < args.pval_threshold).sum(axis=1) > 0])
-            print("%d signficant features found for any %s vs %s (%s, P<%.2f)" %\
+            print("%d significant features found for any %s vs %s (%s, P<%.2f)" %\
                   (len(fset_ttest), grouping_var, control, t_test, args.pval_threshold))
 
             if len(fset_ttest) > 0:
@@ -330,9 +333,7 @@ def keio_stats(features, metadata, args):
         ksig_corrected_path.parent.mkdir(exist_ok=True, parents=True)      
         fset_ksig, (scores, pvalues_ksig), support = k_significant_feat(feat=features, 
                                                                         y_class=metadata[grouping_var], 
-                                                                        k=(len(fset) if len(fset) > 
-                                                                           args.n_sig_features else 
-                                                                           args.n_sig_features), 
+                                                                        k=len(fset),
                                                                         score_func='f_classif', 
                                                                         scale=None, 
                                                                         feat_names=None, 
@@ -343,7 +344,7 @@ def keio_stats(features, metadata, args):
                                                                         figsize=None, 
                                                                         title=None, 
                                                                         xlabel=None)
-        # compile + save k-significant features (uncorrected)    
+        # compile + save k-significant features (uncorrected) 
         ksig_table = pd.concat([pd.Series(scores), pd.Series(pvalues_ksig)], axis=1)
         ksig_table.columns = ['scores','pvals']
         ksig_table.index = fset_ksig

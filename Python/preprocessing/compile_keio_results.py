@@ -13,10 +13,12 @@ import argparse
 from time import time
 from pathlib import Path
 from read_data.read import load_json
+
+from tierpsytools.hydra.platechecker import fix_dtypes
+
 from preprocessing.compile_hydra_data import process_metadata, process_feature_summaries
 from preprocessing.append_supplementary_info import load_supplementary_7, append_supplementary_7
 from filter_data.clean_feature_summaries import clean_summary_results
-from tierpsytools.hydra.platechecker import fix_dtypes
 
 #%% GLOBALS
 
@@ -26,8 +28,8 @@ JSON_PARAMETERS_PATH = "analysis/20210406_parameters_keio_screen.json"
 
 def compile_keio_results(args):
     """ Compile metadata (from day meta if provided) and feature summary results (from day summaries),
-        for dates in imaging_dates if provided, else all dates found in AuxiliaryFiles directory; and 
-        clean feature summary results to:
+        for dates in imaging_dates if provided, else all dates found in AuxiliaryFiles directory. 
+        Appends COG info for Keio strains to metadata and then cleans feature summary results to:
         Remove:
             - Samples with < min_nskel_per_video number of skeletons tracked throughout the video
             - Samples with > nan_threshold_row proportion of NaN features,
@@ -38,7 +40,7 @@ def compile_keio_results(args):
         Replace:
             - Feature values > max_value_cap (if max_value_cap is not None)
             - Remaining NaN feature values with global mean of all samples (if impute_nans=True)
-        
+            
         Input
         -----
         args : Python object containing required variables
@@ -112,6 +114,7 @@ def compile_keio_results(args):
                                                max_value_cap=args.max_value_cap,
                                                imputeNaN=args.impute_nans,
                                                min_nskel_per_video=args.min_nskel_per_video,
+                                               min_nskel_sum=args.min_nskel_sum,
                                                drop_size_related_feats=args.drop_size_features,
                                                norm_feats_only=args.norm_features_only,
                                                percentile_to_use=args.percentile_to_use)

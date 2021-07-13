@@ -29,26 +29,24 @@ from time import time
 from pathlib import Path
 from scipy.stats import zscore # ttest_ind, f_oneway, kruskal
 
-# Custom imports
-from read_data.paths import get_save_dir
-from read_data.read import load_json, load_topfeats
-from write_data.write import write_list_to_file
-from filter_data.clean_feature_summaries import clean_summary_results, subset_results
-#from statistical_testing.stats_helper import shapiro_normality_test
-from feature_extraction.decomposition.pca import plot_pca, remove_outliers_pca
-from feature_extraction.decomposition.tsne import plot_tSNE
-from feature_extraction.decomposition.umap import plot_umap
-from feature_extraction.decomposition.hierarchical_clustering import (plot_clustermap, 
-                                                                      plot_barcode_heatmap)
-from visualisation.super_plots import superplot
-from visualisation.plotting_helper import sig_asterix, barplot_sigfeats
-#plot_day_variation, boxplots_sigfeats, boxplots_grouped
-
 from tierpsytools.analysis.significant_features import k_significant_feat
 from tierpsytools.analysis.statistical_tests import (univariate_tests, 
                                                      get_effect_sizes, 
                                                      _multitest_correct)
 #from tierpsytools.drug_screenings.filter_compounds import compounds_with_low_effect_univariate
+
+from read_data.paths import get_save_dir
+from read_data.read import load_json, load_topfeats
+from write_data.write import write_list_to_file
+from filter_data.clean_feature_summaries import clean_summary_results, subset_results
+#from statistical_testing.stats_helper import shapiro_normality_test
+from clustering.hierarchical_clustering import plot_clustermap, plot_barcode_heatmap
+from feature_extraction.decomposition.pca import plot_pca, remove_outliers_pca
+from feature_extraction.decomposition.tsne import plot_tSNE
+from feature_extraction.decomposition.umap import plot_umap
+from visualisation.super_plots import superplot
+from visualisation.plotting_helper import sig_asterix, barplot_sigfeats
+#plot_day_variation, boxplots_sigfeats, boxplots_grouped
 
 #%% Globals
 
@@ -62,7 +60,28 @@ def control_variation(feat,
                       meta, 
                       args,
                       variables=['date_yyyymmdd','instrument_name','imaging_run_number']):
-    """ Analyse variation in control data with respect to each varaible in 'variables' in turn """
+    """ Analyse variation in control data with respect to each varaible in 'variables' in turn 
+        
+        Inputs
+        ------
+        feat, meta : pd.DataFrame
+            Matching features summaries and metadata for control data
+        
+        args : Object 
+            Python object with the following attributes:
+            - remove_outliers : bool
+            - grouping_variable : str
+            - control_dict : dict
+            - test : str
+            - pval_threshold : float
+            - fdr_method : str
+            - n_sig_features : int
+            - n_top_feats : int
+            - drop_size_features : bool
+            - norm_features_only : bool
+            - percentile_to_use : str
+            - remove_outliers : bool
+    """
     
     assert set(feat.index) == set(meta.index)
             
@@ -374,7 +393,7 @@ def control_variation(feat,
                                            else [grouping_var, 'date_yyyymmdd']),
                                  col_linkage=None,
                                  method='complete',#[linkage, complete, average, weighted, centroid]
-                                 figsize=[18,6],
+                                 figsize=[20,7],
                                  saveto=control_clustermap_path)
     
             #col_linkage = cg.dendrogram_col.calculated_linkage
@@ -393,7 +412,7 @@ def control_variation(feat,
                              group_by=grouping_var,
                              col_linkage=None,
                              method='complete',
-                             figsize=[20, (len(group_list) / 4 if len(group_list) > 10 else 6)],
+                             figsize=[20,7],
                              saveto=full_clustermap_path)
         
         # If no control clustering (due to no day variation) then use clustered features for all 
@@ -419,7 +438,7 @@ def control_variation(feat,
                                  p_value_threshold=args.pval_threshold,
                                  selected_feats=fset if len(fset) > 0 else None,
                                  saveto=heatmap_date_path,
-                                 figsize=[20, (int(len(group_list) / 4) if len(group_list) > 10 else 6)],
+                                 figsize=[20,7],
                                  sns_colour_palette="Pastel1")
         
         # Plot group-mean heatmap (averaged across days)
