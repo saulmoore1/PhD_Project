@@ -271,11 +271,11 @@ def process_metadata(aux_dir,
         
         compiled_metadata_path = annotated_metadata_path
                           
-    if not 'is_bad_well' in meta_df.columns:
-        raise Warning("Bad well annotations not found in metadata!")
-    else:
-        prop_bad = meta_df['is_bad_well'].sum()/len(meta_df['is_bad_well'])
-        print("%.1f%% of data are labelled as 'bad well' data" % (prop_bad*100))
+        if not 'is_bad_well' in meta_df.columns:
+            raise Warning("Bad well annotations not found in metadata!")
+        else:
+            prop_bad = meta_df['is_bad_well'].sum()/len(meta_df['is_bad_well'])
+            print("%.1f%% of data are labelled as 'bad well' data" % (prop_bad*100))
                             
     return meta_df, compiled_metadata_path
 

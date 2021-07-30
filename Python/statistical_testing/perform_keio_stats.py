@@ -31,9 +31,7 @@ from visualisation.plotting_helper import sig_asterix
 
 #%% GLOBALS
 
-JSON_PARAMETERS_PATH = "analysis/20210406_parameters_keio_screen.json"
-FEATURES_PATH = "/Users/sm5911/Documents/Keio_Screen/features.csv"
-METADATA_PATH = "/Users/sm5911/Documents/Keio_Screen/metadata.csv"
+JSON_PARAMETERS_PATH = "analysis/20210719_parameters_keio_screen.json"
 
 #%% MAIN
 
@@ -366,17 +364,25 @@ if __name__ == "__main__":
     parser.add_argument('-j', '--json', help="Path to JSON parameters file", 
                         default=JSON_PARAMETERS_PATH, type=str)
     parser.add_argument('--features_path', help="Path to feature summaries file", 
-                        default=FEATURES_PATH, type=str)
+                        default=None, type=str)
     parser.add_argument('--metadata_path', help="Path to metadata file", 
-                        default=METADATA_PATH, type=str)
+                        default=None, type=str)
     args = parser.parse_args()
+    
+    FEATURES_PATH = args.features_path
+    METADATA_PATH = args.metadata_path
+    
+    args = load_json(args.json)
+
+    if FEATURES_PATH is None:
+        FEATURES_PATH = Path(args.save_dir) / 'features.csv'
+    if METADATA_PATH is None:
+        METADATA_PATH = Path(args.save_dir) / 'metadata.csv'
         
     # Read feature summaries + metadata
-    features = pd.read_csv(args.features_path)
-    metadata = pd.read_csv(args.metadata_path, dtype={'comments':str, 'source_plate_id':str})
+    features = pd.read_csv(FEATURES_PATH)
+    metadata = pd.read_csv(METADATA_PATH, dtype={'comments':str, 'source_plate_id':str})
 
-    args = load_json(args.json)
-    
     keio_stats(features, metadata, args)
     
     toc = time()

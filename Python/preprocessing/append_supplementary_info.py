@@ -41,10 +41,9 @@ def load_supplementary_7(path_sup_info):
 def append_supplementary_7(metadata, supplementary_7, column_name='food_type'):
     """ Append Supplementary Information to metadata for genes in metadata 'food_type' column """
     
-    
     assert column_name in metadata.columns and 'gene' in supplementary_7.columns
 
-    metadata.loc[:,'column_order'] = range(metadata.shape[0])
+    metadata['column_order'] = range(metadata.shape[0])
     
     # TODO: Do not drop duplicate functionality genes with multiple COGs
     print("WARNING: Dropping duplicate COG entries for genes (using first only)")

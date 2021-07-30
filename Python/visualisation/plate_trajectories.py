@@ -23,6 +23,7 @@ from pathlib import Path
 from matplotlib import pyplot as plt
 
 sys.path.insert(0, "/Users/sm5911/Documents/GitHub/PhD_Project/Python")
+sys.path.insert(0, "/Users/sm5911/Tierpsy_Versions/tierpsy-tracker")
 
 # Custom imports
 from read_data.read import get_trajectory_data
@@ -334,8 +335,8 @@ if __name__ == "__main__":
                         saved food coordinates", default=False)
     args = parser.parse_args()
     
-    FEAT_FILE_PATH = Path(args.features_file) if args.features_file else None
-    FULL_FILES_PATH = Path(args.full_filenames) if args.full_filenames else None
+    FEAT_FILE_PATH = Path(args.features_file)
+    FULL_FILES_PATH = Path(args.full_filenames) if args.full_filenames is not None else None
     SAVE_DIR = Path(args.save_dir) if args.save_dir else None
     
     plt.close('all')
@@ -347,16 +348,14 @@ if __name__ == "__main__":
                                                        saveDir=SAVE_DIR, 
                                                        downsample=int(args.downsample),
                                                        filter_trajectories=args.filter_trajectories,
-                                                       mark_endpoints=args.mark_endpoints,
-                                                       annotate_lawns=args.annotate_lawns)
+                                                       mark_endpoints=args.mark_endpoints)
     elif FEAT_FILE_PATH is not None:
         print("\nPlotting plate trajectories for:\n\t%s\n" % str(FEAT_FILE_PATH))
         plot_plate_trajectories(FEAT_FILE_PATH, 
                                 saveDir=SAVE_DIR, 
                                 downsample=int(args.downsample),
                                 filter_trajectories=args.filter_trajectories,
-                                mark_endpoints=args.mark_endpoints,
-                                annotate_lawns=args.annotate_lawns)
+                                mark_endpoints=args.mark_endpoints)
     else:
         print("\nNo file path provided!")
   

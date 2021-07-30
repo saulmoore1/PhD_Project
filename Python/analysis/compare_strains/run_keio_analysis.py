@@ -43,9 +43,9 @@ from visualisation.plotting_helper import errorbar_sigfeats, boxplots_sigfeats #
 
 #%% GLOBALS
 
-JSON_PARAMETERS_PATH = "analysis/20210406_parameters_keio_screen.json"
-FEATURES_PATH = "/Users/sm5911/Documents/Keio_Screen/features.csv"
-METADATA_PATH = "/Users/sm5911/Documents/Keio_Screen/metadata.csv"
+JSON_PARAMETERS_PATH = "analysis/20210719_parameters_keio_screen.json"
+
+MAX_N_HITS = 100 
 
 #%% FUNCTIONS
 
@@ -281,13 +281,14 @@ def compare_strains_keio(features, metadata, args):
         ranked_pval = pvals_t.min(axis=0).sort_values(ascending=True)
         # Select top 100 hit strains by lowest p-value for any feature
         hit_strains_pval = ranked_pval[ranked_pval < args.pval_threshold].index.to_list()
-        max_n_hits = max(len(hit_strains_pval), 100)
+        max_n_hits = max(len(hit_strains_pval), MAX_N_HITS)
         hit_strains_pval = ranked_pval.index[:max_n_hits].to_list()
         write_list_to_file(hit_strains_pval, save_dir / 'Top100_lowest_pval.txt')
         
         print("\nPlotting ranked strains by number of significant features")
-        ranked_nsig_path = plot_dir / ('ranked_number_sigfeats' + ('_uncorrected.png' if not 
-                                       args.use_corrected_pvals else '.png'))
+        ranked_nsig_path = plot_dir / ('ranked_number_sigfeats' + '_' + 
+                                       ('uncorrected' if args.fdr_method is None else 
+                                        args.fdr_method) + '.png')
         plt.ioff()
         fig, ax = plt.subplots()
         ax.plot(ranked_nsig)
@@ -298,8 +299,9 @@ def compare_strains_keio(features, metadata, args):
         plt.close()
         
         print("Plotting ranked strains by lowest p-value of any feature")
-        lowest_pval_path = plot_dir / ('ranked_lowest_pval' + ('_uncorrected.png' if not 
-                                       args.use_corrected_pvals else '.png'))
+        lowest_pval_path = plot_dir / ('ranked_lowest_pval' + '_' + 
+                                       ('uncorrected' if args.fdr_method is None else 
+                                        args.fdr_method) + '.png')
         plt.ioff()
         fig, ax = plt.subplots()
         ax.plot(ranked_pval)
@@ -310,7 +312,7 @@ def compare_strains_keio(features, metadata, args):
         plt.savefig(lowest_pval_path, dpi=600)
         plt.close()
 
-        print("Making errorbar plots")
+        print("\nMaking errorbar plots")
         errorbar_sigfeats(features, metadata, 
                           group_by=grouping_var, 
                           fset=fset, 
@@ -334,27 +336,26 @@ def compare_strains_keio(features, metadata, args):
 #                           drop_insignificant=False,
 #                           sns_colour_palette="tab10",
 #                           figsize=[6,130], 
-#                           saveDir=plot_dir / ('boxplots' + 
-#                                               ('_uncorrected' if not args.use_corrected_pvals else '')))
+#                           saveDir=plot_dir / ('boxplots' + '_' + ('uncorrected' if args.fdr_method is None else args.fdr_method) + '.png')
 # =============================================================================
 
         # If no sigfeats, subset for top strains ranked by lowest p-value by t-test for any feature    
         if len(hit_strains_nsig) == 0:
-            print("Subsetting for top %d strains ranked by lowest p-value of any feature" % max_n_hits)
+            print("\nSubsetting for top %d strains ranked by lowest p-value of any feature" % max_n_hits)
             hit_strains_pval.insert(0, control)
             features, metadata = subset_results(features, 
                                                 metadata, 
                                                 column=grouping_var,
-                                                groups=hit_strains_pval)
+                                                groups=hit_strains_pval, verbose=False)
             write_list_to_file(hit_strains_pval, save_dir / 'Top100_lowest_pval.txt')
         elif len(hit_strains_nsig) > 0:
-            print("Subsetting for %d significant strains" % max_n_hits)
+            print("\nSubsetting for %d hit strains + control" % min(len(hit_strains_nsig), max_n_hits))
             hit_strains_nsig = hit_strains_nsig[:max_n_hits]
             hit_strains_nsig.insert(0, control)
             features, metadata = subset_results(features,
                                                 metadata,
                                                 column=grouping_var,
-                                                groups=hit_strains_nsig)
+                                                groups=hit_strains_nsig, verbose=False)
                          
         # Individual boxplots of significant features by pairwise t-test (each group vs control)
         boxplots_sigfeats(features,
@@ -362,8 +363,9 @@ def compare_strains_keio(features, metadata, args):
                           control=control,
                           pvals=pvals_t, 
                           feature_set=None,
-                          saveDir=plot_dir / ('paired_boxplots' + ('_uncorrected' if not 
-                                                                   args.use_corrected_pvals else '')),
+                          saveDir=plot_dir / ('paired_boxplots' + '_' + 
+                                              ('uncorrected' if args.fdr_method is None else 
+                                               args.fdr_method) + '.png'),
                           p_value_threshold=args.pval_threshold,
                           drop_insignificant=(True if len(hit_strains_nsig) > 0 else False),
                           max_sig_feats=args.n_sig_features,
@@ -580,13 +582,21 @@ if __name__ == "__main__":
     parser.add_argument('-j', '--json', help="Path to JSON parameters file", 
                         default=JSON_PARAMETERS_PATH, type=str)
     parser.add_argument('--features_path', help="Path to feature summaries file", 
-                        default=FEATURES_PATH, type=str)
+                        default=None, type=str)
     parser.add_argument('--metadata_path', help="Path to metadata file", 
-                        default=METADATA_PATH, type=str)
+                        default=None, type=str)
     args = parser.parse_args()
-    
+
+    FEATURES_PATH = args.features_path
+    METADATA_PATH = args.metadata_path
+
     args = load_json(args.json)
     
+    if FEATURES_PATH is None:
+        FEATURES_PATH = Path(args.save_dir) / 'features.csv'
+    if METADATA_PATH is None:
+        METADATA_PATH = Path(args.save_dir) / 'metadata.csv'
+        
     # Read clean feature summaries + metadata
     print("Loading metadata and feature summary results...")
     features = pd.read_csv(FEATURES_PATH)
