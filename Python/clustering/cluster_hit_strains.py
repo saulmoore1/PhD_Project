@@ -17,18 +17,16 @@ import seaborn as sns
 from time import time
 from pathlib import Path
 from matplotlib import pyplot as plt
-from matplotlib.colors import rgb2hex, colorConverter
-from collections import defaultdict    
 from scipy.stats import zscore
 from scipy.spatial.distance import pdist, squareform
 from scipy.cluster.hierarchy import dendrogram, linkage, cophenet, fcluster
-from sklearn.cluster import AgglomerativeClustering #KMeans
 from sklearn.decomposition import PCA
-#from sklearn import metrics as skmet
 
 from tierpsytools.analysis.clustering_tools import hierarchical_purity
 
 from read_data.read import load_json, load_topfeats, read_list_from_file
+from write_data.write import write_list_to_file
+from filter_data.clean_feature_summaries import subset_results
 from clustering.hierarchical_clustering import plot_clustermap
 
 #%% Globals
@@ -36,16 +34,19 @@ from clustering.hierarchical_clustering import plot_clustermap
 JSON_PARAMETERS_PATH = "analysis/20210406_parameters_keio_screen.json"
 FEATURES_PATH = "/Users/sm5911/Documents/Keio_Screen/features.csv"
 METADATA_PATH = "/Users/sm5911/Documents/Keio_Screen/metadata.csv"
+
+# Hit strains to compare distances from each to all other strains OR just hit strains only
 HIT_STRAINS_PATH = "/Users/sm5911/Documents/Keio_Screen/Top256/hit_strains.txt"
+HIT_STRAINS_ONLY = False
 
 # Clustering parameters
 LINKAGE_METHOD = 'average' # 'ward' - see docs for options: ?scipy.cluster.hierarchy.linkage
 DISTANCE_METRIC = 'euclidean' # 'cosine' - see docs for options: ?scipy.spatial.distance.pdist
 N_NEIGHBOURS = 5 # number of closest strains to each 
 
-# Estimating distance and/or number of clusters from looking at the dendrogram/heatmap:
-MAX_DISTANCE = 55 # chosen from visual inspection of dendrogram 
-N_CLUSTERS = 10 # chosen from visual inspection of heatmap
+# Estimate EITHER distance OR number of clusters from looking at the dendrogram/heatmap:
+MAX_DISTANCE = None # METHOD 1 - distance cut-off chosen from visual inspection of dendrogram
+N_CLUSTERS = 10 # METHOD 2 - number of clusters chosen from visual inspection of heatmap/elbow plot
 
 #%% Functions
 
@@ -273,88 +274,28 @@ def plot_elbow(Z, saveAs, n_chosen=None):
         
     return k
 
-class Clusters(dict):
-    def _repr_html_(self):
-        html = '<table style="border: 0;">'
-        for c in self:
-            hx = rgb2hex(colorConverter.to_rgb(c))
-            html += '<tr style="border: 0;">' \
-            '<td style="background-color: {0}; ' \
-                       'border: 0;">' \
-            '<code style="background-color: {0};">'.format(hx)
-            html += c + '</code></td>'
-            html += '<td style="border: 0"><code>' 
-            html += repr(self[c]) + '</code>'
-            html += '</td></tr>'
-
-        html += '</table>'
-
-        return html
+def get_cluster_classes(X, clusters, saveDir=None):
+    """ Return dictionary of samples (values) in each cluster (keys) """
     
-def get_cluster_classes(den, label='ivl'):
-    """ Get list of samples in each cluster """
-        
-    cluster_idxs = defaultdict(list)
+    assert len(X.index) == len(clusters)
     
-    for c, pi in zip(den['color_list'], den['icoord']):
-        for leg in pi[1:3]:
-            i = (leg - 5.0) / 10.0
-            if abs(i - int(i)) < 1e-5:
-                cluster_idxs[c].append(int(i))
+    data = X.copy()
+    data['clusters'] = clusters        
+    grouped = data.groupby('clusters')
     
-    cluster_classes = Clusters()
-    for c, l in cluster_idxs.items():
-        i_l = [den[label][i] for i in l]
-        cluster_classes[c] = i_l
-    
-    return cluster_classes
-
-def get_clust_graph(df, numclust, transpose=False, saveAs=None):
-    if transpose==True:
-        aml=df.transpose()
-        xl="x-axis"
-    else:
-        aml=df
-        xl="y-axis"
-        
-    data_dist = pdist(aml.transpose())
-    data_link = linkage(data_dist,  metric=DISTANCE_METRIC, method=LINKAGE_METHOD)
-    
-    plt.close('all')
-    plt.figure(figsize=(10,7))
-    B=dendrogram(data_link, labels=list(aml.columns), p=numclust, truncate_mode="lastp", 
-                 get_leaves=True, count_sort='ascending', show_contracted=True)
-    #myInd = [i for i, c in zip(B['ivl'], B['color_list']) if c=='g']
-    get_cluster_classes(B)
-    ax=plt.gca()
-    ax.tick_params(axis='x', which='major', labelsize=8)
-    ax.tick_params(axis='y', which='major', labelsize=15)
-    plt.xlabel(xl)
-    #plt.set_size_inches(18.5, 10.5)
-    plt.ylabel('Distance')
-    if saveAs is not None:
-        plt.savefig(saveAs)
-    else:
-        plt.show()
-        
-    return get_cluster_classes(B)
-
-def give_cluster_assigns(df, numclust, transpose=True):
-    if transpose==True:
-        data_dist = pdist(df.transpose())
-        data_link = linkage(data_dist,  metric=DISTANCE_METRIC, method=LINKAGE_METHOD)
-        cluster_assigns=pd.Series(fcluster(data_link, numclust, criterion='maxclust', 
-                                           monocrit=None), index=df.columns)
-    else:
-        data_dist = pdist(df)
-        data_link = linkage(data_dist,  metric=DISTANCE_METRIC, method=LINKAGE_METHOD)
-        cluster_assigns=pd.Series(fcluster(data_link, numclust, criterion='maxclust', 
-                                           monocrit=None), index=df.index)
-    for i in range(1, numclust + 1):
-        print("Cluster ", str(i), ": ( N =", len(cluster_assigns[cluster_assigns==i].index), 
-              ")", ", ".join(list(cluster_assigns[cluster_assigns == i].index)))
+    cluster_classes_dict = {}
+    for c in np.unique(clusters):
+         cluster_strains = grouped.get_group(c).index.to_list()        
+         cluster_classes_dict[c] = cluster_strains
+         
+         if saveDir is not None:
+             Path(saveDir).mkdir(exist_ok=True, parents=True)
+             write_list_to_file(cluster_strains, save_path=saveDir / 'cluster_{}'.format(c))
+             
+    return cluster_classes_dict
 
 def show_values_on_bars(axs):
+    """ Helper function to plot values on bars in barplot """
     def _show_on_single_plot(ax):        
         for p in ax.patches:
             _x = p.get_x() + p.get_width() / 2
@@ -368,8 +309,16 @@ def show_values_on_bars(axs):
     else:
         _show_on_single_plot(axs)
 
-def plot_cluster_histogram(clusters, saveDir=None):
-    """ Plot histogram from fcluster array of cluster labels """
+def plot_cluster_histogram(clusters, saveAs=None):
+    """ Plot histogram from fcluster array of cluster labels 
+    
+        Inputs 
+        ------
+        clusters - fcluster array of cluster labels
+        saveAs - path to save, str 
+    """
+    
+    k = len(np.unique(clusters))
     
     plt.close('all')    
     fig, ax = plt.subplots(1,1)
@@ -380,18 +329,21 @@ def plot_cluster_histogram(clusters, saveDir=None):
     plt.xlabel('Clusters', labelpad=10)
     plt.ylabel('Number of strains', labelpad=10)
     
-    if saveDir is not None:
-        plt.savefig(Path(saveDir) / 'clusters_histogram.png', dpi=300)
+    if saveAs is not None:
+        plt.savefig(saveAs, dpi=300)
     else:
         plt.show()
         
-def plot_clusters(X, clusters, kde=False, saveAs=None, figsize=(9,8)):
+def plot_clusters_pca(X, clusters, kde=False, saveAs=None, figsize=(9,8)):
     """ Scatterplot of clusters in principal component space 
     
         Inputs
         ------
         X - features dataframe
         clusters - fcluster array of cluster labels 
+        kde - show kernel density on plot, bool
+        saveAs - path to save, str
+        figsize - figure size (x,y), tuple
     """
 
     # Normalise data
@@ -430,6 +382,8 @@ def plot_clusters(X, clusters, kde=False, saveAs=None, figsize=(9,8)):
         
     ax.set_xlabel('Principal Component 1 (%.1f%%)' % (ex_var_ratio[0]*100), fontsize=20, labelpad=12)
     ax.set_ylabel('Principal Component 2 (%.1f%%)' % (ex_var_ratio[1]*100), fontsize=20, labelpad=12)
+    
+    k = len(np.unique(clusters))
     ax.set_title("2-component PCA (n={} clusters)".format(k), fontsize=20)
     
     plt.tight_layout(rect=[0, 0, 0.9, 0.95])
@@ -442,10 +396,15 @@ def plot_clusters(X, clusters, kde=False, saveAs=None, figsize=(9,8)):
     else:
         plt.show()
 
-def plot_clusters2(Z, y_hc, saveAs=None):
-    """ Scatterplot of clusters using computed distances between points in euclidean space
+def plot_clusters_distance(Z, y_hc, saveAs=None):
+    """ Scatterplot of clusters using computed distances between points in euclidean space using
+        sklearn.cluster.AgglomerativeClustering
+    
+        Inputs
+        ------
         Z - cluster linkage array
         y_hc - hierarchical clustering fit prediction on Z using AgglomerativeClustering
+        saveAs - path to save, str
     """
     
     n_clusters = len(np.unique(y_hc))
@@ -483,23 +442,28 @@ if __name__ == "__main__":
                         default=HIT_STRAINS_PATH, type=str)
     args = parser.parse_args()
 
+    assert (MAX_DISTANCE is None) or (N_CLUSTERS is None) # make sure to choose only one method
+    
     # Read clean feature summaries + metadata
     print("Loading metadata and feature summary results...")
     features = pd.read_csv(args.features_path)
     metadata = pd.read_csv(args.metadata_path, dtype={'comments':str, 'source_plate_id':str})
     
-    strain_list = read_list_from_file(args.strain_list_path)
-    print("%d strains found in: %s" % (len(strain_list), args.strain_list_path))
+    # Read list of hit strains from file (optional)
+    if args.strain_list_path is not None:
+        strain_list = read_list_from_file(args.strain_list_path)
+        print("%d strains found in: %s" % (len(strain_list), args.strain_list_path))
+    else:
+        strain_list = None
     
     args = load_json(args.json)
-    save_path = Path(args.save_dir) / "clustering"
 
-    # # Subset for hit strains in strain list provided
-    # from filter_data.clean_feature_summaries import subset_results
-    # hit_features, hit_metadata = subset_results(features, 
-    #                                             metadata, 
-    #                                             column=args.grouping_variable, 
-    #                                             groups=strain_list)
+    # Subset for hit strains in strain list provided
+    if HIT_STRAINS_ONLY and strain_list is not None:
+        hit_features, hit_metadata = subset_results(features, 
+                                                    metadata, 
+                                                    column=args.grouping_variable, 
+                                                    groups=strain_list)
     
     # Load Tierpsy Top feature set + subset (columns) for top feats only
     if args.n_top_feats is not None:
@@ -510,6 +474,9 @@ if __name__ == "__main__":
         # Drop features that are not in results
         top_feats_list = [feat for feat in list(topfeats) if feat in features.columns]
         features = features[top_feats_list]
+
+    n_strains, n_feats = len(metadata['gene_name'].unique()), len(features.columns)
+    save_path = Path(args.save_dir) / "clustering" / ("%d_strains_%d_features" % (n_strains, n_feats))
           
     ##### Hierarchical clustering #####
 
@@ -521,54 +488,68 @@ if __name__ == "__main__":
     assert (np.round(Z, 6) == np.round(_Z, 6)).all()
     assert (X == _X).all().all()
 
-    # Find nearest neighbours to hit strains by ranking the computed sqaureform distance matrix to each strain
-    distances_df = nearest_neighbours(X=X, strain_list=strain_list, distance_metric=DISTANCE_METRIC, 
-                                      n_neighbours=N_NEIGHBOURS, saveDir=save_path / 'nearest_neighbours')
-  
+    # save dendrogram
+    den = plot_dendrogram(Z, saveAs=save_path / 'dendrogram.pdf', 
+                          color_threshold=(MAX_DISTANCE if MAX_DISTANCE is not None else None)) 
+                          #default color_threshold = 0.7*max(Z[:,2])
+
     # Compare pairwise distances between all samples to hierarchical clustering distances 
     # The closer the value to 1 the better the clustering preserves original distances
     c, coph_dists = cophenet(Z, pdist(X)); print("Cophenet:", c)
-    
-    # save dendrogram
-    den = plot_dendrogram(Z, saveAs=save_path / 'dendrogram.pdf', color_threshold=MAX_DISTANCE) 
-    #default color_threshold = 0.7*max(Z[:,2])
 
+    # Find nearest neighbours to hit strains by ranking the computed sqaureform distance matrix to each strain
+    distances_df = nearest_neighbours(X=X, strain_list=strain_list, distance_metric=DISTANCE_METRIC, 
+                                      n_neighbours=N_NEIGHBOURS, saveDir=save_path / 'nearest_neighbours')
+      
     ##### Cluster Analysis #####
     # The number of clusters can be inferred in several ways:
     #   1. By choosing a max_distance parameter to cut the tree into clustered groups
     #   2. By estimating the greatest decline in the rate of change of an 'elbow' plot -- the 'elbow' method
 
     # METHOD 1 - Maximum distance cut-off (inferred from dendrogram)
-    clusters = fcluster(Z, t=MAX_DISTANCE, criterion='distance')
-    k = len(np.unique(clusters))
-    print("N clusters chosen from dendrogram: %d (distance: %.1f)" % (k, MAX_DISTANCE))
+    if MAX_DISTANCE is not None:
+        clusters = fcluster(Z, t=MAX_DISTANCE, criterion='distance')
+        N_CLUSTERS = len(np.unique(clusters))
+        print("N clusters chosen from dendrogram: %d (distance: %.1f)" % (N_CLUSTERS, MAX_DISTANCE))
     
     # METHOD 2 - N clusters (inferred from heatmap/elbow plot)
     # For all 3874 strains, there looks to be anywhere from 5-10 visible clusters from the heatmap
-    # From the elbow plot the mathematical choice is 2 clusters, but the elbow looks quite gradual 
-    print("N clusters chosen from heatmap: %d" % N_CLUSTERS)
-    _k = plot_elbow(Z, saveAs=save_path / 'elbow_plot.png', n_chosen=N_CLUSTERS)
-    _clusters = fcluster(Z, t=N_CLUSTERS, criterion='maxclust') # t=_k
+    # From the elbow plot the mathematical choice is 2 clusters, but the elbow looks quite gradual
+    elif N_CLUSTERS is not None:
+        print("N clusters chosen from heatmap: %d" % N_CLUSTERS)
+        clusters = fcluster(Z, t=N_CLUSTERS, criterion='maxclust')
+    
+    # Elbow plot (return suggested number of clusters)
+    k = plot_elbow(Z, saveAs=save_path / 'elbow_plot.png', n_chosen=N_CLUSTERS)
     
     # Plot histogram of n strains in each cluster
-    plot_cluster_histogram(clusters, saveDir=save_path)
+    plot_cluster_histogram(clusters, saveAs=save_path / 'clusters_histogram.png')
 
     # Plot clusters as scatter plot in PCA space
-    plot_clusters(X, clusters, kde=False, saveAs=save_path / 'PCA_clusters={}.pdf'.format(k))
+    plot_clusters_pca(X, clusters, kde=False, saveAs=save_path / 'PCA_clusters={}.pdf'.format(N_CLUSTERS))
+
+# =============================================================================
+#     ## ALTERNATIVE METHOD WITH SCIKIT-LEARN 
+#     from sklearn.cluster import AgglomerativeClustering
+#     from sklearn import metrics as skmet
+#
+#     # Perform clustering + fit dataset to assign each datapoint to a cluster
+#     Hclustering = AgglomerativeClustering(distance_threshold=(MAX_DISTANCE is MAX_DISTANCE 
+#                                                               is not None else None),
+#                                           n_clusters=(N_CLUSTERS if N_CLUSTERS 
+#                                                       is not None else None),
+#                                           affinity=DISTANCE_METRIC, 
+#                                           linkage=LINKAGE_METHOD)
+#     y_hc = Hclustering.fit_predict(Z)
+#     plot_clusters_distance(Z, y_hc, saveAs=save_path / 'clusters_scatterZ.png')
+
+#     skmet.accuracy_score(y,                   #true labels for groups (unknown)
+#                          Hclustering.labels_) #predicted group labels
+# =============================================================================
 
     # Get list of groups in each cluster
-    cluster_classes = get_cluster_classes(den, label='ivl')  
-    get_clust_graph(X, numclust=N_CLUSTERS, transpose=True, saveAs=save_path / 'dendrogram_clusters.png')    
+    cluster_classes = get_cluster_classes(X, clusters, saveDir=save_path / 'cluster_classes')
     
-    ## ALTERNATIVE METHOD WITH SCIKIT-LEARN 
-    # Perform clustering + fit dataset to assign each datapoint to a cluster
-    Hclustering = AgglomerativeClustering(distance_threshold=MAX_DISTANCE,
-                                          #n_clusters=N_CLUSTERS,
-                                          affinity=DISTANCE_METRIC, 
-                                          linkage=LINKAGE_METHOD)
-    y_hc = Hclustering.fit_predict(Z)
-    plot_clusters2(Z, y_hc, saveAs=save_path / 'clusters_scatterZ.png')
-
     # Test hierarchical purity
     (_distances, 
      _clusters, 
@@ -580,20 +561,12 @@ if __name__ == "__main__":
                                          criterion='distance', 
                                          n_random=100)
     
-    # Compare with distances computed by Eleni's function
+    # Compare with distances computed by Eleni's function - they should be the same
     distances = Z[:,[2]].flatten()
     assert all(np.round(distances, 6) == np.round(_distances, 6))
-
-# =============================================================================
-#    skmet.accuracy_score(y, # true labels for groups (unknown)
-#                         Hclustering.labels_ # predicted group labels
-#                         )
-# =============================================================================
     
 # =============================================================================
 #     # K-means clustering
-# 
-#     km = KMeans(n_clusters=n_clusters_HCA, init='k-means++', max_iter=100, n_init=1,
-#                 verbose=True)
+#     from sklearn.cluster import KMeans
+#     km = KMeans(n_clusters=N_CLUSTERS, init='k-means++', max_iter=100, n_init=1, verbose=True)
 # =============================================================================
-

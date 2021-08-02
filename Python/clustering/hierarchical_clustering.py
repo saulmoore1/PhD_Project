@@ -72,7 +72,6 @@ def plot_clustermap(featZ,
     feat_colour_dict = {f:bluelight_colour_dict[f.split('_')[-1]] for f in fset}
     
     # Plot clustermap
-    plt.ioff() if saveto else plt.ion()
     plt.close('all')
     sns.set(font_scale=0.8)
     cg = sns.clustermap(data=featZ_grouped[fset], 
