@@ -37,16 +37,15 @@ METADATA_PATH = "/Users/sm5911/Documents/Keio_Screen/metadata.csv"
 
 # Hit strains to compare distances from each to all other strains OR just hit strains only
 HIT_STRAINS_PATH = "/Users/sm5911/Documents/Keio_Screen/Top256/hit_strains.txt"
-HIT_STRAINS_ONLY = False
+HIT_STRAINS_ONLY = True
 
 # Clustering parameters
 LINKAGE_METHOD = 'average' # 'ward' - see docs for options: ?scipy.cluster.hierarchy.linkage
 DISTANCE_METRIC = 'euclidean' # 'cosine' - see docs for options: ?scipy.spatial.distance.pdist
-N_NEIGHBOURS = 5 # number of closest strains to each 
 
 # Estimate EITHER distance OR number of clusters from looking at the dendrogram/heatmap:
-MAX_DISTANCE = None # METHOD 1 - distance cut-off chosen from visual inspection of dendrogram
-N_CLUSTERS = 10 # METHOD 2 - number of clusters chosen from visual inspection of heatmap/elbow plot
+MAX_DISTANCE = 15 # METHOD 1 - distance cut-off chosen from visual inspection of dendrogram
+N_CLUSTERS = None # METHOD 2 - number of clusters chosen from visual inspection of heatmap/elbow plot
 
 #%% Functions
 
@@ -131,7 +130,7 @@ def cluster_linkage_seaborn(features, metadata, groupby='gene_name', saveDir=Non
                          col_linkage=None,
                          method=method,
                          metric=metric,
-                         saveto=(saveDir / "HCA_{}.pdf".format(method + '_' + metric) if 
+                         saveto=(saveDir / "heatmap_{}.pdf".format(method + '_' + metric) if 
                                  saveDir is not None else None),
                          figsize=[15,10],
                          sns_colour_palette="Pastel1",
@@ -147,8 +146,6 @@ def cluster_linkage_seaborn(features, metadata, groupby='gene_name', saveDir=Non
     # extract row labels from clustermap heatmap
     labels = sorted(metadata[groupby].unique())
     mean_featZ.index = labels # strain names as index    
-    # TODO: Is this the correct way to obtain the row labels from seaborn cluster grid / dendrogram?
-    # dg = cg.dendrogram_row.dendrogram
     
     return Z, mean_featZ
 
@@ -193,15 +190,12 @@ def plot_squareform(X, metric=DISTANCE_METRIC, saveAs=None):
    
     if saveAs is not None:
         plt.savefig(saveAs, dpi=600)
-    else:
-        plt.show()
 
     return sq_dist
 
 def nearest_neighbours(X, 
                        strain_list=None, 
                        distance_metric=DISTANCE_METRIC, 
-                       n_neighbours=N_NEIGHBOURS, 
                        saveDir=None):
     """ Save ranked distances to N closest neighbours from each strain in strain_list and 
         return dataframe of distances of all strains from strains in strain_list 
@@ -215,22 +209,29 @@ def nearest_neighbours(X,
                                       None else None))    
     # sq_dist_sorted = np.sort(sq_dist, axis=1) # add [:,::-1] to sort in descending order
    
-    # convert sqdist to dataframe and subset rows for hit strains only
-    distances_df = pd.DataFrame(sq_dist, index=X.index, columns=X.index)
-    hit_distances_df = distances_df.loc[distances_df.index.isin(strain_list)]
+    # Convert squareform distance matrix to dataframe and subset rows for hit strains only
+    sq_dist_df = pd.DataFrame(sq_dist, index=X.index, columns=X.index)
+    hit_distances_df = sq_dist_df.loc[sq_dist_df.index.isin(strain_list)]
     
-    # For each hit strain, rank all other strains by distance from it + save to file
-    #hit_distances_dict = {}
-    for hit in distances_df.index:
-        hit_distances = distances_df.loc[hit].sort_values(ascending=True).reset_index()[1:n_neighbours+1]
-        hit_distances.columns = ['gene_name', 'distance']
-        #hit_distances_dict['hit'] = hit_distances
+    # For each hit strain, rank all other strains by distance from it 
+    # and store nearest neighbour gene names and distances separately
+    names_dict = {}
+    distances_dict = {}
+    for hit in hit_distances_df.index:
+        hit_distances_sorted = hit_distances_df.loc[hit].sort_values(ascending=True)
+        names_dict[hit] = hit_distances_sorted.index
+        distances_dict[hit] = hit_distances_sorted.values
         
-        if saveDir is not None:
-            saveDir.mkdir(exist_ok=True, parents=True)
-            hit_distances.to_csv(saveDir / '{}_neighbours.csv'.format(hit), index=False, header=True)        
-    
-    return hit_distances_df
+    names_df = pd.DataFrame.from_dict(names_dict).T
+    distances_df = pd.DataFrame.from_dict(distances_dict).T
+        
+    # save ranked nearest neighbours gene names and corresponding distances to file
+    if saveDir is not None:
+        saveDir.mkdir(exist_ok=True, parents=True)
+        names_df.to_csv(saveDir / 'nearest_neighbours_names.csv', index=True, header=True)
+        distances_df.to_csv(saveDir / 'nearest_neighbours_distances.csv', index=True, header=True)
+        
+    return names_df, distances_df
          
 def plot_elbow(Z, saveAs, n_chosen=None):
     """ Estimate the number of clusters by finding the clustering step where the acceleration 
@@ -460,10 +461,11 @@ if __name__ == "__main__":
 
     # Subset for hit strains in strain list provided
     if HIT_STRAINS_ONLY and strain_list is not None:
-        hit_features, hit_metadata = subset_results(features, 
-                                                    metadata, 
-                                                    column=args.grouping_variable, 
-                                                    groups=strain_list)
+        print("Subsetting results for hit strains only")
+        features, metadata = subset_results(features, 
+                                            metadata, 
+                                            column=args.grouping_variable, 
+                                            groups=strain_list)
     
     # Load Tierpsy Top feature set + subset (columns) for top feats only
     if args.n_top_feats is not None:
@@ -475,14 +477,14 @@ if __name__ == "__main__":
         top_feats_list = [feat for feat in list(topfeats) if feat in features.columns]
         features = features[top_feats_list]
 
-    n_strains, n_feats = len(metadata['gene_name'].unique()), len(features.columns)
+    n_strains, n_feats = len(metadata[args.grouping_variable].unique()), len(features.columns)
     save_path = Path(args.save_dir) / "clustering" / ("%d_strains_%d_features" % (n_strains, n_feats))
-          
+         
     ##### Hierarchical clustering #####
 
     # Cluster linkage array
-    Z, X = cluster_linkage_seaborn(features, metadata, groupby='gene_name', saveDir=save_path)
-    _Z, _X = cluster_linkage_pdist(features, metadata, groupby='gene_name', saveDir=save_path)
+    Z, X = cluster_linkage_seaborn(features, metadata, groupby=args.grouping_variable, saveDir=save_path)
+    _Z, _X = cluster_linkage_pdist(features, metadata, groupby=args.grouping_variable, saveDir=save_path)
     
     # Assert that the two methods are identical (within limits of machine precision)
     assert (np.round(Z, 6) == np.round(_Z, 6)).all()
@@ -497,10 +499,12 @@ if __name__ == "__main__":
     # The closer the value to 1 the better the clustering preserves original distances
     c, coph_dists = cophenet(Z, pdist(X)); print("Cophenet:", c)
 
-    # Find nearest neighbours to hit strains by ranking the computed sqaureform distance matrix to each strain
-    distances_df = nearest_neighbours(X=X, strain_list=strain_list, distance_metric=DISTANCE_METRIC, 
-                                      n_neighbours=N_NEIGHBOURS, saveDir=save_path / 'nearest_neighbours')
-      
+    # Find nearest neighbours to hit strains by ranking the computed sqaureform distance matrix to all other strains
+    names_df, distances_df = nearest_neighbours(X=X,
+                                                strain_list=strain_list, 
+                                                distance_metric=DISTANCE_METRIC, 
+                                                saveDir=save_path / 'nearest_neighbours')
+  
     ##### Cluster Analysis #####
     # The number of clusters can be inferred in several ways:
     #   1. By choosing a max_distance parameter to cut the tree into clustered groups
