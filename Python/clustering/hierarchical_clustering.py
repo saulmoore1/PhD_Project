@@ -12,7 +12,7 @@ Hierarchical Clustering and Heatmaps
 
 import sys
 
-# Path to Github helper functions (USER-DEFINED path to local copy of Github repo)             ]
+# Path to Github helper functions (USER-DEFINED path to local copy of Github repo)
 sys.path.insert(0, '/Users/sm5911/Documents/GitHub/PhD_Project/Python/')
 
 # Custom style for plotting

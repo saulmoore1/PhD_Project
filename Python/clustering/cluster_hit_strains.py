@@ -22,8 +22,6 @@ from scipy.spatial.distance import pdist, squareform
 from scipy.cluster.hierarchy import dendrogram, linkage, cophenet, fcluster
 from sklearn.decomposition import PCA
 
-from tierpsytools.analysis.clustering_tools import hierarchical_purity
-
 from read_data.read import load_json, load_topfeats, read_list_from_file
 from write_data.write import write_list_to_file
 from filter_data.clean_feature_summaries import subset_results
@@ -43,9 +41,14 @@ HIT_STRAINS_ONLY = True
 LINKAGE_METHOD = 'average' # 'ward' - see docs for options: ?scipy.cluster.hierarchy.linkage
 DISTANCE_METRIC = 'euclidean' # 'cosine' - see docs for options: ?scipy.spatial.distance.pdist
 
-# Estimate EITHER distance OR number of clusters from looking at the dendrogram/heatmap:
-MAX_DISTANCE = 15 # METHOD 1 - distance cut-off chosen from visual inspection of dendrogram
-N_CLUSTERS = None # METHOD 2 - number of clusters chosen from visual inspection of heatmap/elbow plot
+# Estimate EITHER distance OR number of clusters from looking at the dendrogram/heatmap
+# METHOD 1 - distance cut-off chosen from visual inspection of dendrogram
+MAX_DISTANCE = 25 if HIT_STRAINS_ONLY else 22
+# METHOD 2 - number of clusters chosen from visual inspection of heatmap/elbow plot
+N_CLUSTERS = None if HIT_STRAINS_ONLY else None
+
+# TODO: Choose max d to yield approx 10 clusters with >1 strains in each cluster group, 
+# then also choose a max d slightly above and below and run those to see how it varies
 
 #%% Functions
 
@@ -74,38 +77,6 @@ def dropNaN(featZ):
         print("Dropped %d features after normalisation (NaN)" % n_dropped)
         
     return featZ
-
-def plot_dendrogram(Z, labels=None, figsize=(15,7), saveAs=None, color_threshold=None):
-    """ Plot dendrogram from cluster linkage array (contains the hierarchical clustering information) 
-        Z -  cluster linkage array
-        colour_threshold -  dendrogram 'clusters' are coloured based on this distance cut-off 
-    """
-    
-    plt.close('all')
-    plt.subplots(figsize=figsize)
-    sns.set_style("whitegrid")
-    den = dendrogram(Z,
-                     truncate_mode=None, # 'lastp', 'level'
-                     #p=10,
-                     #show_contracted=True,
-                     labels=labels,
-                     leaf_rotation=90,
-                     leaf_font_size=5,
-                     color_threshold=color_threshold)
-
-    if color_threshold is not None:
-        # plot a horizontal cut-off line
-        plt.axhline(y=color_threshold, c='gray', ls='--')
-
-    plt.subplots_adjust(top=0.95, bottom=0.1, left=0.05, right=0.95)
-
-    if saveAs is not None:
-        plt.savefig(saveAs, dpi=300)
-        plt.close()
-    else:
-        plt.show()
-        
-    return den
 
 def cluster_linkage_seaborn(features, metadata, groupby='gene_name', saveDir=None, 
                     method=LINKAGE_METHOD, metric=DISTANCE_METRIC): 
@@ -232,7 +203,32 @@ def nearest_neighbours(X,
         distances_df.to_csv(saveDir / 'nearest_neighbours_distances.csv', index=True, header=True)
         
     return names_df, distances_df
-         
+  
+def plot_dendrogram(Z, figsize=(15,7), color_threshold=None, saveAs=None, **kwargs):
+    """ Plot dendrogram from cluster linkage array (contains the hierarchical clustering information) 
+        Z -  cluster linkage array
+        colour_threshold -  dendrogram 'clusters' are coloured based on this distance cut-off 
+    """
+    
+    plt.close('all')
+    plt.subplots(figsize=figsize)
+    sns.set_style("whitegrid")
+    den = dendrogram(Z, color_threshold=color_threshold, **kwargs)
+
+    if color_threshold is not None:
+        # plot a horizontal cut-off line
+        plt.axhline(y=color_threshold, c='gray', ls='--')
+
+    plt.subplots_adjust(top=0.95, bottom=0.1, left=0.05, right=0.95)
+
+    if saveAs is not None:
+        plt.savefig(saveAs, dpi=300)
+        plt.close()
+    else:
+        plt.show()
+        
+    return den
+       
 def plot_elbow(Z, saveAs, n_chosen=None):
     """ Estimate the number of clusters by finding the clustering step where the acceleration 
         of distance growth is the largest (ie. the "strongest elbow")
@@ -478,7 +474,8 @@ if __name__ == "__main__":
         features = features[top_feats_list]
 
     n_strains, n_feats = len(metadata[args.grouping_variable].unique()), len(features.columns)
-    save_path = Path(args.save_dir) / "clustering" / ("%d_strains_%d_features" % (n_strains, n_feats))
+    save_path = Path(args.save_dir) / "clustering" / ("%d_strains_%d_features_maxd=%d"\
+                                                      % (n_strains, n_feats, MAX_DISTANCE))
          
     ##### Hierarchical clustering #####
 
@@ -490,14 +487,9 @@ if __name__ == "__main__":
     assert (np.round(Z, 6) == np.round(_Z, 6)).all()
     assert (X == _X).all().all()
 
-    # save dendrogram
-    den = plot_dendrogram(Z, saveAs=save_path / 'dendrogram.pdf', 
-                          color_threshold=(MAX_DISTANCE if MAX_DISTANCE is not None else None)) 
-                          #default color_threshold = 0.7*max(Z[:,2])
-
     # Compare pairwise distances between all samples to hierarchical clustering distances 
     # The closer the value to 1 the better the clustering preserves original distances
-    c, coph_dists = cophenet(Z, pdist(X)); print("Cophenet:", c)
+    c, coph_dists = cophenet(Z, pdist(X)); print("Cophenet: %.3f" % c)
 
     # Find nearest neighbours to hit strains by ranking the computed sqaureform distance matrix to all other strains
     names_df, distances_df = nearest_neighbours(X=X,
@@ -507,8 +499,19 @@ if __name__ == "__main__":
   
     ##### Cluster Analysis #####
     # The number of clusters can be inferred in several ways:
-    #   1. By choosing a max_distance parameter to cut the tree into clustered groups
+    #   1. By choosing a max_distance parameter to cut the dendrogram into clustered groups
     #   2. By estimating the greatest decline in the rate of change of an 'elbow' plot -- the 'elbow' method
+
+    # Plot dendrogram (optional: with max distance cut-off)
+    den = plot_dendrogram(Z, saveAs=save_path / 'dendrogram.pdf', 
+                          color_threshold=(MAX_DISTANCE if MAX_DISTANCE is not None else None),
+                          labels=X.index, 
+                          truncate_mode='lastp', # 'lastp', 'level'
+                          p=500 if Z.shape[0] > 2000 else 50,
+                          show_contracted=True,
+                          leaf_rotation=90,
+                          leaf_font_size=2,
+                          orientation='top')
 
     # METHOD 1 - Maximum distance cut-off (inferred from dendrogram)
     if MAX_DISTANCE is not None:
@@ -517,23 +520,57 @@ if __name__ == "__main__":
         print("N clusters chosen from dendrogram: %d (distance: %.1f)" % (N_CLUSTERS, MAX_DISTANCE))
     
     # METHOD 2 - N clusters (inferred from heatmap/elbow plot)
-    # For all 3874 strains, there looks to be anywhere from 5-10 visible clusters from the heatmap
-    # From the elbow plot the mathematical choice is 2 clusters, but the elbow looks quite gradual
     elif N_CLUSTERS is not None:
         print("N clusters chosen from heatmap: %d" % N_CLUSTERS)
         clusters = fcluster(Z, t=N_CLUSTERS, criterion='maxclust')
+        
+    # Create mask to omit clusters with only a single gene
+    single_clusters = []
+    for i in range(1, N_CLUSTERS+1):
+        count = (clusters == i).sum()  
+        if count <= 1:
+            single_clusters.append(i)
+    
+    clusters_mask = [False if i in single_clusters else True for i in clusters]
+    
+    # Update n clusters for clusters with >1 sample
+    N_CLUSTERS = len(np.unique(clusters[clusters_mask]))
     
     # Elbow plot (return suggested number of clusters)
     k = plot_elbow(Z, saveAs=save_path / 'elbow_plot.png', n_chosen=N_CLUSTERS)
     
     # Plot histogram of n strains in each cluster
-    plot_cluster_histogram(clusters, saveAs=save_path / 'clusters_histogram.png')
+    plot_cluster_histogram(clusters[clusters_mask], saveAs=save_path / 'clusters_histogram.png')
 
     # Plot clusters as scatter plot in PCA space
-    plot_clusters_pca(X, clusters, kde=False, saveAs=save_path / 'PCA_clusters={}.pdf'.format(N_CLUSTERS))
+    plot_clusters_pca(X[clusters_mask], clusters[clusters_mask], kde=False, 
+                      saveAs=save_path / 'PCA_clusters={}.pdf'.format(N_CLUSTERS))
+
+    # Get list of groups in each cluster
+    cluster_classes = get_cluster_classes(X[clusters_mask], 
+                                          clusters[clusters_mask], 
+                                          saveDir=save_path / 'cluster_classes_n={}'.format(N_CLUSTERS))
+    
+# =============================================================================
+#     # Test hierarchical purity
+#     from tierpsytools.analysis.clustering_tools import hierarchical_purity
+#     (_distances, 
+#      _clusters, 
+#      _purity,
+#      _purity_rand) = hierarchical_purity(data=X, 
+#                                          labels=clusters, 
+#                                          linkage_matrix=None, 
+#                                          linkage_method='average',
+#                                          criterion='distance', 
+#                                          n_random=100)
+#     
+#     # Compare with distances computed by Eleni's function - they should be the same
+#     distances = Z[:,[2]].flatten()
+#     assert all(np.round(distances,6) == np.round(_distances,6))
+# =============================================================================
 
 # =============================================================================
-#     ## ALTERNATIVE METHOD WITH SCIKIT-LEARN 
+#     ## ALTERNATIVE CLUSTERING METHOD WITH SCIKIT-LEARN 
 #     from sklearn.cluster import AgglomerativeClustering
 #     from sklearn import metrics as skmet
 #
@@ -550,24 +587,6 @@ if __name__ == "__main__":
 #     skmet.accuracy_score(y,                   #true labels for groups (unknown)
 #                          Hclustering.labels_) #predicted group labels
 # =============================================================================
-
-    # Get list of groups in each cluster
-    cluster_classes = get_cluster_classes(X, clusters, saveDir=save_path / 'cluster_classes')
-    
-    # Test hierarchical purity
-    (_distances, 
-     _clusters, 
-     _purity,
-     _purity_rand) = hierarchical_purity(data=X, 
-                                         labels=clusters, 
-                                         linkage_matrix=None, 
-                                         linkage_method='average',
-                                         criterion='distance', 
-                                         n_random=100)
-    
-    # Compare with distances computed by Eleni's function - they should be the same
-    distances = Z[:,[2]].flatten()
-    assert all(np.round(distances, 6) == np.round(_distances, 6))
     
 # =============================================================================
 #     # K-means clustering
