@@ -108,7 +108,6 @@ def get_skeleton_data(skeletonfilepath, rig='Phenix'):
 
     if rig.lower() == 'phenix':
         # Read HDF5 file + extract info
-        # TODO: Fix this
         try:
             with h5py.File(skeletonfilepath, 'r') as f:
                 df = pd.DataFrame({'roi_size': f['trajectories_data']['midbody_speed']})

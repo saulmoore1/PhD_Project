@@ -22,7 +22,7 @@ from filter_data.clean_feature_summaries import clean_summary_results
 
 #%% GLOBALS
 
-JSON_PARAMETERS_PATH = "analysis/20210719_parameters_keio_screen.json"
+JSON_PARAMETERS_PATH = "analysis/20210406_parameters_keio_screen.json"
 
 #%% FUNCTIONS
 

@@ -202,6 +202,6 @@ def subset_results(features, metadata, column, groups, omit=False, verbose=True)
         
         return subset_features, subset_metadata
     else:
-        print("No groups provided")
+        print("No groups to subset")
         return features, metadata
     

@@ -10,7 +10,6 @@ Hierarchical clustering of Keio (hit) strains for GO enrichment analysis
 
 #%% Imports
 
-import argparse
 import numpy as np
 import pandas as pd
 import seaborn as sns
@@ -22,7 +21,7 @@ from scipy.spatial.distance import pdist, squareform
 from scipy.cluster.hierarchy import dendrogram, linkage, cophenet, fcluster
 from sklearn.decomposition import PCA
 
-from read_data.read import load_json, load_topfeats, read_list_from_file
+from read_data.read import load_topfeats, read_list_from_file
 from write_data.write import write_list_to_file
 from filter_data.clean_feature_summaries import subset_results
 from clustering.hierarchical_clustering import plot_clustermap
@@ -34,21 +33,31 @@ FEATURES_PATH = "/Users/sm5911/Documents/Keio_Screen/features.csv"
 METADATA_PATH = "/Users/sm5911/Documents/Keio_Screen/metadata.csv"
 
 # Hit strains to compare distances from each to all other strains OR just hit strains only
-HIT_STRAINS_PATH = "/Users/sm5911/Documents/Keio_Screen/Top256/hit_strains.txt"
-HIT_STRAINS_ONLY = True
+HIT_STRAINS_PATH = "/Users/sm5911/Documents/Keio_Screen/Top256/gene_name/Stats_fdr_bh/hand_picked_hit_strains.txt"
+HIT_STRAINS_ONLY = False
+
+# List of hand-picked strains from top100 ranked lowest pvalue strains from initial screen
+CONF_STRAIN_LIST_PATH = "/Users/sm5911/Documents/Keio_Screen2/Top256/hit_strains.txt"
+
+N_TOP_FEATS = 256
+TOP_FEATS_DIR = '/Users/sm5911/Tierpsy_Versions/tierpsy-tools-python/tierpsytools/extras/feat_sets'
+SAVE_DIR = '/Users/sm5911/Documents/Keio_Screen'
 
 # Clustering parameters
 LINKAGE_METHOD = 'average' # 'ward' - see docs for options: ?scipy.cluster.hierarchy.linkage
 DISTANCE_METRIC = 'euclidean' # 'cosine' - see docs for options: ?scipy.spatial.distance.pdist
 
+# Number of neighbours to record
+N_NEIGHBOURS = 3
+
 # Estimate EITHER distance OR number of clusters from looking at the dendrogram/heatmap
 # METHOD 1 - distance cut-off chosen from visual inspection of dendrogram
-MAX_DISTANCE = 25 if HIT_STRAINS_ONLY else 22
+MAX_DISTANCE = 20 if HIT_STRAINS_ONLY else 22
 # METHOD 2 - number of clusters chosen from visual inspection of heatmap/elbow plot
-N_CLUSTERS = None if HIT_STRAINS_ONLY else None
+N_CLUSTERS = None
 
-# TODO: Choose max d to yield approx 10 clusters with >1 strains in each cluster group, 
-# then also choose a max d slightly above and below and run those to see how it varies
+# I decided to choose a max d that will yield approx 10 clusters, with >1 strains in each cluster, 
+# then also test with a max d slightly above and below the selected value, to see how results vary
 
 #%% Functions
 
@@ -78,8 +87,12 @@ def dropNaN(featZ):
         
     return featZ
 
-def cluster_linkage_seaborn(features, metadata, groupby='gene_name', saveDir=None, 
-                    method=LINKAGE_METHOD, metric=DISTANCE_METRIC): 
+def cluster_linkage_seaborn(features, 
+                            metadata, 
+                            groupby='gene_name', 
+                            saveDir=None, 
+                            method='average', 
+                            metric='euclidean'): 
     """ METHOD 2 
         - Use seaborn clustermap, then extract dendrogram linkage and distances
         
@@ -120,8 +133,12 @@ def cluster_linkage_seaborn(features, metadata, groupby='gene_name', saveDir=Non
     
     return Z, mean_featZ
 
-def cluster_linkage_pdist(features, metadata, groupby='gene_name', saveDir=None,
-                     method=LINKAGE_METHOD, metric=DISTANCE_METRIC):
+def cluster_linkage_pdist(features, 
+                          metadata, 
+                          groupby='gene_name', 
+                          saveDir=None,
+                          method='average', 
+                          metric='euclidean'):
     """ METHOD 1 
         - Compute distances between points with pdist, then compute linkage for dendrogram
         
@@ -147,11 +164,11 @@ def cluster_linkage_pdist(features, metadata, groupby='gene_name', saveDir=None,
 
     return Z, mean_featZ
  
-def plot_squareform(X, metric=DISTANCE_METRIC, saveAs=None):
+def plot_squareform(X, metric='euclidean', saveAs=None):
     """ Plot squareform distance matrix of pairwise distances between samples """
     
     # Squareform matrix of pairwise distances of all samples from each other
-    pdistances = pdist(X=X, metric=DISTANCE_METRIC)
+    pdistances = pdist(X=X, metric=metric)
     sq_dist = squareform(pdistances)
 
     # Plot squareform distance matrix of pairwise distances between strains        
@@ -165,19 +182,28 @@ def plot_squareform(X, metric=DISTANCE_METRIC, saveAs=None):
     return sq_dist
 
 def nearest_neighbours(X, 
+                       distance_metric='euclidean', 
                        strain_list=None, 
-                       distance_metric=DISTANCE_METRIC, 
                        saveDir=None):
-    """ Save ranked distances to N closest neighbours from each strain in strain_list and 
-        return dataframe of distances of all strains from strains in strain_list 
+    """ Rank distances from each strain to all others to find closest neighbours using the distance 
+        metric provided, and return matching dataframes of names and distances
+        
+        Inputs
+        ------
+        X
+        strain_list
+        
+        Returns
+        -------
+        names_df, distances_df
     """
     
     if strain_list is None:
         strain_list = X.index.to_list()
  
     sq_dist = plot_squareform(X=X, metric=distance_metric, 
-                              saveAs=(save_path / 'squareform_pdist.png' if save_path is not 
-                                      None else None))    
+                              saveAs=(save_path / 'squareform_pdist.png' if save_path is not None 
+                                      else None))
     # sq_dist_sorted = np.sort(sq_dist, axis=1) # add [:,::-1] to sort in descending order
    
     # Convert squareform distance matrix to dataframe and subset rows for hit strains only
@@ -414,7 +440,7 @@ def plot_clusters_distance(Z, y_hc, saveAs=None):
         plt.scatter(x=Z[y_hc==i, 0], 
                     y=Z[y_hc==i, 1], 
                     c=np.array(cols[i]).reshape(1,-1), s=60, edgecolor='k')
-    plt.title('Cluster distances (euclidean, ')
+    plt.title('Cluster distances')
     plt.xlabel('axis 1', labelpad=12, fontsize=12)
     plt.ylabel('axis 2', labelpad=12, fontsize=12)
     
@@ -428,60 +454,56 @@ def plot_clusters_distance(Z, y_hc, saveAs=None):
 
 if __name__ == "__main__":
     tic = time()
-    parser = argparse.ArgumentParser(description="Cluster Keio hit strains into similar phenogroups")
-    parser.add_argument('-j', '--json', help="Path to JSON parameters file", 
-                        default=JSON_PARAMETERS_PATH, type=str)
-    parser.add_argument('--features_path', help="Path to feature summaries file", 
-                        default=FEATURES_PATH, type=str)
-    parser.add_argument('--metadata_path', help="Path to metadata file", 
-                        default=METADATA_PATH, type=str)
-    parser.add_argument('--strain_list_path', help="Path to list of strains to cluster", 
-                        default=HIT_STRAINS_PATH, type=str)
-    args = parser.parse_args()
 
     assert (MAX_DISTANCE is None) or (N_CLUSTERS is None) # make sure to choose only one method
     
     # Read clean feature summaries + metadata
     print("Loading metadata and feature summary results...")
-    features = pd.read_csv(args.features_path)
-    metadata = pd.read_csv(args.metadata_path, dtype={'comments':str, 'source_plate_id':str})
+    features = pd.read_csv(FEATURES_PATH)
+    metadata = pd.read_csv(METADATA_PATH, dtype={'comments':str, 'source_plate_id':str})
     
     # Read list of hit strains from file (optional)
-    if args.strain_list_path is not None:
-        strain_list = read_list_from_file(args.strain_list_path)
-        print("%d strains found in: %s" % (len(strain_list), args.strain_list_path))
+    if HIT_STRAINS_PATH is not None:
+        strain_list = read_list_from_file(HIT_STRAINS_PATH)
+        print("%d strains found in: %s" % (len(strain_list), HIT_STRAINS_PATH))
     else:
         strain_list = None
-    
-    args = load_json(args.json)
 
     # Subset for hit strains in strain list provided
     if HIT_STRAINS_ONLY and strain_list is not None:
         print("Subsetting results for hit strains only")
-        features, metadata = subset_results(features, 
-                                            metadata, 
-                                            column=args.grouping_variable, 
+        features, metadata = subset_results(features, metadata, column='gene_name', 
                                             groups=strain_list)
     
     # Load Tierpsy Top feature set + subset (columns) for top feats only
-    if args.n_top_feats is not None:
-        top_feats_path = Path(args.tierpsy_top_feats_dir) / "tierpsy_{}.csv".format(str(args.n_top_feats))        
-        topfeats = load_topfeats(top_feats_path, add_bluelight=True, 
-                                  remove_path_curvature=True, header=None)
+    if N_TOP_FEATS is not None:
+        top_feats_path = Path(TOP_FEATS_DIR) / "tierpsy_{}.csv".format(str(N_TOP_FEATS))        
+        topfeats = load_topfeats(top_feats_path, add_bluelight=True, remove_path_curvature=True, 
+                                 header=None)
 
         # Drop features that are not in results
         top_feats_list = [feat for feat in list(topfeats) if feat in features.columns]
         features = features[top_feats_list]
 
-    n_strains, n_feats = len(metadata[args.grouping_variable].unique()), len(features.columns)
-    save_path = Path(args.save_dir) / "clustering" / ("%d_strains_%d_features_maxd=%d"\
-                                                      % (n_strains, n_feats, MAX_DISTANCE))
+    n_strains, n_feats = len(metadata['gene_name'].unique()), len(features.columns)
+    save_path = Path(SAVE_DIR) / "clustering" / ("%d_strains_%d_features_maxd=%d"\
+                                                 % (n_strains, n_feats, MAX_DISTANCE))
          
     ##### Hierarchical clustering #####
 
     # Cluster linkage array
-    Z, X = cluster_linkage_seaborn(features, metadata, groupby=args.grouping_variable, saveDir=save_path)
-    _Z, _X = cluster_linkage_pdist(features, metadata, groupby=args.grouping_variable, saveDir=save_path)
+    Z, X = cluster_linkage_seaborn(features, 
+                                   metadata, 
+                                   groupby='gene_name', 
+                                   saveDir=save_path, 
+                                   method=LINKAGE_METHOD, 
+                                   metric=DISTANCE_METRIC)
+    _Z, _X = cluster_linkage_pdist(features, 
+                                   metadata, 
+                                   groupby='gene_name',
+                                   saveDir=save_path, 
+                                   method=LINKAGE_METHOD, 
+                                   metric=DISTANCE_METRIC)
     
     # Assert that the two methods are identical (within limits of machine precision)
     assert (np.round(Z, 6) == np.round(_Z, 6)).all()
@@ -491,12 +513,47 @@ if __name__ == "__main__":
     # The closer the value to 1 the better the clustering preserves original distances
     c, coph_dists = cophenet(Z, pdist(X)); print("Cophenet: %.3f" % c)
 
-    # Find nearest neighbours to hit strains by ranking the computed sqaureform distance matrix to all other strains
+    # Find nearest neighbours by ranking the computed sqaureform distance matrix between all strains
     names_df, distances_df = nearest_neighbours(X=X,
                                                 strain_list=strain_list, 
                                                 distance_metric=DISTANCE_METRIC, 
                                                 saveDir=save_path / 'nearest_neighbours')
-  
+    
+    # Save expanded list of hit strains for confirmational screen, including the 5 closest strains 
+    # to each hit strain selected from the initial screen
+    conf_strain_list = read_list_from_file(CONF_STRAIN_LIST_PATH)
+    conf_strain_list.remove('AroP'); conf_strain_list.insert(0,'aroP') # correct capitalisation error
+    conf_strain_list.remove('TnaB'); conf_strain_list.insert(0,'tnaB')
+    write_list_to_file(conf_strain_list, 
+                       "/Users/sm5911/Documents/Keio_Screen2/strain_list/hit_strains.txt")
+
+    conf_strain_initial_list = [s for s in conf_strain_list if s in names_df.index]
+    conf_strain_not_initial_list = [s for s in conf_strain_list if s not in names_df.index]
+    neighbours_df = names_df.loc[conf_strain_initial_list, 1:N_NEIGHBOURS]
+    save_path2 = "/Users/sm5911/Documents/Keio_Screen2/strain_list/nearest_{}_neighbours.xlsx".format(N_NEIGHBOURS)
+    neighbours_df.to_excel(save_path2)
+    
+    # Extract elements of 2nd through 5th columns for selected rows + flatten into list
+    neighbour_list = list(np.unique(names_df.loc[conf_strain_initial_list, 1:N_NEIGHBOURS].values.flatten()))
+    neighbour_list = [n for n in neighbour_list if n not in conf_strain_list]
+    write_list_to_file(neighbour_list,
+                       "/Users/sm5911/Documents/Keio_Screen2/strain_list/neighbour_strains.txt")
+
+    new_strain_list = conf_strain_list + neighbour_list
+    atp_genes = [s for s in names_df.index if s.startswith('atp') and s not in new_strain_list]
+    nuo_genes = [s for s in names_df.index if s.startswith('nuo') and s not in new_strain_list]
+    extra_strains = ['fiu','fhuE','fhuA','tonB','exbD','exbB','entA','entB','entC','entE','entF',
+                     'fes','cirA']
+    extra_strain_list = atp_genes + nuo_genes + extra_strains
+    write_list_to_file(extra_strain_list, 
+                       "/Users/sm5911/Documents/Keio_Screen2/strain_list/extra_strains.txt")
+
+    new_strain_list.extend(extra_strain_list)
+    new_strain_list = sorted(list(np.unique(new_strain_list)))
+    print("Saving new hit strain list of %d genes to file" % len(new_strain_list))
+    write_list_to_file(new_strain_list, 
+                       save_path="/Users/sm5911/Documents/Keio_Screen2/strain_list/new_hit_strains.txt")
+    
     ##### Cluster Analysis #####
     # The number of clusters can be inferred in several ways:
     #   1. By choosing a max_distance parameter to cut the dendrogram into clustered groups
@@ -504,7 +561,7 @@ if __name__ == "__main__":
 
     # Plot dendrogram (optional: with max distance cut-off)
     den = plot_dendrogram(Z, saveAs=save_path / 'dendrogram.pdf', 
-                          color_threshold=(MAX_DISTANCE if MAX_DISTANCE is not None else None),
+                          color_threshold=MAX_DISTANCE if MAX_DISTANCE is not None else None,
                           labels=X.index, 
                           truncate_mode='lastp', # 'lastp', 'level'
                           p=500 if Z.shape[0] > 2000 else 50,
@@ -560,7 +617,7 @@ if __name__ == "__main__":
 #      _purity_rand) = hierarchical_purity(data=X, 
 #                                          labels=clusters, 
 #                                          linkage_matrix=None, 
-#                                          linkage_method='average',
+#                                          linkage_method=LINKAGE_METHOD,
 #                                          criterion='distance', 
 #                                          n_random=100)
 #     

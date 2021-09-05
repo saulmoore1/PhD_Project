@@ -31,7 +31,7 @@ from visualisation.plotting_helper import sig_asterix
 
 #%% GLOBALS
 
-JSON_PARAMETERS_PATH = "analysis/20210719_parameters_keio_screen.json"
+JSON_PARAMETERS_PATH = "analysis/20210406_parameters_keio_screen.json"
 
 #%% MAIN
 
@@ -140,7 +140,7 @@ def keio_stats(features, metadata, args):
     assert control in strain_list
 
     ##### STATISTICS #####
-
+    
     stats_dir =  save_dir / grouping_var / "Stats_{}".format(args.fdr_method)                 
 
     # F-test for equal variances
@@ -165,11 +165,11 @@ def keio_stats(features, metadata, args):
     print("Mean sample size: %d" % mean_sample_size)
           
     ### ANOVA / Kruskal-Wallis tests for significantly different features across groups
-    anova_path_uncorrected = stats_dir / '{}_results_uncorrected.csv'.format(args.test)
-    anova_path_corrected = stats_dir / '{}_results.csv'.format(args.test)
+    test_path_unncorrected = stats_dir / '{}_results_uncorrected.csv'.format(args.test)
+    test_path = stats_dir / '{}_results.csv'.format(args.test)
     
-    if not (anova_path_uncorrected.exists() and anova_path_corrected.exists()):
-        anova_path_corrected.parent.mkdir(exist_ok=True, parents=True)
+    if not (test_path.exists() and test_path_unncorrected.exists()):
+        test_path.parent.mkdir(exist_ok=True, parents=True)
     
         if (args.test == "ANOVA" or args.test == "Kruskal"):
             if len(strain_list) > 2:   
@@ -190,23 +190,23 @@ def keio_stats(features, metadata, args):
                                                 linked_test=args.test)
 
                 # compile + save results (uncorrected)
-                anova_uncorrected = pd.concat([stats, effect_sizes, pvals, reject], axis=1)
-                anova_uncorrected.columns = ['stats','effect_size','pvals','reject']     
-                anova_uncorrected['significance'] = sig_asterix(anova_uncorrected['pvals'])
-                anova_uncorrected = anova_uncorrected.sort_values(by=['pvals'], ascending=True) # rank pvals
-                anova_uncorrected.to_csv(anova_path_uncorrected, header=True, index=True)
+                test_results = pd.concat([stats, effect_sizes, pvals, reject], axis=1)
+                test_results.columns = ['stats','effect_size','pvals','reject']     
+                test_results['significance'] = sig_asterix(test_results['pvals'])
+                test_results = test_results.sort_values(by=['pvals'], ascending=True) # rank pvals
+                test_results.to_csv(test_path_unncorrected, header=True, index=True)
 
                 # correct for multiple comparisons
-                reject, pvals = _multitest_correct(pvals, 
-                                                   multitest_method=args.fdr_method,
-                                                   fdr=args.pval_threshold)
+                reject_corrected, pvals_corrected = _multitest_correct(pvals, 
+                                                                       multitest_method=args.fdr_method,
+                                                                       fdr=args.pval_threshold)
                                             
                 # compile + save results (corrected)
-                anova_corrected = pd.concat([stats, effect_sizes, pvals, reject], axis=1)
-                anova_corrected.columns = ['stats','effect_size','pvals','reject']     
-                anova_corrected['significance'] = sig_asterix(anova_corrected['pvals'])
-                anova_corrected = anova_corrected.sort_values(by=['pvals'], ascending=True) # rank pvals
-                anova_corrected.to_csv(anova_path_corrected, header=True, index=True)
+                test_results = pd.concat([stats, effect_sizes, pvals_corrected, reject_corrected], axis=1)
+                test_results.columns = ['stats','effect_size','pvals','reject']     
+                test_results['significance'] = sig_asterix(test_results['pvals'])
+                test_results = test_results.sort_values(by=['pvals'], ascending=True) # rank pvals
+                test_results.to_csv(test_path, header=True, index=True)
         
                 # use reject mask to find significant feature set
                 fset = pvals.loc[reject[args.test]].sort_values(by=args.test, ascending=True).index.to_list()
@@ -224,8 +224,8 @@ def keio_stats(features, metadata, args):
     else:
         # Load ANOVA results
         print("Loading %s results" % args.test)
-        anova_corrected = pd.read_csv(anova_path_corrected, index_col=0)
-        pvals = anova_corrected.sort_values(by='pvals', ascending=True)['pvals']
+        test_results = pd.read_csv(test_path, index_col=0)
+        pvals = test_results.sort_values(by='pvals', ascending=True)['pvals']
         fset = pvals[pvals < args.pval_threshold].index.to_list()
 
     print("%d significant features found by %s for '%s' (P<%.2f, %s)" % (len(fset), args.test, 
@@ -271,11 +271,11 @@ def keio_stats(features, metadata, args):
     
     # t-test to use        
     t_test = 't-test' if args.test == 'ANOVA' else 'Mann-Whitney' # aka. Wilcoxon rank-sum      
-    ttest_uncorrected_path = stats_dir / '{}_results_uncorrected.csv'.format(t_test)
-    ttest_corrected_path = stats_dir / '{}_results.csv'.format(t_test)               
+    ttest_path_uncorrected = stats_dir / '{}_results_uncorrected.csv'.format(t_test)
+    ttest_path = stats_dir / '{}_results.csv'.format(t_test)               
 
-    if not (ttest_uncorrected_path.exists() and ttest_corrected_path.exists()):    
-        ttest_corrected_path.parent.mkdir(exist_ok=True, parents=True)
+    if not (ttest_path_uncorrected.exists() and ttest_path.exists()):    
+        ttest_path.parent.mkdir(exist_ok=True, parents=True)
 
         if len(fset) > 0 or len(strain_list) == 2:
             # perform t-tests (without correction for multiple testing)
@@ -299,7 +299,7 @@ def keio_stats(features, metadata, args):
             reject_t.columns = ['reject_' + str(c) for c in reject_t.columns]
             effect_sizes_t.columns = ['effect_size_' + str(c) for c in effect_sizes_t.columns]
             ttest_uncorrected = pd.concat([stats_t, effect_sizes_t, pvals_t, reject_t], axis=1)
-            ttest_uncorrected.to_csv(ttest_uncorrected_path, header=True, index=True)
+            ttest_uncorrected.to_csv(ttest_path_uncorrected, header=True, index=True)
             
             # correct for multiple comparisons
             pvals_t.columns = [c.split("_")[-1] for c in pvals_t.columns]
@@ -311,7 +311,7 @@ def keio_stats(features, metadata, args):
             pvals_t.columns = ['pvals_' + str(c) for c in pvals_t.columns]
             reject_t.columns = ['reject_' + str(c) for c in reject_t.columns]
             ttest_corrected = pd.concat([stats_t, effect_sizes_t, pvals_t, reject_t], axis=1)
-            ttest_corrected.to_csv(ttest_corrected_path, header=True, index=True)
+            ttest_corrected.to_csv(ttest_path, header=True, index=True)
 
             # record t-test significant features (not ordered)
             fset_ttest = pvals_t[np.asmatrix(reject_t)].index.unique().to_list()

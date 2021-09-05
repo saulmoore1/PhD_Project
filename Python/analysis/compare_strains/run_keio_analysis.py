@@ -43,7 +43,7 @@ from visualisation.plotting_helper import errorbar_sigfeats, boxplots_sigfeats #
 
 #%% GLOBALS
 
-JSON_PARAMETERS_PATH = "analysis/20210719_parameters_keio_screen.json"
+JSON_PARAMETERS_PATH = "analysis/20210406_parameters_keio_screen.json"
 
 MAX_N_HITS = 100 
 
@@ -82,8 +82,9 @@ def compare_strains_keio(features, metadata, args):
 
     # categorical variable to investigate, eg.'gene_name'
     grouping_var = args.grouping_variable
-    assert len(metadata[grouping_var].unique()) == len(metadata[grouping_var].str.upper().unique())
-    print("\nInvestigating '%s' variation" % grouping_var)    
+    n_strains = len(metadata[grouping_var].unique())
+    assert n_strains == len(metadata[grouping_var].str.upper().unique()) # check case-sensitivity
+    print("\nInvestigating '%s' variation (%d groups)" % (grouping_var, n_strains))
     
     # Subset results (rows) to omit selected strains
     if args.omit_strains is not None:
@@ -106,8 +107,8 @@ def compare_strains_keio(features, metadata, args):
         features = features[top_feats_list]
 
     save_dir = get_save_dir(args)
-    stats_dir =  save_dir / grouping_var / "Stats_{}".format(args.fdr_method)
-    plot_dir = save_dir / grouping_var / "Plots_{}".format(args.fdr_method)
+    stats_dir =  save_dir / grouping_var / "Stats" / args.fdr_method
+    plot_dir = save_dir / grouping_var / "Plots" / args.fdr_method
 
 # =============================================================================
 #     ##### Pairplot Tierpsy 16 #####
@@ -124,9 +125,9 @@ def compare_strains_keio(features, metadata, args):
     ##### Control variation #####
                 
     # Subset results for control data
-    control_metadata = metadata[metadata['source_plate_id']=='BW']
+    control_metadata = metadata[metadata['source_plate_id'] == 'BW']
     control_features = features.reindex(control_metadata.index)
-        
+    
     if args.analyse_control:
         # Clean data after subset - to remove features with zero std
         control_feat_clean, control_meta_clean = clean_summary_results(control_features, 
@@ -180,7 +181,7 @@ def compare_strains_keio(features, metadata, args):
         (mrmr_feat_set, 
          mrmr_scores, 
          mrmr_support) = mRMR_feature_selection(features, y_class=y, k=10,
-                                                redundancy_func='pearson_corr', 
+                                                redundancy_func='pearson_corr',
                                                 relevance_func='kruskal',
                                                 n_bins=10, mrmr_criterion='MID',
                                                 plot=True, k_to_plot=5, 
@@ -275,7 +276,7 @@ def compare_strains_keio(features, metadata, args):
         # if no sigfaets, subset for top strains ranked by lowest p-value by t-test for any feature
         print("%d significant strains (with 1 or more significant features)" % len(hit_strains_nsig))
         if len(hit_strains_nsig) > 0:
-            write_list_to_file(hit_strains_nsig, save_dir / 'hit_strains.txt')
+            write_list_to_file(hit_strains_nsig, stats_dir / 'hit_strains.txt')
 
         # Rank strains by lowest p-value for any feature
         ranked_pval = pvals_t.min(axis=0).sort_values(ascending=True)
@@ -283,7 +284,7 @@ def compare_strains_keio(features, metadata, args):
         hit_strains_pval = ranked_pval[ranked_pval < args.pval_threshold].index.to_list()
         max_n_hits = max(len(hit_strains_pval), MAX_N_HITS)
         hit_strains_pval = ranked_pval.index[:max_n_hits].to_list()
-        write_list_to_file(hit_strains_pval, save_dir / 'Top100_lowest_pval.txt')
+        write_list_to_file(hit_strains_pval, stats_dir / 'Top100_lowest_pval.txt')
         
         print("\nPlotting ranked strains by number of significant features")
         ranked_nsig_path = plot_dir / ('ranked_number_sigfeats' + '_' + 
@@ -347,7 +348,7 @@ def compare_strains_keio(features, metadata, args):
                                                 metadata, 
                                                 column=grouping_var,
                                                 groups=hit_strains_pval, verbose=False)
-            write_list_to_file(hit_strains_pval, save_dir / 'Top100_lowest_pval.txt')
+            write_list_to_file(hit_strains_pval, stats_dir / 'Top100_lowest_pval.txt')
         elif len(hit_strains_nsig) > 0:
             print("\nSubsetting for %d hit strains + control" % min(len(hit_strains_nsig), max_n_hits))
             hit_strains_nsig = hit_strains_nsig[:max_n_hits]
@@ -363,9 +364,7 @@ def compare_strains_keio(features, metadata, args):
                           control=control,
                           pvals=pvals_t, 
                           feature_set=None,
-                          saveDir=plot_dir / ('paired_boxplots' + '_' + 
-                                              ('uncorrected' if args.fdr_method is None else 
-                                               args.fdr_method) + '.png'),
+                          saveDir=plot_dir / 'paired_boxplots',
                           p_value_threshold=args.pval_threshold,
                           drop_insignificant=(True if len(hit_strains_nsig) > 0 else False),
                           max_sig_feats=args.n_sig_features,

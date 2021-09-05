@@ -30,7 +30,12 @@ def plot_clustermap(featZ,
                     figsize=[10,8],
                     sns_colour_palette="Pastel1",
                     sub_adj={'top':1,'bottom':0,'left':0,'right':1}):
-    """ Seaborn clustermap (hierarchical clustering heatmap) of normalised """                
+    """ Seaborn clustermap (hierarchical clustering heatmap)
+    
+        Inputs
+        ------
+        featZ - pd.DatFrame, dataframe of normalised feature results
+    """                
     
     import seaborn as sns
     from matplotlib import pyplot as plt
