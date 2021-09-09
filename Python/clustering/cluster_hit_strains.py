@@ -17,7 +17,7 @@ from time import time
 from pathlib import Path
 from matplotlib import pyplot as plt
 from scipy.stats import zscore
-from scipy.spatial.distance import pdist, squareform
+from scipy.spatial.distance import pdist
 from scipy.cluster.hierarchy import dendrogram, linkage, cophenet, fcluster
 from sklearn.decomposition import PCA
 
@@ -28,35 +28,31 @@ from clustering.hierarchical_clustering import plot_clustermap
 
 #%% Globals
 
-JSON_PARAMETERS_PATH = "analysis/20210406_parameters_keio_screen.json"
 FEATURES_PATH = "/Users/sm5911/Documents/Keio_Screen/features.csv"
 METADATA_PATH = "/Users/sm5911/Documents/Keio_Screen/metadata.csv"
 
-# Hit strains to compare distances from each to all other strains OR just hit strains only
-HIT_STRAINS_PATH = "/Users/sm5911/Documents/Keio_Screen/Top256/gene_name/Stats_fdr_bh/hand_picked_hit_strains.txt"
-HIT_STRAINS_ONLY = False
+# Load n=1860 hit strains from initial screen (Tierpsy 256, fdr_bh) for cluster analysis
+HIT_STRAINS_256_BH_PATH = "/Users/sm5911/Documents/Keio_Screen/Top256/gene_name/Stats/fdr_bh/hit_strains.txt"
+HIT_STRAINS_ONLY = True # compare distances to all other strains OR just hit strains only
 
-# List of hand-picked strains from top100 ranked lowest pvalue strains from initial screen
-CONF_STRAIN_LIST_PATH = "/Users/sm5911/Documents/Keio_Screen2/Top256/hit_strains.txt"
-
-N_TOP_FEATS = 256
 TOP_FEATS_DIR = '/Users/sm5911/Tierpsy_Versions/tierpsy-tools-python/tierpsytools/extras/feat_sets'
-SAVE_DIR = '/Users/sm5911/Documents/Keio_Screen'
+N_TOP_FEATS = 256 # TODO: Use select_feat_set
+
+# TODO: check nearest neighbour function scipy
 
 # Clustering parameters
 LINKAGE_METHOD = 'average' # 'ward' - see docs for options: ?scipy.cluster.hierarchy.linkage
 DISTANCE_METRIC = 'euclidean' # 'cosine' - see docs for options: ?scipy.spatial.distance.pdist
 
-# Number of neighbours to record
-N_NEIGHBOURS = 3
+CLUSTERING_SAVE_DIR = ('/Users/sm5911/Documents/Keio_Screen/clustering/' + LINKAGE_METHOD + '_' + 
+                       DISTANCE_METRIC)
 
 # Estimate EITHER distance OR number of clusters from looking at the dendrogram/heatmap
 # METHOD 1 - distance cut-off chosen from visual inspection of dendrogram
-MAX_DISTANCE = 20 if HIT_STRAINS_ONLY else 22
+MAX_DISTANCE = 21
 # METHOD 2 - number of clusters chosen from visual inspection of heatmap/elbow plot
 N_CLUSTERS = None
-
-# I decided to choose a max d that will yield approx 10 clusters, with >1 strains in each cluster, 
+# I decided to choose a max d that will yield approx 10-20 clusters with >1 strains in each cluster, 
 # then also test with a max d slightly above and below the selected value, to see how results vary
 
 #%% Functions
@@ -163,72 +159,6 @@ def cluster_linkage_pdist(features,
     Z = linkage(y=pdistances, method=method, metric=metric)
 
     return Z, mean_featZ
- 
-def plot_squareform(X, metric='euclidean', saveAs=None):
-    """ Plot squareform distance matrix of pairwise distances between samples """
-    
-    # Squareform matrix of pairwise distances of all samples from each other
-    pdistances = pdist(X=X, metric=metric)
-    sq_dist = squareform(pdistances)
-
-    # Plot squareform distance matrix of pairwise distances between strains        
-    plt.close('all')
-    plt.figure(figsize=(8,8))
-    plt.imshow(sq_dist)
-   
-    if saveAs is not None:
-        plt.savefig(saveAs, dpi=600)
-
-    return sq_dist
-
-def nearest_neighbours(X, 
-                       distance_metric='euclidean', 
-                       strain_list=None, 
-                       saveDir=None):
-    """ Rank distances from each strain to all others to find closest neighbours using the distance 
-        metric provided, and return matching dataframes of names and distances
-        
-        Inputs
-        ------
-        X
-        strain_list
-        
-        Returns
-        -------
-        names_df, distances_df
-    """
-    
-    if strain_list is None:
-        strain_list = X.index.to_list()
- 
-    sq_dist = plot_squareform(X=X, metric=distance_metric, 
-                              saveAs=(save_path / 'squareform_pdist.png' if save_path is not None 
-                                      else None))
-    # sq_dist_sorted = np.sort(sq_dist, axis=1) # add [:,::-1] to sort in descending order
-   
-    # Convert squareform distance matrix to dataframe and subset rows for hit strains only
-    sq_dist_df = pd.DataFrame(sq_dist, index=X.index, columns=X.index)
-    hit_distances_df = sq_dist_df.loc[sq_dist_df.index.isin(strain_list)]
-    
-    # For each hit strain, rank all other strains by distance from it 
-    # and store nearest neighbour gene names and distances separately
-    names_dict = {}
-    distances_dict = {}
-    for hit in hit_distances_df.index:
-        hit_distances_sorted = hit_distances_df.loc[hit].sort_values(ascending=True)
-        names_dict[hit] = hit_distances_sorted.index
-        distances_dict[hit] = hit_distances_sorted.values
-        
-    names_df = pd.DataFrame.from_dict(names_dict).T
-    distances_df = pd.DataFrame.from_dict(distances_dict).T
-        
-    # save ranked nearest neighbours gene names and corresponding distances to file
-    if saveDir is not None:
-        saveDir.mkdir(exist_ok=True, parents=True)
-        names_df.to_csv(saveDir / 'nearest_neighbours_names.csv', index=True, header=True)
-        distances_df.to_csv(saveDir / 'nearest_neighbours_distances.csv', index=True, header=True)
-        
-    return names_df, distances_df
   
 def plot_dendrogram(Z, figsize=(15,7), color_threshold=None, saveAs=None, **kwargs):
     """ Plot dendrogram from cluster linkage array (contains the hierarchical clustering information) 
@@ -248,6 +178,7 @@ def plot_dendrogram(Z, figsize=(15,7), color_threshold=None, saveAs=None, **kwar
     plt.subplots_adjust(top=0.95, bottom=0.1, left=0.05, right=0.95)
 
     if saveAs is not None:
+        Path(saveAs).parent.mkdir(exist_ok=True, parents=True)
         plt.savefig(saveAs, dpi=300)
         plt.close()
     else:
@@ -341,14 +272,17 @@ def plot_cluster_histogram(clusters, saveAs=None):
         saveAs - path to save, str 
     """
     
-    k = len(np.unique(clusters))
+    cluster_labels = np.unique(clusters)
+    k = len(cluster_labels)
     
+    heights = [(clusters == l).sum() for l in cluster_labels]
+     
     plt.close('all')    
     fig, ax = plt.subplots(1,1)
     sns.set_style('white')
-    sns.histplot(clusters, bins=k, ax=ax)    
+    ax.bar(range(1, k+1), heights)    
     show_values_on_bars(ax)
-    plt.title('n={} bins'.format(k))
+    plt.title('n={} clusters'.format(k))
     plt.xlabel('Clusters', labelpad=10)
     plt.ylabel('Number of strains', labelpad=10)
     
@@ -378,16 +312,16 @@ def plot_clusters_pca(X, clusters, kde=False, saveAs=None, figsize=(9,8)):
     projected = pca.fit_transform(featZ)
 
     # Compute explained variance ratio of component axes
-    ex_var=np.var(projected, axis=0)
-    ex_var_ratio = ex_var/np.sum(ex_var)
+    ex_var_ratio = pca.explained_variance_ratio_
     
     # Store the results for first few PCs in dataframe
     projected_df = pd.DataFrame(data=projected, columns=['PC1','PC2'], index=featZ.index)
     
     # Create colour palette for cluster labels
     cluster_labels = list(np.unique(clusters))
-    colours = sns.color_palette('Set1', len(cluster_labels))
+    colours = sns.color_palette('gist_rainbow', len(cluster_labels))
     palette = dict(zip(cluster_labels, colours))           
+    # cm = plt.get_cmap('gist_rainbow')
 
     # group data by clusters for plotting
     data = pd.DataFrame(clusters, columns=['cluster'], index=projected_df.index).join(projected_df)
@@ -397,10 +331,11 @@ def plot_clusters_pca(X, clusters, kde=False, saveAs=None, figsize=(9,8)):
     plt.close('all')
     sns.set_style('ticks')
     fig, ax = plt.subplots(figsize=figsize)
+    # ax.set_color_cycle([cm(1.*i/len(cluster_labels)) for i in range(len(cluster_labels))])
     for key, group in grouped:
         group.plot(ax=ax, kind='scatter',x='PC1', y='PC2', label=key, color=palette[key])
     if kde:
-        sns.kdeplot(x='PC1', y='PC2', data=data, hue='cluster', palette=palette, fill=True,
+        sns.kdeplot(x='PC1', y='PC2', data=data, hue='cluster', fill=True, palette=palette,
                     alpha=0.25, thresh=0.05, levels=2, bw_method="scott", bw_adjust=1)
         
     ax.set_xlabel('Principal Component 1 (%.1f%%)' % (ex_var_ratio[0]*100), fontsize=20, labelpad=12)
@@ -410,8 +345,8 @@ def plot_clusters_pca(X, clusters, kde=False, saveAs=None, figsize=(9,8)):
     ax.set_title("2-component PCA (n={} clusters)".format(k), fontsize=20)
     
     plt.tight_layout(rect=[0, 0, 0.9, 0.95])
-    ax.legend(cluster_labels, frameon=False, loc=(1.01, 0.62),#'upper right', 
-              fontsize=15, markerscale=1.5)
+    ax.legend(cluster_labels, frameon=False, loc=(1.01, 0.01),#'upper right', 
+              fontsize=10, markerscale=1.1)
     ax.grid(False)
 
     if saveAs is not None:
@@ -462,19 +397,18 @@ if __name__ == "__main__":
     features = pd.read_csv(FEATURES_PATH)
     metadata = pd.read_csv(METADATA_PATH, dtype={'comments':str, 'source_plate_id':str})
     
-    # Read list of hit strains from file (optional)
-    if HIT_STRAINS_PATH is not None:
-        strain_list = read_list_from_file(HIT_STRAINS_PATH)
-        print("%d strains found in: %s" % (len(strain_list), HIT_STRAINS_PATH))
-    else:
-        strain_list = None
-
-    # Subset for hit strains in strain list provided
-    if HIT_STRAINS_ONLY and strain_list is not None:
+    # Subset for hit strains only (optional)
+    if HIT_STRAINS_ONLY:
+        # Read list from file
+        strain_list = read_list_from_file(HIT_STRAINS_256_BH_PATH)
+        print("%d strains found in: %s" % (len(strain_list), HIT_STRAINS_256_BH_PATH))
+        
+        # Subset for hit strains
         print("Subsetting results for hit strains only")
-        features, metadata = subset_results(features, metadata, column='gene_name', 
-                                            groups=strain_list)
-    
+        features, metadata = subset_results(features, metadata, column='gene_name', groups=strain_list)
+    else:
+        strain_list = list(metadata['gene_name'].unique())
+
     # Load Tierpsy Top feature set + subset (columns) for top feats only
     if N_TOP_FEATS is not None:
         top_feats_path = Path(TOP_FEATS_DIR) / "tierpsy_{}.csv".format(str(N_TOP_FEATS))        
@@ -485,9 +419,10 @@ if __name__ == "__main__":
         top_feats_list = [feat for feat in list(topfeats) if feat in features.columns]
         features = features[top_feats_list]
 
-    n_strains, n_feats = len(metadata['gene_name'].unique()), len(features.columns)
-    save_path = Path(SAVE_DIR) / "clustering" / ("%d_strains_%d_features_maxd=%d"\
-                                                 % (n_strains, n_feats, MAX_DISTANCE))
+    n_strains, n_feats = len(strain_list), len(features.columns)
+    save_path = Path(CLUSTERING_SAVE_DIR) /\
+                     ("%d_strains_%d_features_maxd=%d" % (n_strains, n_feats, MAX_DISTANCE))
+    save_path.mkdir(exist_ok=True, parents=True)
          
     ##### Hierarchical clustering #####
 
@@ -512,47 +447,6 @@ if __name__ == "__main__":
     # Compare pairwise distances between all samples to hierarchical clustering distances 
     # The closer the value to 1 the better the clustering preserves original distances
     c, coph_dists = cophenet(Z, pdist(X)); print("Cophenet: %.3f" % c)
-
-    # Find nearest neighbours by ranking the computed sqaureform distance matrix between all strains
-    names_df, distances_df = nearest_neighbours(X=X,
-                                                strain_list=strain_list, 
-                                                distance_metric=DISTANCE_METRIC, 
-                                                saveDir=save_path / 'nearest_neighbours')
-    
-    # Save expanded list of hit strains for confirmational screen, including the 5 closest strains 
-    # to each hit strain selected from the initial screen
-    conf_strain_list = read_list_from_file(CONF_STRAIN_LIST_PATH)
-    conf_strain_list.remove('AroP'); conf_strain_list.insert(0,'aroP') # correct capitalisation error
-    conf_strain_list.remove('TnaB'); conf_strain_list.insert(0,'tnaB')
-    write_list_to_file(conf_strain_list, 
-                       "/Users/sm5911/Documents/Keio_Screen2/strain_list/hit_strains.txt")
-
-    conf_strain_initial_list = [s for s in conf_strain_list if s in names_df.index]
-    conf_strain_not_initial_list = [s for s in conf_strain_list if s not in names_df.index]
-    neighbours_df = names_df.loc[conf_strain_initial_list, 1:N_NEIGHBOURS]
-    save_path2 = "/Users/sm5911/Documents/Keio_Screen2/strain_list/nearest_{}_neighbours.xlsx".format(N_NEIGHBOURS)
-    neighbours_df.to_excel(save_path2)
-    
-    # Extract elements of 2nd through 5th columns for selected rows + flatten into list
-    neighbour_list = list(np.unique(names_df.loc[conf_strain_initial_list, 1:N_NEIGHBOURS].values.flatten()))
-    neighbour_list = [n for n in neighbour_list if n not in conf_strain_list]
-    write_list_to_file(neighbour_list,
-                       "/Users/sm5911/Documents/Keio_Screen2/strain_list/neighbour_strains.txt")
-
-    new_strain_list = conf_strain_list + neighbour_list
-    atp_genes = [s for s in names_df.index if s.startswith('atp') and s not in new_strain_list]
-    nuo_genes = [s for s in names_df.index if s.startswith('nuo') and s not in new_strain_list]
-    extra_strains = ['fiu','fhuE','fhuA','tonB','exbD','exbB','entA','entB','entC','entE','entF',
-                     'fes','cirA']
-    extra_strain_list = atp_genes + nuo_genes + extra_strains
-    write_list_to_file(extra_strain_list, 
-                       "/Users/sm5911/Documents/Keio_Screen2/strain_list/extra_strains.txt")
-
-    new_strain_list.extend(extra_strain_list)
-    new_strain_list = sorted(list(np.unique(new_strain_list)))
-    print("Saving new hit strain list of %d genes to file" % len(new_strain_list))
-    write_list_to_file(new_strain_list, 
-                       save_path="/Users/sm5911/Documents/Keio_Screen2/strain_list/new_hit_strains.txt")
     
     ##### Cluster Analysis #####
     # The number of clusters can be inferred in several ways:
@@ -560,12 +454,16 @@ if __name__ == "__main__":
     #   2. By estimating the greatest decline in the rate of change of an 'elbow' plot -- the 'elbow' method
 
     # Plot dendrogram (optional: with max distance cut-off)
+    truncate_mode = 'lastp' if Z.shape[0] > 2000 else None
+    p = 500 if Z.shape[0] > 2000 else 50
+    show_contracted = True if Z.shape[0] > 2000 else False
+    
     den = plot_dendrogram(Z, saveAs=save_path / 'dendrogram.pdf', 
                           color_threshold=MAX_DISTANCE if MAX_DISTANCE is not None else None,
                           labels=X.index, 
-                          truncate_mode='lastp', # 'lastp', 'level'
-                          p=500 if Z.shape[0] > 2000 else 50,
-                          show_contracted=True,
+                          truncate_mode=truncate_mode, # 'lastp', 'level'
+                          p=p,
+                          show_contracted=show_contracted,
                           leaf_rotation=90,
                           leaf_font_size=2,
                           orientation='top')
@@ -574,7 +472,7 @@ if __name__ == "__main__":
     if MAX_DISTANCE is not None:
         clusters = fcluster(Z, t=MAX_DISTANCE, criterion='distance')
         N_CLUSTERS = len(np.unique(clusters))
-        print("N clusters chosen from dendrogram: %d (distance: %.1f)" % (N_CLUSTERS, MAX_DISTANCE))
+        print("N clusters from dendrogram: %d (distance: %.1f)" % (N_CLUSTERS, MAX_DISTANCE))
     
     # METHOD 2 - N clusters (inferred from heatmap/elbow plot)
     elif N_CLUSTERS is not None:
@@ -583,15 +481,19 @@ if __name__ == "__main__":
         
     # Create mask to omit clusters with only a single gene
     single_clusters = []
+    multi_clusters = []
     for i in range(1, N_CLUSTERS+1):
         count = (clusters == i).sum()  
         if count <= 1:
             single_clusters.append(i)
-    
+        else:
+            multi_clusters.append(i)
     clusters_mask = [False if i in single_clusters else True for i in clusters]
-    
-    # Update n clusters for clusters with >1 sample
+    # TODO: Use this!  pd.Series(clusters).value_counts() == 1
+     
+    # Update n clusters for clusters with >1 sample (drop singletons)
     N_CLUSTERS = len(np.unique(clusters[clusters_mask]))
+    print("%d clusters (non-single)" % N_CLUSTERS)
     
     # Elbow plot (return suggested number of clusters)
     k = plot_elbow(Z, saveAs=save_path / 'elbow_plot.png', n_chosen=N_CLUSTERS)
@@ -607,6 +509,8 @@ if __name__ == "__main__":
     cluster_classes = get_cluster_classes(X[clusters_mask], 
                                           clusters[clusters_mask], 
                                           saveDir=save_path / 'cluster_classes_n={}'.format(N_CLUSTERS))
+
+    print("Done in %.1f seconds" % (time()-tic))
     
 # =============================================================================
 #     # Test hierarchical purity
@@ -623,7 +527,7 @@ if __name__ == "__main__":
 #     
 #     # Compare with distances computed by Eleni's function - they should be the same
 #     distances = Z[:,[2]].flatten()
-#     assert all(np.round(distances,6) == np.round(_distances,6))
+#     assert all(np.round(distances,6) == np.round(_distances,6)) # np.allclose
 # =============================================================================
 
 # =============================================================================

@@ -8,8 +8,12 @@ Write data to file
 
 """
 
+from pathlib import Path
+
 def write_list_to_file(list_to_save, save_path):
     """ Write a list to text file """
+    
+    Path(save_path).parent.mkdir(exist_ok=True, parents=True)
     
     with open(str(save_path), 'w') as fid:
         for line in list_to_save:

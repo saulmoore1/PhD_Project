@@ -141,7 +141,7 @@ def keio_stats(features, metadata, args):
 
     ##### STATISTICS #####
     
-    stats_dir =  save_dir / grouping_var / "Stats_{}".format(args.fdr_method)                 
+    stats_dir =  save_dir / grouping_var / "Stats" / args.fdr_method                 
 
     # F-test for equal variances
     if args.f_test:
@@ -179,7 +179,7 @@ def keio_stats(features, metadata, args):
                                                         control=control, 
                                                         test=args.test,
                                                         comparison_type='multiclass',
-                                                        multitest_correction=None, #args.fdr_method
+                                                        multitest_correction=None, # uncorrected
                                                         alpha=args.pval_threshold)
 
                 # get effect sizes
