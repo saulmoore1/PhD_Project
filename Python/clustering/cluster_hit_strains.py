@@ -20,6 +20,7 @@ from scipy.stats import zscore
 from scipy.spatial.distance import pdist
 from scipy.cluster.hierarchy import dendrogram, linkage, cophenet, fcluster
 from sklearn.decomposition import PCA
+from sklearn.cluster._dbscan import DBSCAN
 
 from read_data.read import load_topfeats, read_list_from_file
 from write_data.write import write_list_to_file
@@ -46,6 +47,8 @@ DISTANCE_METRIC = 'euclidean' # 'cosine' - see docs for options: ?scipy.spatial.
 
 CLUSTERING_SAVE_DIR = ('/Users/sm5911/Documents/Keio_Screen/clustering/' + LINKAGE_METHOD + '_' + 
                        DISTANCE_METRIC)
+
+DBSCAN_CLUSTERING = False
 
 # Estimate EITHER distance OR number of clusters from looking at the dendrogram/heatmap
 # METHOD 1 - distance cut-off chosen from visual inspection of dendrogram
@@ -478,6 +481,11 @@ if __name__ == "__main__":
     elif N_CLUSTERS is not None:
         print("N clusters chosen from heatmap: %d" % N_CLUSTERS)
         clusters = fcluster(Z, t=N_CLUSTERS, criterion='maxclust')
+    
+    # METHOD 3 - DBSCAN for clustering datasets with noise
+    if DBSCAN_CLUSTERING:
+        clustering = DBSCAN(eps=10, min_samples=2).fit(X) # eps = min d between samples to cluster
+        clusters = clustering.labels_
         
     # Create mask to omit clusters with only a single gene
     single_clusters = []
@@ -489,7 +497,7 @@ if __name__ == "__main__":
         else:
             multi_clusters.append(i)
     clusters_mask = [False if i in single_clusters else True for i in clusters]
-    # TODO: Use this!  pd.Series(clusters).value_counts() == 1
+    # TODO: Try this!  pd.Series(clusters).value_counts() == 1
      
     # Update n clusters for clusters with >1 sample (drop singletons)
     N_CLUSTERS = len(np.unique(clusters[clusters_mask]))

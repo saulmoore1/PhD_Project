@@ -272,7 +272,8 @@ def plot_plate_trajectories_from_filenames_summary(filenames_path,
                                                    saveDir=None, 
                                                    downsample=10,
                                                    filter_trajectories=False,
-                                                   mark_endpoints=False):
+                                                   mark_endpoints=False,
+                                                   del_if_exists=False):
     """ Plot plate trajectories for all files in Tierpsy filenames summaries
         'filenames_path', and save results to 'saveDir' """
 
@@ -296,13 +297,14 @@ def plot_plate_trajectories_from_filenames_summary(filenames_path,
     
     # overlay trajectories and combine plots for each plate that was imaged
     for featurefilepath in tqdm(featurefile_list):
-        print("\nPlotting plate trajectories for: %s" % \
-              Path(featurefilepath).parent.name)
+        print("\nPlotting plate trajectories for: %s" % Path(featurefilepath).parent.name)
         plot_plate_trajectories(featurefilepath, 
                                 saveDir=saveDir, 
                                 downsample=downsample,
                                 filter_trajectories=filter_trajectories,
-                                mark_endpoints=mark_endpoints)
+                                mark_endpoints=mark_endpoints,
+                                del_if_exists=del_if_exists)
+
     return
         
 #%% Main
@@ -333,6 +335,10 @@ if __name__ == "__main__":
     
     parser.add_argument("--annotate_lawns", help="Plot polygon outlining bacterial lawns from \
                         saved food coordinates", default=False)
+                        
+    parser.add_argument("--del_if_exists", help="Overwrite plate trajectory plots that have already \
+                        been saved?", default=False)
+                        
     args = parser.parse_args()
     
     FEAT_FILE_PATH = Path(args.features_file)
@@ -348,7 +354,8 @@ if __name__ == "__main__":
                                                        saveDir=SAVE_DIR, 
                                                        downsample=int(args.downsample),
                                                        filter_trajectories=args.filter_trajectories,
-                                                       mark_endpoints=args.mark_endpoints)
+                                                       mark_endpoints=args.mark_endpoints,
+                                                       del_if_exists=args.del_if_exists)
     elif FEAT_FILE_PATH is not None:
         print("\nPlotting plate trajectories for:\n\t%s\n" % str(FEAT_FILE_PATH))
         plot_plate_trajectories(FEAT_FILE_PATH, 
