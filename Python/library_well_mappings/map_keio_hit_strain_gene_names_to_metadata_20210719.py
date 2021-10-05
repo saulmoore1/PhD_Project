@@ -11,13 +11,12 @@ Keio Confirmational Screen - Map gene names for interesting 'hit' Keio mutants t
 #%% Imports
 
 import argparse
-import numpy as np
 import pandas as pd
 
 #%% Globals
 
 METADATA_PATH = "/Volumes/hermes$/KeioScreen2_96WP/AuxiliaryFiles/20210719/20210719_day_metadata.csv"
-PATH_GENE_MAPPING = "/Volumes/hermes$/KeioScreen2_96WP/AuxiliaryFiles/keio_hit_strains_plate_layout_gene_well_mapping.csv"
+PATH_GENE_MAPPING = "/Volumes/hermes$/KeioScreen2_96WP/AuxiliaryFiles/keio_hit_strains_plate_layout_gene_well_mapping_20210719.csv"
 
 #%% Functions
 
@@ -58,6 +57,9 @@ def map_gene_name_to_metadata(metadata_path, mapping_dict, saveto=None):
     
     # convert column named 'bacteria_strain' to 'gene_name'
     metadata = metadata.rename(columns={'bacteria_strain' : 'gene_name'})
+    
+    # add 'source_plate_id' column
+    metadata['source_plate_id'] = 0
 
     #TODO: Fill in 'source_plate_id' column info for hit strains
     

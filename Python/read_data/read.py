@@ -32,8 +32,8 @@ def load_topfeats(topfeats_path, add_bluelight=True, remove_path_curvature=True,
         
         Parameters
         ----------
-        top256_path : str
-            Path to Tierpsy Top256 feature list
+        topfeats_path : str
+            Path to Tierpsy feature set containing a list of features to use foor the analysis
         add_bluelight : bool
             Append feature set separately for each bluelight condition
         remove_path_curvature : bool
@@ -43,7 +43,7 @@ def load_topfeats(topfeats_path, add_bluelight=True, remove_path_curvature=True,
             
         Returns
         -------
-        top256 feature list
+        feature list
     """   
     import pandas as pd
     
@@ -96,27 +96,30 @@ def get_trajectory_data(featuresfilepath):
     
     return(df)
 
-def get_skeleton_data(skeletonfilepath, rig='Phenix'):
-    """ A function to read Tierpsy-generated skeleton file data and extract the
-        following information as a dataframe:
-        ['roi_size', 'midbody_speed'] 
+def get_skeleton_data(skeletonfilepath, rig='Phenix', dataset='trajectories_data'):
+    """ A function to read Tierpsy-generated skeleton file data and extract the dataset information 
+        in dataframe format 
     """
     
     import h5py
     import tables
     import pandas as pd
 
-    if rig.lower() == 'phenix':
-        # Read HDF5 file + extract info
-        try:
+    # Read HDF5 file + extract info    
+    try:
+        if rig.lower() == 'phenix':
             with h5py.File(skeletonfilepath, 'r') as f:
-                df = pd.DataFrame({'roi_size': f['trajectories_data']['midbody_speed']})
-        except:
-            print("Unable to read file with 'h5py', trying to read with 'PyTables..")
-            f = tables.open()
-    elif rig.lower() == 'hydra':
-        # FIXME: Compatibility with Hydra camera 16-well videos + maintain backwards compatibility
-        raise IOError('FIXME: Update get trajectory data for Hydra videos')
+                df = pd.DataFrame({'roi_size': f[dataset]['midbody_speed']})
+                
+        elif rig.lower() == 'hydra':
+            with pd.HDFStore(skeletonfilepath, 'r') as f:
+                df = pd.DataFrame(f[dataset])
+               
+    except Exception as E:
+            print("\n\nWARNING\n\n", E)
+            print("\nUnable to read file with 'h5py', trying to read with 'PyTables..")
+            f = tables.open_file(skeletonfilepath, mode='r')
+            print(f)
             
     return(df)
 

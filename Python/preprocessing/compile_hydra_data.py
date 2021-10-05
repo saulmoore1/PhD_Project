@@ -307,8 +307,8 @@ def process_feature_summaries(metadata_path,
         
     """    
 
-    from tierpsytools.read_data.hydra_metadata import read_hydra_metadata, align_bluelight_conditions
     from tierpsytools.read_data.compile_features_summaries import compile_tierpsy_summaries
+    from tierpsytools.read_data.hydra_metadata import read_hydra_metadata, align_bluelight_conditions
     
     combined_feats_path = Path(results_dir) / "full_features.csv"
     combined_fnames_path = Path(results_dir) / "full_filenames.csv"
