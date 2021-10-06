@@ -67,7 +67,8 @@ def compile_keio_results(args):
                                                    results_dir,
                                                    compile_day_summaries=args.compile_day_summaries,
                                                    imaging_dates=args.dates,
-                                                   align_bluelight=args.align_bluelight)
+                                                   align_bluelight=args.align_bluelight,
+                                                   window_summaries=False)
 
     # Fix data types
     metadata = fix_dtypes(metadata)
@@ -79,8 +80,10 @@ def compile_keio_results(args):
         metadata.loc[metadata['gene_name'] == "BW", 'gene_name'] = "wild_type"
     
     # Subset results (rows) to remove entries for wells with unknown strain data for 'gene_name'
+    n = metadata.shape[0]
     metadata = metadata.loc[~metadata['gene_name'].isna(),:]
     features = features.reindex(metadata.index)
+    print("%d entries removed with no gene name metadata" % (n - metadata.shape[0]))
 
     # Add COG category info to metadata
     if not 'COG category' in metadata.columns:

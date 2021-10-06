@@ -336,9 +336,8 @@ if __name__ == "__main__":
     parser.add_argument("--annotate_lawns", help="Plot polygon outlining bacterial lawns from \
                         saved food coordinates", default=False)
                         
-    parser.add_argument("--del_if_exists", help="Overwrite plate trajectory plots that have already \
-                        been saved?", default=False)
-                        
+    parser.add_argument("--del_if_exists", help="Overwrite plate trajectory plots that have \
+                        already been saved?", default=False)             
     args = parser.parse_args()
     
     FEAT_FILE_PATH = Path(args.features_file)

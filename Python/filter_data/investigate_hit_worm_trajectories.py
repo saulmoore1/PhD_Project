@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Check trajectory filtering for worms tracked on 'hit' strains selected from initial Keio screen for
-follow-up analyses
+Check trajectory filtering for worms tracked on 'hit' strains selected from initial Keio screen, 
+prior to follow-up analyses:
+- How many trajectories were too short?
+- How many trajectories did not move much?
 
 @author: sm5911
 @date: 30/09/2021

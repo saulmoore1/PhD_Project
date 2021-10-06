@@ -116,11 +116,11 @@ def process_metadata(aux_dir,
         compiled metadata path
     """
     
+    from tierpsytools.hydra.hydra_helper import add_imgstore_name
     from tierpsytools.hydra.match_wells_annotations import update_metadata_with_wells_annotations
     # from tierpsytools.hydra.match_wells_annotations import (import_wells_annotations_in_folder,
     #                                                         match_rawvids_annotations,
     #                                                         update_metadata)
-
     
     compiled_metadata_path = Path(aux_dir) / "metadata.csv"
     
@@ -130,7 +130,7 @@ def process_metadata(aux_dir,
                                                              "source_plate_id":str}, header=0)
         # subset for imaging dates
         if imaging_dates is not None:
-            
+            assert type(imaging_dates) == list
             assert 'date_yyyymmdd' in meta_df.columns
             meta_df = meta_df[meta_df['date_yyyymmdd'].astype(str).isin(imaging_dates)]
             
@@ -167,7 +167,6 @@ def process_metadata(aux_dir,
             
             # Get imgstore name
             if 'imgstore_name' not in day_meta.columns:
-                from tierpsytools.hydra.hydra_helper import add_imgstore_name                     
 
                 # Delete camera_serial column as it will be recreated
                 if 'camera_serial' in day_meta.columns:
@@ -283,7 +282,8 @@ def process_feature_summaries(metadata_path,
                               results_dir, 
                               compile_day_summaries=True,
                               imaging_dates=None, 
-                              align_bluelight=True):
+                              align_bluelight=True,
+                              window_summaries=False):
     """ Compile feature summary results and join with metadata to produce
         combined full feature summary results
         
@@ -300,6 +300,8 @@ def process_feature_summaries(metadata_path,
             'date_yyyymmdd' column of metadata
         align_bluelight : bool
             Align bluelight conditions (convert to wide format)
+        window_summaries : bool
+            Compile from windowed features summaries files
         
         Returns
         -------
@@ -319,6 +321,7 @@ def process_feature_summaries(metadata_path,
         print("Compiling feature summary results")    
         if compile_day_summaries:
             if imaging_dates:
+                assert type(imaging_dates) == list
                 feat_files = []
                 fname_files = []
                 for date in imaging_dates:
@@ -333,13 +336,18 @@ def process_feature_summaries(metadata_path,
         else:
             feat_files = list(Path(results_dir).glob('features_summary*.csv'))
             fname_files = list(Path(results_dir).glob('filenames_summary*.csv'))
-               
-        # TODO: check for multiple matches - throw warning
-            
+
         # Keep only features files for which matching filenames_summaries exist
         feat_files = [ft for ft, fn in zip(np.unique(feat_files), np.unique(fname_files)) if fn is not None]
-        fname_files = [fn for fn in np.unique(fname_files) if fn is not None]
-        
+        fname_files = [fn for fn in np.unique(fname_files) if fn is not None]           
+                
+        if window_summaries:
+            # TODO: use compile_tierpsy_summaries to compile from windowed features summaries files
+            raise Exception("ERROR: Compiling from window summaries is not yet supported")
+        else:
+            feat_files = [ft for ft in feat_files if not 'window' in str(ft)]
+            fname_files = [fn for fn in fname_files if not 'window' in str(fn)]
+                    
         # Compile feature summaries for matched features/filename summaries
         compile_tierpsy_summaries(feat_files=feat_files, 
                                   fname_files=fname_files,
@@ -369,11 +377,15 @@ def process_feature_summaries(metadata_path,
         # Update metadata column order 
         for col in ['bluelight','file_id','imgstore_name','n_skeletons']:
             meta_col_order.remove(col)
+            
         meta_col_order.extend(['bluelight_prestim','bluelight_bluelight','bluelight_poststim',
                                'file_id_bluelight','file_id_poststim','file_id_prestim',
                                'imgstore_name_bluelight','imgstore_name_poststim','imgstore_name_prestim',
                                'n_skeletons_bluelight','n_skeletons_poststim','n_skeletons_prestim'])
-        # TODO: Use set(meta_col_order)-set(metadata.columns) to avoid hard coding column names
+
+        # TODO: Use set(meta_col_order)-set(metadata.columns) to avoid hard coding new column names
+        # added_cols = list(set(meta_col_order) - set(metadata.columns))
+        # meta_col_order.extend(added_cols)
         
     assert set(features.index) == set(metadata.index)
     
@@ -387,14 +399,16 @@ if __name__ == "__main__":
     parser.add_argument('--project_dir', help="Project root directory, containing 'AuxiliaryFiles',\
                         'RawVideos', 'MaskedVideos' and 'Results' folders", type=str)
     parser.add_argument('--compile_day_summaries', help="Compile feature summaries from \
-                        day summary results", action='store_false', default=True)
+                        day summary results", type=bool, action='store_false', default=True)
     parser.add_argument('--dates', help="List of imaging dates for day summaries to compile \
                         If None, will compile from features summaries for all imaging dates", 
                         nargs='+', default=None)
     parser.add_argument('--align_bluelight', help="Features as separate columns for each bluelight \
-                        stimulus video?", type=bool, default=True)
+                        stimulus video?", type=bool, action='store_false', default=True)
     parser.add_argument('--add_well_annotations', help="Add 'is_bad_well' labels from WellAnnotator\
-                        GUI", action='store_false', default=True)
+                        GUI", type=bool, action='store_false', default=True)
+    parser.add_argument('--window_summaries', help="If True, compile window summaries files", 
+                        type=bool, action='store_true', default=False)
     args = parser.parse_args()
     
     # Compile metadata
@@ -407,7 +421,8 @@ if __name__ == "__main__":
                                                    results_dir=Path(args.project_dir) / 'Results',
                                                    compile_day_summaries=args.compile_day_summaries,
                                                    imaging_dates=args.dates,
-                                                   add_bluelight=args.align_bluelight)   
+                                                   align_bluelight=args.align_bluelight,
+                                                   window_summaries=args.window_summaries)   
     print("\nMetadata:\n", metadata.head())
     print("\nFeatures:\n", features.head())
     
