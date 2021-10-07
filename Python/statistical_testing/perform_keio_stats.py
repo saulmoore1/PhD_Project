@@ -13,25 +13,30 @@ Perform Keio screen statistics
 #%% IMPORTS
 
 import argparse
-#import warnings
+import warnings
 import numpy as np
 import pandas as pd
 from time import time
 from pathlib import Path
-
-from tierpsytools.analysis.significant_features import k_significant_feat
-from tierpsytools.analysis.statistical_tests import univariate_tests, get_effect_sizes, _multitest_correct
-#from tierpsytools.drug_screenings.filter_compounds import compounds_with_low_effect_univariate
+from sklearn.preprocessing import StandardScaler
+from sklearn.pipeline import Pipeline
+from sklearn.linear_model import LogisticRegression
+from sklearn.model_selection import cross_val_score
 
 from read_data.paths import get_save_dir
 from read_data.read import load_json, load_topfeats
 from write_data.write import write_list_to_file
 from filter_data.clean_feature_summaries import subset_results
 from visualisation.plotting_helper import sig_asterix
+from statistical_testing.stats_helper import levene_f_test
+
+from tierpsytools.analysis.significant_features import k_significant_feat, mRMR_feature_selection
+from tierpsytools.analysis.statistical_tests import univariate_tests, get_effect_sizes, _multitest_correct
+from tierpsytools.drug_screenings.filter_compounds import compounds_with_low_effect_univariate
 
 #%% GLOBALS
 
-JSON_PARAMETERS_PATH = "analysis/20210406_parameters_keio_screen.json"
+JSON_PARAMETERS_PATH = "analysis/20210914_parameters_keio_screen.json"
 
 #%% MAIN
 
@@ -67,7 +72,7 @@ def average_control_keio(features, metadata, control_plate='BW', grouping_var='g
     for i in mean_control.index:
         date = mean_control.loc[i, 'date_yyyymmdd']
         control_date_meta = control_metadata.loc[control_metadata['date_yyyymmdd'] == date]
-        # TODO: look into using agg here
+        # TODO: use agg here
         first_well = control_date_meta.loc[control_date_meta.index[0], remaining_cols]
         first_well_mean = first_well.append(mean_control.loc[mean_control['date_yyyymmdd'] == date
                                                              ].squeeze(axis=0))
@@ -115,11 +120,12 @@ def keio_stats(features, metadata, args):
             - n_sig_features : int           
     """
 
-    save_dir = get_save_dir(args)
-
-    grouping_var = args.grouping_variable # categorical variable to investigate, eg.'gene_name'
-    assert len(metadata[grouping_var].unique()) == len(metadata[grouping_var].str.upper().unique())
+    # categorical variable to investigate, eg.'gene_name'
+    grouping_var = args.grouping_variable
     print("\nInvestigating '%s' variation" % grouping_var)    
+
+    # assert there will be no errors duee to case-sensitivity
+    assert len(metadata[grouping_var].unique()) == len(metadata[grouping_var].str.upper().unique())
     
     # Subset results (rows) to omit selected strains
     if args.omit_strains is not None:
@@ -135,17 +141,33 @@ def keio_stats(features, metadata, args):
         top_feats_list = [feat for feat in list(topfeats) if feat in features.columns]
         features = features[top_feats_list]
     
+    assert not features.isna().any().any()
+    
     strain_list = list(metadata[grouping_var].unique())
     control = args.control_dict[grouping_var] # control strain to use
     assert control in strain_list
 
-    ##### STATISTICS #####
-    
-    stats_dir =  save_dir / grouping_var / "Stats" / args.fdr_method                 
+    if args.collapse_control:
+        print("Collapsing control data (mean of each day)")
+        features, metadata = average_control_keio(features, metadata)
 
-    # F-test for equal variances
+    # Record mean sample size per group
+    mean_sample_size = int(np.round(metadata.join(features).groupby([grouping_var], as_index=False).size().mean()))
+    print("Mean sample size: %d" % mean_sample_size)
+
+    # construct save paths (args.save_dir / topfeats? etc)
+    save_dir = get_save_dir(args)
+    stats_dir =  save_dir / grouping_var / "Stats" / args.fdr_method
+    plot_dir = save_dir / grouping_var / "Plots" / args.fdr_method              
+
+#%% F-test for equal variances
+
+    # Compare variance in samples with control (and correct for multiple comparisons)
+    # Sample size matters in that unequal variances don't pose a problem for a t-test with 
+    # equal sample sizes. So as long as your sample sizes are equal, you don't have to worry about 
+    # homogeneity of variances. If they are not equal, perform F-tests first to see if variance is 
+    # equal before doing a t-test
     if args.f_test:
-        from statistical_testing.stats_helper import levene_f_test
         levene_stats_path = stats_dir / 'levene_results.csv'
         levene_stats = levene_f_test(features, metadata, grouping_var, 
                                       p_value_threshold=args.pval_threshold, 
@@ -155,16 +177,9 @@ def keio_stats(features, metadata, args):
         # if p < 0.05 then variances are not equal, and sample size matters
         prop_eqvar = (levene_stats['pval'] > args.pval_threshold).sum() / len(levene_stats['pval'])
         print("Percentage equal variance %.1f%%" % (prop_eqvar * 100))
-
-    if args.collapse_control:
-        print("Collapsing control data (mean of each day)")
-        features, metadata = average_control_keio(features, metadata)
-
-    # Record mean sample size per group
-    mean_sample_size = int(np.round(metadata.join(features).groupby([grouping_var], as_index=False).size().mean()))
-    print("Mean sample size: %d" % mean_sample_size)
           
-    ### ANOVA / Kruskal-Wallis tests for significantly different features across groups
+#%% ANOVA / Kruskal-Wallis tests for significantly different features across groups
+
     test_path_unncorrected = stats_dir / '{}_results_uncorrected.csv'.format(args.test)
     test_path = stats_dir / '{}_results.csv'.format(args.test)
     
@@ -213,61 +228,59 @@ def keio_stats(features, metadata, args):
                 #assert set(fset) == set(anova_corrected['pvals'].index[np.where(anova_corrected['pvals'] < args.pval_threshold)[0]])
 
                 if len(fset) > 0:
+                    print("%d significant features found by %s for '%s' (P<%.2f, %s)" % (len(fset), 
+                          args.test, grouping_var, args.pval_threshold, args.fdr_method))
                     anova_sigfeats_path = stats_dir / '{}_sigfeats.txt'.format(args.test)
                     write_list_to_file(fset, anova_sigfeats_path)
             else:
                 fset = []
                 print("\nWARNING: Not enough groups for %s for '%s' (n=%d groups)" %\
                       (args.test, grouping_var, len(strain_list)))
+                    
+#%% Linear Mixed Models (LMMs), accounting for day-to-day variation
+        # NB: Ideally report:  parameter | beta | lower-95 | upper-95 | random effect (SD)
+        elif args.test == 'LMM':
+            with warnings.catch_warnings():
+                # Filter warnings as parameter is often on the boundary
+                warnings.filterwarnings("ignore")
+                #warnings.simplefilter("ignore", ConvergenceWarning)
+                (signif_effect, low_effect,  error, mask, pvals
+                 ) = compounds_with_low_effect_univariate(feat=features, 
+                                                          drug_name=metadata[grouping_var], 
+                                                          drug_dose=None, 
+                                                          random_effect=metadata[args.lmm_random_effect], 
+                                                          control=control, 
+                                                          test=args.test, 
+                                                          comparison_type='multiclass',
+                                                          multitest_method=args.fdr_method)
+            assert len(error) == 0
+
+            # save pvals
+            pvals.to_csv(test_path_unncorrected, header=True, index=True)
+
+            # save significant features -- if any strain significant for any feature
+            fset = pvals.columns[(pvals < args.pval_threshold).any()].to_list()
+            if len(fset) > 0:
+                lmm_sigfeats_path = stats_dir / '{}_sigfeats.txt'.format(args.test)
+                write_list_to_file(fset, lmm_sigfeats_path)
+
+            # save significant effect strains
+            if len(signif_effect) > 0:
+                print(("%d significant features found (%d significant %ss vs %s control, "\
+                      % (len(fset), len(signif_effect), grouping_var.replace('_',' '), 
+                          control) if len(signif_effect) > 0 else\
+                      "No significant differences found between %s "\
+                      % grouping_var.replace('_',' '))
+                      + "after accounting for %s variation, %s, P<%.2f, %s)"\
+                      % (args.lmm_random_effect.split('_yyyymmdd')[0], args.test, 
+                          args.pval_threshold, args.fdr_method))
+                signif_effect_path = stats_dir / '{}_signif_effect_strains.txt'.format(args.test)
+                write_list_to_file(signif_effect, signif_effect_path)
+        
         else:
             raise IOError("Test '{}' not recognised".format(args.test))
-    else:
-        # Load ANOVA results
-        print("Loading %s results" % args.test)
-        test_results = pd.read_csv(test_path, index_col=0)
-        pvals = test_results.sort_values(by='pvals', ascending=True)['pvals']
-        fset = pvals[pvals < args.pval_threshold].index.to_list()
-
-    print("%d significant features found by %s for '%s' (P<%.2f, %s)" % (len(fset), args.test, 
-          grouping_var, args.pval_threshold, args.fdr_method))
-
-    # TODO: LMMs using compounds_with_low_effect_univariate
-# =============================================================================
-#         # Linear Mixed Models (LMMs), accounting for day-to-day variation
-#         # NB: Ideally report:  parameter | beta | lower-95 | upper-95 | random effect (SD)
-#         elif args.test == 'LMM':
-#             with warnings.catch_warnings():
-#                 # Filter warnings as parameter is often on the boundary
-#                 warnings.filterwarnings("ignore")
-#                 #warnings.simplefilter("ignore", ConvergenceWarning)
-#                 (signif_effect, low_effect, 
-#                  error, mask, pvals)=compounds_with_low_effect_univariate(feat=features, 
-#                                                 drug_name=metadata[grouping_var], 
-#                                                 drug_dose=None, 
-#                                                 random_effect=metadata[args.lmm_random_effect], 
-#                                                 control=control, 
-#                                                 test=args.test, 
-#                                                 comparison_type='multiclass',
-#                                                 multitest_method=args.fdr_method,
-#                                                 ignore_names=None, 
-#                                                 return_pvals=True)
-#             assert len(error) == 0
-#         
-#             # Significant features = if significant for ANY strain vs control
-#             fset = list(pvals.columns[(pvals < args.pval_threshold).any()])
-#             
-#             if len(signif_effect) > 0:
-#                 print(("%d significant features found (%d significant %ss vs %s control, "\
-#                       % (len(fset), len(signif_effect), grouping_var.replace('_',' '), 
-#                           control) if len(signif_effect) > 0 else\
-#                       "No significant differences found between %s "\
-#                       % grouping_var.replace('_',' '))
-#                       + "after accounting for %s variation, %s, P<%.2f, %s)"\
-#                       % (args.lmm_random_effect.split('_yyyymmdd')[0], args.test, 
-#                          args.pval_threshold, args.fdr_method))
-# =============================================================================
     
-    ### t-tests / Mann-Whitney tests
+#%% t-tests / Mann-Whitney tests
     
     # t-test to use        
     t_test = 't-test' if args.test == 'ANOVA' else 'Mann-Whitney' # aka. Wilcoxon rank-sum      
@@ -323,7 +336,7 @@ def keio_stats(features, metadata, args):
                 ttest_sigfeats_path = stats_dir / '{}_sigfeats.txt'.format(t_test)
                 write_list_to_file(fset_ttest, ttest_sigfeats_path)
                                  
-    ### K significant features
+#%% K significant features
     
     ksig_uncorrected_path = stats_dir / 'k_significant_features_uncorrected.csv'
     ksig_corrected_path = stats_dir / 'k_significant_features.csv'
@@ -356,6 +369,43 @@ def keio_stats(features, metadata, args):
         # save k-significant features (corrected)
         ksig_table.to_csv(ksig_corrected_path, header=True, index=True)   
 
+#%% mRMR feature selection: minimum Redunduncy, Maximum Relevance #####
+    
+    mrmr_dir = plot_dir / 'mrmr'
+    mrmr_dir.mkdir(exist_ok=True, parents=True)
+    mrmr_results_path = mrmr_dir / "mrmr_results.csv"
+
+    if not mrmr_results_path.exists():
+        estimator = Pipeline([('scaler', StandardScaler()), ('estimator', LogisticRegression())])
+        y = metadata[grouping_var].values
+        (mrmr_feat_set, 
+         mrmr_scores, 
+         mrmr_support) = mRMR_feature_selection(features, y_class=y, k=10,
+                                                redundancy_func='pearson_corr',
+                                                relevance_func='kruskal',
+                                                n_bins=10, mrmr_criterion='MID',
+                                                plot=True, k_to_plot=5, 
+                                                close_after_plotting=True,
+                                                saveto=mrmr_dir, figsize=None)
+        # save results                                        
+        mrmr_table = pd.concat([pd.Series(mrmr_feat_set), pd.Series(mrmr_scores)], axis=1)
+        mrmr_table.columns = ['feature','score']
+        mrmr_table.to_csv(mrmr_results_path, header=True, index=False)
+        
+        n_cv = 5
+        cv_scores_mrmr = cross_val_score(estimator, features[mrmr_feat_set], y, cv=n_cv)
+        cv_scores_mrmr = pd.DataFrame(cv_scores_mrmr, columns=['cv_score'])
+        cv_scores_mrmr.to_csv(mrmr_dir / "cv_scores.csv", header=True, index=False)        
+        print('MRMR CV Score: %f (n=%d)' % (np.mean(cv_scores_mrmr), n_cv))        
+    else:
+        # load mrmr results
+        mrmr_table = pd.read_csv(mrmr_results_path)
+        
+    mrmr_feat_set = mrmr_table['feature'].to_list()
+    print("\nTop %d features found by MRMR:" % len(mrmr_feat_set))
+    for feat in mrmr_feat_set:
+        print(feat)
+        
 #%% MAIN
 
 if __name__ == "__main__":
@@ -382,6 +432,12 @@ if __name__ == "__main__":
     # Read feature summaries + metadata
     features = pd.read_csv(FEATURES_PATH)
     metadata = pd.read_csv(METADATA_PATH, dtype={'comments':str, 'source_plate_id':str})
+    
+    # Subset for desired imaging dates
+    if args.dates is not None:
+        assert type(args.dates) == list
+        metadata = metadata.loc[metadata['date_yyyymmdd'].astype(str).isin(args.dates)]
+        features = features.reindex(metadata.index)
 
     keio_stats(features, metadata, args)
     

@@ -20,12 +20,6 @@ from pathlib import Path
 from time import time
 from matplotlib import pyplot as plt
 from scipy.stats import zscore # levene, ttest_ind, f_oneway, kruskal
-from sklearn.preprocessing import StandardScaler
-from sklearn.pipeline import Pipeline
-from sklearn.linear_model import LogisticRegression
-from sklearn.model_selection import cross_val_score
-
-from tierpsytools.analysis.significant_features import mRMR_feature_selection
 
 from read_data.paths import get_save_dir
 from read_data.read import load_json, load_topfeats
@@ -33,19 +27,19 @@ from write_data.write import write_list_to_file
 from analysis.control_variation import control_variation
 # from write_data.write import write_list_to_file
 from filter_data.clean_feature_summaries import clean_summary_results, subset_results
-from statistical_testing.stats_helper import levene_f_test # shapiro_normality_test
 from statistical_testing.perform_keio_stats import average_control_keio
-from clustering.hierarchical_clustering import plot_clustermap # plot_barcode_heatmap
+from clustering.hierarchical_clustering import plot_clustermap, plot_barcode_heatmap
 from feature_extraction.decomposition.pca import plot_pca, remove_outliers_pca
 from feature_extraction.decomposition.tsne import plot_tSNE
 from feature_extraction.decomposition.umap import plot_umap
-from visualisation.plotting_helper import errorbar_sigfeats, boxplots_sigfeats # boxplots_grouped, barplot_sigfeats, plot_day_variations 
+from visualisation.plotting_helper import errorbar_sigfeats, boxplots_sigfeats # boxplots_grouped, barplot_sigfeats, plot_day_variation
 
 #%% GLOBALS
 
-JSON_PARAMETERS_PATH = "analysis/20210406_parameters_keio_screen.json"
+JSON_PARAMETERS_PATH = "analysis/20210914_parameters_keio_screen.json"
 
-MAX_N_HITS = 100 
+MAX_N_HITS = None 
+SUBSET_HIT_STRAINS = False
 
 #%% FUNCTIONS
 
@@ -84,7 +78,7 @@ def compare_strains_keio(features, metadata, args):
     grouping_var = args.grouping_variable
     n_strains = len(metadata[grouping_var].unique())
     assert n_strains == len(metadata[grouping_var].str.upper().unique()) # check case-sensitivity
-    print("\nInvestigating '%s' variation (%d groups)" % (grouping_var, n_strains))
+    print("\nInvestigating '%s' variation (%d samples)" % (grouping_var, n_strains))
     
     # Subset results (rows) to omit selected strains
     if args.omit_strains is not None:
@@ -106,6 +100,14 @@ def compare_strains_keio(features, metadata, args):
         top_feats_list = [feat for feat in list(topfeats) if feat in features.columns]
         features = features[top_feats_list]
 
+    if args.collapse_control:
+        print("Collapsing control data (mean of each day)")
+        features, metadata = average_control_keio(features, metadata)
+                            
+    # Record mean sample size per group
+    mean_sample_size = int(np.round(metadata.join(features).groupby([grouping_var], as_index=False).size().mean()))
+    print("Mean sample size: %d" % mean_sample_size)
+
     save_dir = get_save_dir(args)
     stats_dir =  save_dir / grouping_var / "Stats" / args.fdr_method
     plot_dir = save_dir / grouping_var / "Plots" / args.fdr_method
@@ -123,92 +125,25 @@ def compare_strains_keio(features, metadata, args):
 # =============================================================================
             
     ##### Control variation #####
-                
-    # Subset results for control data
-    control_metadata = metadata[metadata['source_plate_id'] == 'BW']
-    control_features = features.reindex(control_metadata.index)
-    
+                    
     if args.analyse_control:
+        control_metadata = metadata[metadata['gene_name'] == 'wild_type']
+        control_features = features.reindex(control_metadata.index)
+
         # Clean data after subset - to remove features with zero std
         control_feat_clean, control_meta_clean = clean_summary_results(control_features, 
                                                                        control_metadata, 
                                                                        max_value_cap=False,
                                                                        imputeNaN=False)
-        control_variation(control_feat_clean, 
+        # TODO: Fix function to investigate control variation
+        control_variation(control_feat_clean,
                           control_meta_clean, 
                           args,
                           variables=['date_yyyymmdd','instrument_name','imaging_run_number'])
     
     ##### STATISTICS #####
-        
-    ### F-tests to compare variance in samples with control (and correct for multiple comparisons)
-    # Sample size matters in that unequal variances don't pose a problem for a t-test with 
-    # equal sample sizes. So as long as your sample sizes are equal, you don't have to worry about 
-    # homogeneity of variances. If they are not equal, perform F-tests first to see if variance is 
-    # equal before doing a t-test
-    if args.f_test:
-        # F-test for equal variances
-        levene_stats_path = stats_dir / 'levene_results.csv'
-        levene_stats = levene_f_test(features, 
-                                     metadata,
-                                     grouping_var=grouping_var, 
-                                     p_value_threshold=args.pval_threshold, 
-                                     multitest_method=args.fdr_method,
-                                     saveto=levene_stats_path,
-                                     del_if_exists=False)
-    
-        # if p < 0.05 then variances are not equal, and sample size matters
-        prop_eqvar = (levene_stats['pval'] > args.pval_threshold).sum() / len(levene_stats['pval'])
-        print("Percentage equal variance %.1f%%" % (prop_eqvar * 100))
-    
-    if args.collapse_control:
-        print("Collapsing control data (mean of each day)")
-        features, metadata = average_control_keio(features, metadata)
-                            
-    # Record mean sample size per group
-    mean_sample_size = int(np.round(metadata.join(features).groupby([grouping_var], as_index=False).size().mean()))
-    print("Mean sample size: %d" % mean_sample_size)
-    
-    ##### mRMR feature selection: minimum Redunduncy, Maximum Relevance #####
-    
-    mrmr_dir = plot_dir / 'mrmr'
-    mrmr_dir.mkdir(exist_ok=True, parents=True)
-    mrmr_results_path = mrmr_dir / "mrmr_results.csv"
-
-    if not mrmr_results_path.exists():
-        estimator = Pipeline([('scaler', StandardScaler()), ('estimator', LogisticRegression())])
-        y = metadata[grouping_var].values
-        (mrmr_feat_set, 
-         mrmr_scores, 
-         mrmr_support) = mRMR_feature_selection(features, y_class=y, k=10,
-                                                redundancy_func='pearson_corr',
-                                                relevance_func='kruskal',
-                                                n_bins=10, mrmr_criterion='MID',
-                                                plot=True, k_to_plot=5, 
-                                                close_after_plotting=True,
-                                                saveto=mrmr_dir, figsize=None)
-        # save results                                        
-        mrmr_table = pd.concat([pd.Series(mrmr_feat_set), pd.Series(mrmr_scores)], axis=1)
-        mrmr_table.columns = ['feature','score']
-        mrmr_table.to_csv(mrmr_results_path, header=True, index=False)
-        
-        n_cv = 5
-        cv_scores_mrmr = cross_val_score(estimator, features[mrmr_feat_set], y, cv=n_cv)
-        cv_scores_mrmr = pd.DataFrame(cv_scores_mrmr, columns=['cv_score'])
-        cv_scores_mrmr.to_csv(mrmr_dir / "cv_scores.csv", header=True, index=False)        
-        print('MRMR CV Score: %f (n=%d)' % (np.mean(cv_scores_mrmr), n_cv))        
-    else:
-        # load mrmr results
-        mrmr_table = pd.read_csv(mrmr_results_path)
-        
-    mrmr_feat_set = mrmr_table['feature'].to_list()
-    print("\nTop %d features found by MRMR:" % len(mrmr_feat_set))
-    for feat in mrmr_feat_set:
-        print(feat)
     
     print("Loading statistics results")
-
-    ### ANOVA
 
     if not args.use_corrected_pvals:
         anova_path = stats_dir / '{}_results_uncorrected.csv'.format(args.test)
@@ -282,9 +217,9 @@ def compare_strains_keio(features, metadata, args):
         ranked_pval = pvals_t.min(axis=0).sort_values(ascending=True)
         # Select top 100 hit strains by lowest p-value for any feature
         hit_strains_pval = ranked_pval[ranked_pval < args.pval_threshold].index.to_list()
-        max_n_hits = max(len(hit_strains_pval), MAX_N_HITS)
+        max_n_hits = max(len(hit_strains_pval), (MAX_N_HITS if MAX_N_HITS is not None else 0))
         hit_strains_pval = ranked_pval.index[:max_n_hits].to_list()
-        write_list_to_file(hit_strains_pval, stats_dir / 'Top100_lowest_pval.txt')
+        write_list_to_file(hit_strains_pval, stats_dir / 'lowest{}_pval.txt'.format(max_n_hits))
         
         print("\nPlotting ranked strains by number of significant features")
         ranked_nsig_path = plot_dir / ('ranked_number_sigfeats' + '_' + 
@@ -320,7 +255,7 @@ def compare_strains_keio(features, metadata, args):
                           control=control, 
                           rank_by='mean',
                           max_feats2plt=args.n_sig_features, 
-                          figsize=[130,6], 
+                          figsize=[20,6], 
                           fontsize=2, 
                           saveDir=plot_dir / 'errorbar')
         
@@ -337,26 +272,27 @@ def compare_strains_keio(features, metadata, args):
 #                           drop_insignificant=False,
 #                           sns_colour_palette="tab10",
 #                           figsize=[6,130], 
-#                           saveDir=plot_dir / ('boxplots' + '_' + ('uncorrected' if args.fdr_method is None else args.fdr_method) + '.png')
+#                           saveDir=plot_dir / ('boxplots' + '_' + ('uncorrected' if args.fdr_method is None else args.fdr_method) + '.png'))
 # =============================================================================
 
         # If no sigfeats, subset for top strains ranked by lowest p-value by t-test for any feature    
         if len(hit_strains_nsig) == 0:
             print("\nSubsetting for top %d strains ranked by lowest p-value of any feature" % max_n_hits)
-            hit_strains_pval.insert(0, control)
-            features, metadata = subset_results(features, 
-                                                metadata, 
-                                                column=grouping_var,
-                                                groups=hit_strains_pval, verbose=False)
             write_list_to_file(hit_strains_pval, stats_dir / 'Top100_lowest_pval.txt')
+            hit_strains = hit_strains_pval
+
         elif len(hit_strains_nsig) > 0:
             print("\nSubsetting for %d hit strains + control" % min(len(hit_strains_nsig), max_n_hits))
             hit_strains_nsig = hit_strains_nsig[:max_n_hits]
-            hit_strains_nsig.insert(0, control)
+            hit_strains = hit_strains_nsig
+            
+        strain_list = [control] + hit_strains
+
+        if SUBSET_HIT_STRAINS:
             features, metadata = subset_results(features,
                                                 metadata,
                                                 column=grouping_var,
-                                                groups=hit_strains_nsig, verbose=False)
+                                                groups=strain_list, verbose=False)          
                          
         # Individual boxplots of significant features by pairwise t-test (each group vs control)
         boxplots_sigfeats(features,
@@ -366,7 +302,7 @@ def compare_strains_keio(features, metadata, args):
                           feature_set=None,
                           saveDir=plot_dir / 'paired_boxplots',
                           p_value_threshold=args.pval_threshold,
-                          drop_insignificant=(True if len(hit_strains_nsig) > 0 else False),
+                          drop_insignificant=(True if len(hit_strains) > 0 else False),
                           max_sig_feats=args.n_sig_features,
                           max_strains=max_n_hits,
                           sns_colour_palette="tab10",
@@ -377,7 +313,7 @@ def compare_strains_keio(features, metadata, args):
         # from visualisation.super_plots import superplot
         # print("Plotting superplots of date variation for significant features")
         # for feat in tqdm(fset[:args.n_sig_features]):
-        #     superplot(hit_features, hit_metadata, feat, 
+        #     superplot(features, metadata, feat, 
         #               x1=grouping_var, 
         #               x2='date_yyyymmdd',
         #               saveDir=plot_dir / 'superplots',
@@ -386,8 +322,8 @@ def compare_strains_keio(features, metadata, args):
         #               dodge=False)
 
         # from tierpsytools.analysis.significant_features import plot_feature_boxplots
-        # plot_feature_boxplots(feat_to_plot=hit_features,
-        #                       y_class=hit_metadata[grouping_var],
+        # plot_feature_boxplots(feat_to_plot=features,
+        #                       y_class=metadata[grouping_var],
         #                       scores=pvals_t.rank(axis=1),
         #                       pvalues=np.asarray(pvals_t).flatten(),
         #                       saveto=None,
@@ -453,36 +389,41 @@ def compare_strains_keio(features, metadata, args):
 
     assert all(f in featZ.columns for f in pvals_heatmap.index)
             
-    # # Plot barcode heatmap (grouping by date)
-    # if len(hit_metadata['date_yyyymmdd'].unique()) > 1:
-    #     print("\nPlotting barcode heatmap by date")
-    #     heatmap_date_path = plot_dir / 'heatmaps' / (grouping_var + '_date_heatmap.pdf')
-    #     plot_barcode_heatmap(featZ=featZ[clustered_features], 
-    #                          meta=hit_metadata, 
-    #                          group_by=[grouping_var, 'date_yyyymmdd'],
-    #                          pvalues_series=pvals_heatmap,
-    #                          p_value_threshold=args.pval_threshold,
-    #                          selected_feats=fset if len(fset) > 0 else None,
-    #                          saveto=heatmap_date_path,
-    #                          figsize=[20, 30],
-    #                          sns_colour_palette="Pastel1")
-    
-    # # Plot group-mean heatmap (averaged across days)
-    # print("\nPlotting barcode heatmap")
-    # heatmap_path = plot_dir / 'heatmaps' / (grouping_var + '_heatmap.pdf')
-    # plot_barcode_heatmap(featZ=featZ[clustered_features], 
-    #                      meta=hit_metadata, 
-    #                      group_by=[grouping_var], 
-    #                      pvalues_series=pvals_heatmap,
-    #                      p_value_threshold=args.pval_threshold,
-    #                      selected_feats=fset if len(fset) > 0 else None,
-    #                      saveto=heatmap_path,
-    #                      figsize=[20, 30],
-    #                      sns_colour_palette="Pastel1")        
+# =============================================================================
+#     # Plot barcode heatmap (grouping by date)
+#     if len(metadata['date_yyyymmdd'].unique()) > 1 and len(metadata[grouping_var].unique()) < 250:
+#         print("\nPlotting barcode heatmap by date")
+#         heatmap_date_path = plot_dir / 'heatmaps' / (grouping_var + '_date_heatmap.pdf')
+#         plot_barcode_heatmap(featZ=featZ[clustered_features], 
+#                               meta=metadata, 
+#                               group_by=[grouping_var, 'date_yyyymmdd'],
+#                               pvalues_series=pvals_heatmap,
+#                               p_value_threshold=args.pval_threshold,
+#                               selected_feats=fset if len(fset) > 0 else None,
+#                               saveto=heatmap_date_path,
+#                               figsize=[20, 30],
+#                               sns_colour_palette="Pastel1")
+#     
+#         # Plot group-mean heatmap (averaged across days)
+#         print("\nPlotting barcode heatmap")
+#         heatmap_path = plot_dir / 'heatmaps' / (grouping_var + '_heatmap.pdf')
+#         plot_barcode_heatmap(featZ=featZ[clustered_features], 
+#                               meta=metadata, 
+#                               group_by=[grouping_var], 
+#                               pvalues_series=pvals_heatmap,
+#                               p_value_threshold=args.pval_threshold,
+#                               selected_feats=fset if len(fset) > 0 else None,
+#                               saveto=heatmap_path,
+#                               figsize=[20, 30],
+#                               sns_colour_palette="Pastel1")        
+# =============================================================================
                     
     ##### Principal Components Analysis #####
 
     pca_dir = plot_dir / 'PCA'
+
+    n_strains_pca = 10
+    var_subset = [control] + hit_strains[:n_strains_pca]
     
     # Z-normalise data for all strains
     featZ = features.apply(zscore, axis=0)
@@ -502,37 +443,17 @@ def compare_strains_keio(features, metadata, args):
 
     #from tierpsytools.analysis.decomposition import plot_pca
     _ = plot_pca(featZ, metadata, 
-                  group_by=grouping_var, 
-                  control=control,
-                  var_subset=None, 
-                  saveDir=pca_dir,
-                  PCs_to_keep=10,
-                  n_feats2print=10,
-                  kde=False,
-                  sns_colour_palette="plasma",
-                  n_dims=2,
-                  hypercolor=False)
+                 group_by=grouping_var, 
+                 control=control,
+                 var_subset=var_subset if n_strains_pca else None, 
+                 saveDir=pca_dir,
+                 PCs_to_keep=10,
+                 n_feats2print=10,
+                 kde=False,
+                 sns_colour_palette="plasma",
+                 n_dims=2,
+                 hypercolor=False)
     # TODO: Ensure sns colour palette does not plot white points for PCA
-
-    ######### DELETE #########
-    # Add metadata information for COG
-    if not 'COG_info' in metadata.columns:
-        COG_families = {'Information storage and processing' : ['J', 'K', 'L', 'D', 'O'], 
-                        'Cellular processes' : ['M', 'N', 'P', 'T', 'C', 'G', 'E'], 
-                        'Metabolism' : ['F', 'H', 'I', 'Q', 'R'], 
-                        'Poorly characterised' : ['S', 'U', 'V']}
-        COG_mapping_dict = {i : k for (k, v) in COG_families.items() for i in v}
-        
-        COG_info = []
-        for i in metadata['COG_category']:
-            try:
-                COG_info.append(COG_mapping_dict[i])
-            except:
-                COG_info.append('Unknown')
-        metadata['COG_info'] = COG_info
-    else:
-        print("COG info was already appended by compile_keio_results.py, so you may delete me!")
-    ######### DELETE #########
 
     # plot pca coloured by Keio COG category    
     _ = plot_pca(featZ, metadata, 
@@ -554,7 +475,7 @@ def compare_strains_keio(features, metadata, args):
     perplexities = [mean_sample_size] # NB: should be roughly equal to group size    
     _ = plot_tSNE(featZ, metadata,
                   group_by=grouping_var,
-                  var_subset=None,
+                  var_subset=var_subset if n_strains_pca else None,
                   saveDir=tsne_dir,
                   perplexities=perplexities,
                   sns_colour_palette="plasma")
@@ -567,7 +488,7 @@ def compare_strains_keio(features, metadata, args):
     min_dist = 0.1 # Minimum distance parameter    
     _ = plot_umap(featZ, metadata,
                   group_by=grouping_var,
-                  var_subset=None,
+                  var_subset=var_subset if n_strains_pca else None,
                   saveDir=umap_dir,
                   n_neighbours=n_neighbours,
                   min_dist=min_dist,
@@ -600,7 +521,13 @@ if __name__ == "__main__":
     print("Loading metadata and feature summary results...")
     features = pd.read_csv(FEATURES_PATH)
     metadata = pd.read_csv(METADATA_PATH, dtype={'comments':str, 'source_plate_id':str})
-    
+
+    # Subset for desired imaging dates
+    if args.dates is not None:
+        assert type(args.dates) == list
+        metadata = metadata.loc[metadata['date_yyyymmdd'].astype(str).isin(args.dates)]
+        features = features.reindex(metadata.index)
+
     compare_strains_keio(features, metadata, args)
     
     toc = time()

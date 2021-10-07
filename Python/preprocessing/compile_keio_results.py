@@ -10,6 +10,7 @@ Compile Keio Screen metadata and feature summaries
 #%% IMPORTS
 
 import argparse
+import numpy as np
 from time import time
 from pathlib import Path
 from read_data.read import load_json
@@ -22,7 +23,12 @@ from filter_data.clean_feature_summaries import clean_summary_results
 
 #%% GLOBALS
 
-JSON_PARAMETERS_PATH = "analysis/20210406_parameters_keio_screen.json"
+JSON_PARAMETERS_PATH = "analysis/20210914_parameters_keio_screen.json"
+
+RENAME_DICT = {"BW" : "wild_type",
+               "FECE" : "fecE",
+               "AroP" : "aroP",
+               "TnaB" : "tnaB"}
 
 #%% FUNCTIONS
 
@@ -72,12 +78,14 @@ def compile_keio_results(args):
 
     # Fix data types
     metadata = fix_dtypes(metadata)
-    
-    # Fill in 'gene_name' for control as 'wild_type'
+ 
+    # Rename gene names in metadata
+    for k, v in RENAME_DICT.items():
+        metadata.loc[metadata['gene_name'] == k, 'gene_name'] = v
+
+    # Fill in 'gene_name' for control as 'wild_type' (for control plates where gene name is missing)
     if aux_dir.parent.name == 'KeioScreen_96WP':
         metadata.loc[metadata['source_plate_id'] == "BW", 'gene_name'] = "wild_type"
-    elif aux_dir.parent.name == 'KeioScreen2_96WP':
-        metadata.loc[metadata['gene_name'] == "BW", 'gene_name'] = "wild_type"
     
     # Subset results (rows) to remove entries for wells with unknown strain data for 'gene_name'
     n = metadata.shape[0]
@@ -86,7 +94,7 @@ def compile_keio_results(args):
     print("%d entries removed with no gene name metadata" % (n - metadata.shape[0]))
 
     # Add COG category info to metadata
-    if not 'COG category' in metadata.columns:
+    if not 'COG_category' in metadata.columns:
         supplementary_7 = load_supplementary_7(args.path_sup_info)
         metadata = append_supplementary_7(metadata, supplementary_7, column_name='gene_name')
         assert set(metadata.index) == set(features.index)
@@ -102,13 +110,13 @@ def compile_keio_results(args):
         try:
             COG_info.append(COG_mapping_dict[i])
         except:
-            COG_info.append('Unknown')
+            COG_info.append(np.nan)
     metadata['COG_info'] = COG_info
 
     # # Calculate duration on food + duration in L1 diapause
     # metadata = duration_on_food(metadata) 
-    # metadata = duration_L1_diapause(metadata)
-
+    # metadata = duration_L1_diapause(metadata)    
+    
     ##### Clean results #####
     
     # Remove bad well data + features with too many NaNs/zero std + impute remaining NaNs

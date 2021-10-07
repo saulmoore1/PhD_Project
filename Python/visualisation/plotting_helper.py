@@ -280,6 +280,8 @@ def errorbar_sigfeats(features, metadata, group_by, fset, control=None, rank_by=
     mean_strain = grouped.mean()
     median_strain = grouped.median()
             
+    max_feats2plt = len(fset) if max_feats2plt is None else max_feats2plt
+    
     # Plot all strains (ranked by median) for top n significant features (ranked by ANOVA p-value)
     for f, feat in enumerate(tqdm(fset[:max_feats2plt])):
         # Errorbar plot
@@ -391,6 +393,8 @@ def boxplots_sigfeats(features,
         strain_list = ranked_min_pval.index.to_list()
         
     strain_list = [s for s in strain_list if s in list(y_class.unique())]
+    
+    max_sig_feats = features.shape[1] if max_sig_feats is None else max_sig_feats
 
     data = pd.concat([y_class, features], axis=1)
 
