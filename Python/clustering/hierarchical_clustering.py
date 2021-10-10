@@ -23,13 +23,17 @@ CUSTOM_STYLE = 'visualisation/style_sheet_20210126.mplstyle'
 def plot_clustermap(featZ, 
                     meta, 
                     group_by,
+                    colour_by=None,
+                    row_colours=True,
                     col_linkage=None,
                     method='complete',
                     metric='euclidean',
                     saveto=None,
                     figsize=[10,8],
                     sns_colour_palette="Pastel1",
-                    sub_adj={'top':1,'bottom':0,'left':0,'right':1}):
+                    sub_adj={'top':1,'bottom':0,'left':0,'right':1},
+                    label_size=5,
+                    show_xlabels=True):
     """ Seaborn clustermap (hierarchical clustering heatmap)
     
         Inputs
@@ -46,30 +50,37 @@ def plot_clustermap(featZ,
     if type(group_by) != list:
         group_by = [group_by]
     n = len(group_by)
-    if not (n == 1 or n == 2):
-        raise IOError("Must provide either 1 or 2 'group_by' parameters")        
+    # if not (n == 1 or n == 2):
+    #     raise IOError("Must provide either 1 or 2 'group_by' parameters")        
         
     # Store feature names
     fset = featZ.columns
         
     # Compute average value for strain for each feature (not each well)
-    featZ_grouped = featZ.join(meta).groupby(group_by).mean().reset_index()
+    featZ_grouped = featZ.join(meta).groupby(group_by, dropna=False).mean().reset_index()
     
-    var_list = list(featZ_grouped[group_by[0]].unique())
+    if colour_by is None:
+        colour_by = group_by[0]
+    assert colour_by in meta.columns
+        
+    var_list = list(featZ_grouped[colour_by].unique())
 
     # Row colors
-    row_colours = []
-    if len(var_list) > 1 or n == 1:
-        var_colour_dict = dict(zip(var_list, sns.color_palette("tab10", len(var_list))))
-        row_cols_var = featZ_grouped[group_by[0]].map(var_colour_dict)
-        row_colours.append(row_cols_var)
-    if n == 2:
-        date_list = list(featZ_grouped[group_by[1]].unique())
-        date_colour_dict = dict(zip(date_list, sns.color_palette("Blues", len(date_list))))
-        #date_colour_dict=dict(zip(set(date_list),sns.hls_palette(len(set(date_list)),l=0.5,s=0.8)))
-        row_cols_date = featZ_grouped[group_by[1]].map(date_colour_dict)
-        row_cols_date.name = None
-        row_colours.append(row_cols_date)  
+    if row_colours is False:
+        row_colours = None
+    if row_colours is not None:
+        row_colours = []
+        if len(var_list) > 1 or n == 1:
+            var_colour_dict = dict(zip(var_list, sns.color_palette("tab10", len(var_list))))
+            row_cols_var = featZ_grouped[group_by[0]].map(var_colour_dict)
+            row_colours.append(row_cols_var)
+        if n == 2:
+            date_list = list(featZ_grouped[group_by[1]].unique())
+            date_colour_dict = dict(zip(date_list, sns.color_palette("Blues", len(date_list))))
+            #date_colour_dict=dict(zip(set(date_list),sns.hls_palette(len(set(date_list)),l=0.5,s=0.8)))
+            row_cols_date = featZ_grouped[group_by[1]].map(date_colour_dict)
+            row_cols_date.name = None
+            row_colours.append(row_cols_date)  
 
     # Column colors
     bluelight_colour_dict = dict(zip(['prestim','bluelight','poststim'], 
@@ -88,20 +99,20 @@ def plot_clustermap(featZ,
                         method=method,
                         vmin=-2, vmax=2,
                         figsize=figsize,
-                        xticklabels=fset if len(fset) < 768 else False,
-                        yticklabels=featZ_grouped[group_by].astype(str).agg('-'.join, axis=1),
-                        cbar_pos=(0.98, 0.02, 0.05, 0.5), #None
+                        xticklabels=fset if show_xlabels else False,
+                        yticklabels=featZ_grouped[group_by].astype(str).agg(' - '.join, axis=1),
+                        #cbar_pos=(0.5, 0.01, 0.1, 0.01), # (left, bottom, width, height)
                         cbar_kws={'orientation': 'horizontal',
                                   'label': None, #'Z-value'
-                                  'shrink': 1,
+                                  #'shrink': 1,
                                   'ticks': [-2, -1, 0, 1, 2],
                                   'drawedges': False},
                         linewidths=0)
     cg.ax_heatmap.set_yticklabels(cg.ax_heatmap.get_yticklabels(), rotation=0, 
-                                  fontsize=15, ha='left', va='center')    
+                                  fontsize=label_size, ha='left', va='center')    
     #plt.setp(cg.ax_heatmap.yaxis.get_majorticklabels(), fontsize=15)
     #cg.ax_heatmap.axes.set_xticklabels([]); cg.ax_heatmap.axes.set_yticklabels([])
-    if len(fset) <= 768: # Top256 features * 3 bluelight stimuli = 768 features
+    if show_xlabels: # Top256 features * 3 bluelight stimuli = 768 features
         plt.setp(cg.ax_heatmap.xaxis.get_majorticklabels(), rotation=90)
     
     patch_list = []
@@ -155,7 +166,8 @@ def plot_barcode_heatmap(featZ,
                          selected_feats=None,
                          figsize=[18,6],
                          saveto=None,
-                         sns_colour_palette="bright"):
+                         sns_colour_palette="bright",
+                         label_size=20):
     """  """
     
     import numpy as np
@@ -200,12 +212,12 @@ def plot_barcode_heatmap(featZ,
     # Plot barcode clustermap
     plt.ioff() if saveto else plt.ion()
     plt.close('all')  
-    plt.style.use(CUSTOM_STYLE) 
+    #plt.style.use(CUSTOM_STYLE) 
     sns.set_style('ticks')
     
     f = plt.figure(figsize=figsize)
     height_ratios = list(np.repeat(3,len(var_list)))
-    height_ratios.extend([1,1])
+    height_ratios.extend([3,3])
     gs = GridSpec(len(var_list)+2, 1, wspace=0, hspace=0, height_ratios=height_ratios)
     cbar_ax = f.add_axes([.885, .275, .01, .68]) #  [left, bottom, width, height]
     
@@ -229,7 +241,7 @@ def plot_barcode_heatmap(featZ,
                     #cbar_kws={'shrink':0.8},
                     vmin=v[0], vmax=v[1],
                     linewidths=0)
-        plt.yticks(rotation=0, fontsize=20)
+        plt.yticks(rotation=0, fontsize=label_size)
         plt.ylabel("")
         #cbar_ax.set_yticklabels(labels = cbar_ax.get_yticklabels())#, fontdict=font_settings)
         # if n < len(var_list):

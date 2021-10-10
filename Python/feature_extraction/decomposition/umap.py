@@ -26,20 +26,26 @@ CUSTOM_STYLE = 'visualisation/style_sheet_20210126.mplstyle'
 def plot_umap(featZ,
               meta,
               group_by,
+              control=None,
               var_subset=None,
               saveDir=None,
               n_neighbours=[10],
               min_dist=0.3,
               figsize=[8,8],
+              label_size=15,
+              marker_size=100,
+              n_colours=20,
               sns_colour_palette="tab10"):
     """ Uniform manifold projection """
     
     import umap
     import pandas as pd
     import seaborn as sns
-    from matplotlib import pyplot as plt
-    from pathlib import Path
     from tqdm import tqdm
+    from pathlib import Path
+    from matplotlib import pyplot as plt
+    from matplotlib import patches
+
 
     assert (meta.index == featZ.index).all()
     assert type(n_neighbours) == list
@@ -59,6 +65,26 @@ def plot_umap(featZ,
                                           columns=['UMAP_1', 'UMAP_2']).set_index(featZ.index)
         UMAP_projection_df.name = 'n={}'.format(str(n))
         
+        # Create colour palette for plot loop
+        if len(var_subset) > n_colours:
+            if not control:
+                raise IOError('Too many groups for plot color mapping!' + 
+                              'Please provide a control group or subset of groups (n<20) to color plot')
+            else:
+                # Colour the control and make the rest gray
+                palette = {var : "blue" if var == control else "darkgray" for var in meta[group_by].unique()}
+                
+        elif len(var_subset) <= n_colours:
+            # Colour strains of interest
+            colour_labels = sns.color_palette(sns_colour_palette, len(var_subset))
+            palette = dict(zip(var_subset, colour_labels))
+            
+            if set(var_subset) != set(meta[group_by].unique()):
+                # Make the rest gray
+                gray_strains = [var for var in meta[group_by].unique() if var not in var_subset]
+                gray_palette = {var:'darkgray' for var in gray_strains if not pd.isna(var)}
+                palette.update(gray_palette)
+        
         # Plot 2-D UMAP
         plt.close('all')
         plt.style.use(CUSTOM_STYLE) 
@@ -68,17 +94,32 @@ def plot_umap(featZ,
         ax.set_xlabel('UMAP Component 1', fontsize=15, labelpad=12)
         ax.set_ylabel('UMAP Component 2', fontsize=15, labelpad=12)
         #ax.set_title('2-component UMAP (n_neighbours={0})'.format(n), fontsize=20)
-                
-        # Create colour palette for plot loop
-        palette = dict(zip(var_subset, (sns.color_palette(sns_colour_palette, len(var_subset)))))
-        
+                        
+        grouped = meta.join(UMAP_projection_df).groupby(group_by)
+
         # Plot UMAP projection
-        for var in var_subset:
-            UMAP_var = UMAP_projection_df[meta[group_by]==var]
-            sns.scatterplot(x='UMAP_1', y='UMAP_2', data=UMAP_var, color=palette[var], s=100)
-        if len(var_subset) <= 15:
-            plt.tight_layout() #rect=[0.04, 0, 0.84, 0.96]
-            ax.legend(var_subset, frameon=True, loc='upper right', fontsize=15, markerscale=1.5)
+        for key in list(palette.keys())[::-1]:
+            if pd.isna(key):
+                continue
+            group = grouped.get_group(key)
+            sns.scatterplot(x='UMAP_1', y='UMAP_2', data=group, color=palette[key], s=marker_size)
+            
+        # Construct legend from custom handles
+        if len(var_subset) <= n_colours:
+            plt.tight_layout() # rect=[0.04, 0, 0.84, 0.96]
+            handles = []
+            for key in var_subset:
+                handles.append(patches.Patch(color=palette[key], label=key))
+            # add 'other' for all other strains (in gray)
+            if len(gray_palette.keys()) > 0:
+                other_patch = patches.Patch(color='darkgray', label='other')
+                handles.append(other_patch)  
+            ax.legend(handles=handles, frameon=True, loc='upper left', fontsize=label_size, 
+                      handletextpad=0.2)
+        else:
+            control_patch = patches.Patch(color='blue', label=control)
+            other_patch = patches.Patch(color='darkgray', label='other')
+            ax.legend(handles=[control_patch, other_patch])
         ax.grid(False)
         
         if saveDir:

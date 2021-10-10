@@ -263,7 +263,8 @@ def barplot_sigfeats(test_pvalues_df=None, saveDir=None, p_value_threshold=0.05,
             plt.show()
 
 def errorbar_sigfeats(features, metadata, group_by, fset, control=None, rank_by='median',
-                      max_feats2plt=10, figsize=[130,6], fontsize=2, saveDir=None):
+                      max_feats2plt=10, figsize=[130,6], fontsize=4, tight_layout=None,
+                      saveDir=None, **kwargs):
     """ Plot mean feature value with errorbars (+/- 1.98 * std) for all groups in 
         metadata['group_by'] for each feature in feature set provided 
     """
@@ -305,7 +306,7 @@ def errorbar_sigfeats(features, metadata, group_by, fset, control=None, rank_by=
                      y=feat, 
                      yerr=error,
                      data=mean_ordered, 
-                     fmt='.', elinewidth=0.5, ecolor=colour, c='dimgray', ms=5)
+                     ecolor=colour, c='dimgray', **kwargs)
         _ = plt.xticks(rotation=90, fontsize=fontsize)
         
         if rank_by == 'median':
@@ -321,6 +322,9 @@ def errorbar_sigfeats(features, metadata, group_by, fset, control=None, rank_by=
             labelbottom=True)  # labels along the bottom edge are off
         plt.title(feat, pad=10)
         
+        if tight_layout is not None:
+            plt.tight_layout(rect=tight_layout)
+             
         if saveDir is not None:
             Path(saveDir).mkdir(exist_ok=True, parents=True)
             plt.savefig(saveDir / (str(f + 1) + '_' + feat + '_errorbar.pdf'))
@@ -334,6 +338,7 @@ def boxplots_sigfeats(features,
                       y_class,
                       control,
                       pvals,
+                      z_class=None,
                       feature_set=None,
                       saveDir=None,
                       drop_insignificant=True,
@@ -341,7 +346,6 @@ def boxplots_sigfeats(features,
                       max_sig_feats=10,
                       max_strains=100,
                       sns_colour_palette="tab10",
-                      colour_by=None,
                       verbose=True):
     """ Box plots of most significantly different features between each strain and the control 
     
@@ -397,6 +401,9 @@ def boxplots_sigfeats(features,
     max_sig_feats = features.shape[1] if max_sig_feats is None else max_sig_feats
 
     data = pd.concat([y_class, features], axis=1)
+    
+    if z_class is not None:
+        data = pd.concat([z_class, data], axis=1)
 
     # Top10 features for each strain vs control    
     for s, strain in enumerate(tqdm(strain_list[:max_strains], position=0)):
@@ -423,9 +430,9 @@ def boxplots_sigfeats(features,
         colour_labels = sns.color_palette(sns_colour_palette, 2)
         colour_dict = {control:colour_labels[0], str(strain):colour_labels[1]}
         
-        if colour_by is not None:
-            cols = sns.color_palette("Paired", len(strain_data[colour_by].unique()))
-            colby_dict = dict(zip(data[colour_by].unique(), cols))
+        if z_class is not None:
+            cols = sns.color_palette("pastel", len(z_class.unique()))
+            col_dict = dict(zip(list(z_class.unique()), cols))
             
         order = list(strain_data[y_class.name].unique())
         order.remove(control)
@@ -445,7 +452,7 @@ def boxplots_sigfeats(features,
                         order=order,
                         palette=colour_dict,
                         showfliers=False, 
-                        showmeans=True if colour_by is not None else False,
+                        showmeans=True if z_class is not None else False,
                         #meanline=True,
                         meanprops={"marker":"x", 
                                    "markersize":5,
@@ -458,9 +465,9 @@ def boxplots_sigfeats(features,
                           data=strain_data,
                           s=20,
                           order=order,
-                          hue=colour_by if colour_by is not None else None,
-                          palette=colby_dict if colour_by is not None else None,
-                          color=None if colour_by is not None else 'gray',
+                          hue=z_class if z_class is not None else None,
+                          palette=col_dict if z_class is not None else None,
+                          color=None if z_class is not None else 'gray',
                           marker=".",
                           edgecolor='k',
                           linewidth=.3) #facecolors="none"
@@ -476,9 +483,9 @@ def boxplots_sigfeats(features,
             #     ylab = r'{} ($\mu m^2$)'.format(ylab)
             # plt.ylabel(ylab, fontsize=18) #fontsize=15, labelpad=12
 
-            if colour_by is not None:
+            if z_class is not None:
                 plt.xlim(right=len(order)-0.3)
-                plt.legend(loc='upper right', title=str(colour_by))
+                plt.legend(loc='upper right')
             
             # Add p-value to plot
             p = strain_pvals.loc[feature]

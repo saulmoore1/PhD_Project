@@ -23,7 +23,7 @@
 "selected_features_path": null,
 "add_well_annotations": true,
 "analyse_control" : false,
-"collapse_control" : false,
+"collapse_control" : true,
 "control_dict": {"gene_name": "wild_type",
 		 "date_yyyymmdd": "20210719",
                  "instrument_name": "Hydra01",

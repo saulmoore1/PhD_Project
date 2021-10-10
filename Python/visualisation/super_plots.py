@@ -40,11 +40,20 @@ CUSTOM_STYLE = "visualisation/style_sheet_20210126.mplstyle"
 DODGE = True
     
 #%% Functions    
-def superplot(features, metadata, feat, 
-              x1="food_type", x2="date_yyyymmdd", # 'imaging_run_number', 'instrument_name'
-              plot_type='box', show_points=None, plot_means=True, max_points=30,
-              sns_colour_palettes=["plasma","plasma"], 
-              dodge=False, saveDir=None, **kwargs):
+def superplot(features, 
+              metadata, 
+              feat, 
+              x1="gene_name", 
+              x2="date_yyyymmdd", # 'imaging_run_number', 'instrument_name'
+              plot_type='box',
+              show_points=None,
+              plot_means=True,
+              max_points=30,
+              sns_colour_palettes=["plasma","plasma"],
+              figsize=[20,7],
+              dodge=False,
+              saveDir=None,
+              **kwargs):
     """ Plot timeseries for strains by Hydra day replicates """
     # TODO: Add t-test/LMM pvalues to superplots       
     
@@ -55,15 +64,17 @@ def superplot(features, metadata, feat,
     
     assert set(metadata.index) == set(features.index)
     assert feat in features.columns
-
+    assert x1 in metadata.columns
+    
     if x2 is not None:
+        assert x2 in metadata.columns
         df = metadata[[x1, x2]].join(features[feat])
         av_df = df.groupby([x1, x2], as_index=False).agg({feat: "mean"})
     else:
         df = metadata[[x1]].join(features[feat])
         av_df = df.groupby([x1], as_index=False).agg({feat: "mean"})
 
-    # Create colour palette for bluelight colours
+    # Create colour palette
     x1_list = list(metadata[x1].unique())
     x1_labels = sns.color_palette(sns_colour_palettes[0], len(x1_list))
     x1_col_dict = dict(zip(x1_list, x1_labels))
@@ -76,7 +87,6 @@ def superplot(features, metadata, feat,
         except:
             x1_order = list(metadata[x1].unique())
 
-    x2_list = []
     if x2 is not None:
         x2_list = list(metadata[x2].unique())
         x2_labels = sns.color_palette(sns_colour_palettes[1], len(x2_list))
@@ -90,7 +100,7 @@ def superplot(features, metadata, feat,
     plt.close('all')
     plt.style.use(CUSTOM_STYLE)
     plt.ioff() if saveDir is not None else plt.ion()
-    fig, ax = plt.subplots(figsize=[20,7])
+    fig, ax = plt.subplots(figsize=figsize)
     
     mean_sample_size = df.groupby(([x1, x2] if x2 is not None else [x1]), as_index=False).size().mean()
     
@@ -124,7 +134,7 @@ def superplot(features, metadata, feat,
         for violin, alpha in zip(ax.collections, np.repeat(0.5, len(ax.collections))):
             violin.set_alpha(alpha)
 
-    show_points = False if (show_points is None and mean_sample_size > max_points) else True
+    show_points = mean_sample_size[0] < max_points if show_points is None else show_points
     if show_points:
         sns.stripplot(x=x1, 
                       y=feat, 

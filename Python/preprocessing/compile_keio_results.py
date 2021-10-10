@@ -110,7 +110,7 @@ def compile_keio_results(args):
         try:
             COG_info.append(COG_mapping_dict[i])
         except:
-            COG_info.append(np.nan)
+            COG_info.append('Unknown') # np.nan
     metadata['COG_info'] = COG_info
 
     # # Calculate duration on food + duration in L1 diapause

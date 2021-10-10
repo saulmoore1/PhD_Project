@@ -9,7 +9,11 @@ Principal Components Analysis (PCA)
 @date: 01/03/2021
 
 """
+
+#%% Imports
 import sys
+
+#%% Globals
 
 # Path to Github helper functions (USER-DEFINED path to local copy of Github repo)
 PATH_LIST = ['/Users/sm5911/Tierpsy_Versions/tierpsy-tools-python/',
@@ -73,6 +77,8 @@ def plot_pca(featZ,
              n_feats2print=10,
              sns_colour_palette="tab10",
              hypercolor=False,
+             label_size=15,
+             figsize=[9,8],
              n_colours=20):
     """ Perform principal components analysis 
         - group_by : column in metadata to group by for plotting (colours) 
@@ -131,7 +137,7 @@ def plot_pca(featZ,
 
     # Compute explained variance ratio of component axes
     ex_variance=np.var(projected, axis=0) # PCA(n_components=n_dims).fit_transform(featZ)
-    ex_variance_ratio = ex_variance/np.sum(ex_variance)
+    ex_variance_ratio = ex_variance / np.sum(ex_variance)
     
     # Store the results for first few PCs in dataframe
     projected_df = pd.DataFrame(data=projected[:,:PCs_to_keep],
@@ -161,7 +167,7 @@ def plot_pca(featZ,
         if set(var_subset) != set(meta[group_by].unique()):
             # Make the rest gray
             gray_strains = [var for var in meta[group_by].unique() if var not in var_subset]
-            gray_palette = {var:'darkgray' for var in gray_strains}
+            gray_palette = {var:'darkgray' for var in gray_strains if not pd.isna(var)}
             palette.update(gray_palette)
             
     plt.close('all')
@@ -169,10 +175,14 @@ def plot_pca(featZ,
     plt.rcParams['legend.handletextpad'] = 0.5
     sns.set_style('ticks')
     if n_dims == 2:
-        fig, ax = plt.subplots(figsize=[9,8])
+        fig, ax = plt.subplots(figsize=figsize)
         
         grouped = meta.join(projected_df).groupby(group_by)
-        for key, group in grouped:
+        #for key, group in grouped:
+        for key in list(palette.keys())[::-1]:
+            if pd.isna(key):
+                continue
+            group = grouped.get_group(key)
             group.plot(ax=ax, 
                        kind='scatter',
                        x='PC1', 
@@ -186,7 +196,7 @@ def plot_pca(featZ,
                         data=meta.join(projected_df), 
                         hue=group_by, 
                         palette=palette,
-                        fill=True, # TODO: Fill kde plot with plain colour by group
+                        fill=True, # fill kde plot with plain colour by group
                         alpha=0.25,
                         thresh=0.05,
                         levels=2,
@@ -198,10 +208,19 @@ def plot_pca(featZ,
         ax.set_ylabel('Principal Component 2 (%.1f%%)' % (ex_variance_ratio[1]*100), 
                       fontsize=20, labelpad=12)
         #ax.set_title("PCA by '{}'".format(group_by), fontsize=20)
-        
+
+        # Construct legend from custom handles
         if len(var_subset) <= n_colours:
             plt.tight_layout() # rect=[0.04, 0, 0.84, 0.96]
-            ax.legend(var_subset, frameon=True, loc='upper right', fontsize=15, markerscale=1.5)
+            handles = []
+            for key in var_subset:
+                handles.append(patches.Patch(color=palette[key], label=key))
+            # add 'other' for all other strains (in gray)
+            if len(gray_palette.keys()) > 0:
+                other_patch = patches.Patch(color='darkgray', label='other')
+                handles.append(other_patch)  
+            ax.legend(handles=handles, frameon=True, loc='upper right', fontsize=label_size, 
+                      handletextpad=0.2)
         elif hypercolor:
             ax.get_legend().remove()
         else:

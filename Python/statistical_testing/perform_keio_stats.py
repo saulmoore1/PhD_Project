@@ -40,7 +40,31 @@ JSON_PARAMETERS_PATH = "analysis/20210914_parameters_keio_screen.json"
 
 #%% MAIN
 
-def average_control_keio(features, metadata, control_plate='BW', grouping_var='gene_name'):
+def df_summary_stats(df, columns=None):
+    """ Print N samples per group for given column(s), or all columns if none given """
+    
+    if type(columns) == str:
+        columns = [columns]
+    elif columns is None:
+        columns = list(df.columns)
+    elif type(columns) != list:
+        raise TypeError("'columns' must be a list!")
+    assert all(c in df.columns for c in columns)  
+    
+    sample_dict = {}
+    for c in columns:
+        samples = list(df[c].unique())
+        for s in samples:
+            sample_dict[(c, s)] = df[df[c]==s].shape[0]
+                    
+    stats_df = pd.DataFrame.from_dict(sample_dict, orient='index', columns=['n_samples'])
+    stats_df['column_name'] = [c for (c, s) in stats_df.index]
+    stats_df['sample_name'] = [s for (c, s) in stats_df.index]
+
+    return stats_df[['column_name','sample_name','n_samples']].reset_index(drop=True)
+
+def average_plate_control_data(features, metadata, control='wild_type', grouping_var='gene_name', 
+                               plate_var='imaging_plate_id'):
     """ Average data for control plate on each experiment day to yield a single mean datapoint for 
         the control. This reduces the control sample size to equal the test strain sample size, for 
         t-test comparison. Information for the first well in the control sample on each day is used 
@@ -56,25 +80,25 @@ def average_control_keio(features, metadata, control_plate='BW', grouping_var='g
         features, metadata : pd.DataFrame
             Feature summary results and metadata with control data averaged (single sample per day)
     """
-    
+        
     # Subset results for control data
-    control_metadata = metadata[metadata['source_plate_id']==control_plate]
+    control_metadata = metadata[metadata[grouping_var]==control]
     control_features = features.reindex(control_metadata.index)
 
-    # Take mean of control for each day = collapse to single datapoint for strain comparison
-    mean_control = control_metadata[[grouping_var, 'date_yyyymmdd']].join(control_features).groupby(
-                                    by=[grouping_var, 'date_yyyymmdd']).mean().reset_index()
+    # Take mean of control for each plate = collapse to single datapoint for strain comparison
+    mean_control = control_metadata[[grouping_var, plate_var]].join(control_features).groupby(
+                                    by=[grouping_var, plate_var]).mean().reset_index()
     
     # Append remaining control metadata column info (with first well data for each date)
-    remaining_cols = [c for c in control_metadata.columns.to_list() 
-                      if c not in [grouping_var, 'date_yyyymmdd']]
+    remaining_cols = [c for c in control_metadata.columns.to_list() if c not in [grouping_var, 
+                                                                                 plate_var]]
     mean_control_row_data = []
     for i in mean_control.index:
-        date = mean_control.loc[i, 'date_yyyymmdd']
-        control_date_meta = control_metadata.loc[control_metadata['date_yyyymmdd'] == date]
-        # TODO: use agg here
-        first_well = control_date_meta.loc[control_date_meta.index[0], remaining_cols]
-        first_well_mean = first_well.append(mean_control.loc[mean_control['date_yyyymmdd'] == date
+        # TODO: use agg here?
+        plate = mean_control.loc[i, plate_var]
+        control_plate_meta = control_metadata.loc[control_metadata[plate_var] == plate]
+        first_well = control_plate_meta.loc[control_plate_meta.index[0], remaining_cols]
+        first_well_mean = first_well.append(mean_control.loc[mean_control[plate_var] == plate
                                                              ].squeeze(axis=0))
         mean_control_row_data.append(first_well_mean)
     
@@ -82,9 +106,9 @@ def average_control_keio(features, metadata, control_plate='BW', grouping_var='g
     control_metadata = control_mean[control_metadata.columns.to_list()]
     control_features = control_mean[control_features.columns.to_list()]
 
-    features = pd.concat([features.loc[metadata['source_plate_id'] != control_plate, :], 
+    features = pd.concat([features.loc[metadata[grouping_var] != control, :], 
                           control_features], axis=0).reset_index(drop=True)        
-    metadata = pd.concat([metadata.loc[metadata['source_plate_id'] != control_plate, :], 
+    metadata = pd.concat([metadata.loc[metadata[grouping_var] != control, :], 
                           control_metadata.loc[:, metadata.columns.to_list()]], 
                           axis=0).reset_index(drop=True)
     
@@ -146,13 +170,20 @@ def keio_stats(features, metadata, args):
     strain_list = list(metadata[grouping_var].unique())
     control = args.control_dict[grouping_var] # control strain to use
     assert control in strain_list
-
+    
     if args.collapse_control:
         print("Collapsing control data (mean of each day)")
-        features, metadata = average_control_keio(features, metadata)
+        features, metadata = average_plate_control_data(features, 
+                                                        metadata, 
+                                                        control=control, 
+                                                        grouping_var=grouping_var, 
+                                                        plate_var='imaging_plate_id')
+
+    _ = df_summary_stats(metadata) # summary df # TODO: plot from?
 
     # Record mean sample size per group
-    mean_sample_size = int(np.round(metadata.join(features).groupby([grouping_var], as_index=False).size().mean()))
+    mean_sample_size = int(np.round(metadata.join(features).groupby([grouping_var], 
+                                                                    as_index=False).size().mean()))
     print("Mean sample size: %d" % mean_sample_size)
 
     # construct save paths (args.save_dir / topfeats? etc)
@@ -225,7 +256,8 @@ def keio_stats(features, metadata, args):
         
                 # use reject mask to find significant feature set
                 fset = pvals.loc[reject[args.test]].sort_values(by=args.test, ascending=True).index.to_list()
-                #assert set(fset) == set(anova_corrected['pvals'].index[np.where(anova_corrected['pvals'] < args.pval_threshold)[0]])
+                #assert set(fset) == set(anova_corrected['pvals'].index[np.where(anova_corrected['pvals'] < 
+                #args.pval_threshold)[0]])
 
                 if len(fset) > 0:
                     print("%d significant features found by %s for '%s' (P<%.2f, %s)" % (len(fset), 
