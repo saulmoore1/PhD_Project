@@ -23,16 +23,15 @@ Plots:
 #%% Imports
 
 import argparse
-import pandas as pd
 import numpy as np
+import pandas as pd
+from tqdm import tqdm
 from time import time
 from pathlib import Path
 from scipy.stats import zscore # ttest_ind, f_oneway, kruskal
 
-from tierpsytools.analysis.significant_features import k_significant_feat
-from tierpsytools.analysis.statistical_tests import (univariate_tests, 
-                                                     get_effect_sizes, 
-                                                     _multitest_correct)
+from tierpsytools.analysis.statistical_tests import univariate_tests, get_effect_sizes
+#from tierpsytools.analysis.significant_features import k_significant_feat
 #from tierpsytools.drug_screenings.filter_compounds import compounds_with_low_effect_univariate
 
 from read_data.paths import get_save_dir
@@ -53,14 +52,18 @@ from visualisation.plotting_helper import sig_asterix, barplot_sigfeats
 JSON_PARAMETERS_PATH = "analysis/20210406_parameters_keio_screen.json"
 FEATURES_PATH = "/Users/sm5911/Documents/Keio_Screen/features.csv"
 METADATA_PATH = "/Users/sm5911/Documents/Keio_Screen/metadata.csv"
+
+METHOD = 'complete'
+METRIC = 'euclidean'
        
 #%% Functions
 
 def control_variation(feat, 
                       meta, 
                       args,
-                      variables=['date_yyyymmdd','instrument_name','imaging_run_number']):
-    """ Analyse variation in control data with respect to each varaible in 'variables' in turn 
+                      variables=['date_yyyymmdd','instrument_name','imaging_run_number'],
+                      n_sig_features=None):
+    """ Analyse variation in control data with respect to each categorical variable in 'variables'
         
         Inputs
         ------
@@ -81,19 +84,22 @@ def control_variation(feat,
             - norm_features_only : bool
             - percentile_to_use : str
             - remove_outliers : bool
+            
+        variables : list
+            List of categorical random variables to analyse variation in control data
     """
     
     assert set(feat.index) == set(meta.index)
             
-    save_dir = get_save_dir(args) / "Control"
+    save_dir = get_save_dir(args) / "control"
 
     # Stats test to use
     assert args.test in ['ANOVA','Kruskal','LMM']
     t_test = 't-test' if args.test == 'ANOVA' else 'Mann-Whitney' # aka. Wilcoxon rank-sums
     
-    for grouping_var in variables:
+    for grouping_var in tqdm(variables):
         
-        # convert grouping variable column to factor
+        # convert grouping variable column to factor (categorical)
         meta[grouping_var] = meta[grouping_var].astype(str)
                 
         # get control group for eg. date_yyyymmdd
@@ -136,7 +142,7 @@ def control_variation(feat,
                                                 
                     anova_table = pd.concat([stats, effect_sizes, pvals, reject], axis=1)
                     anova_table.columns = ['stats','effect_size','pvals','reject']     
-                    
+
                     anova_table['significance'] = sig_asterix(anova_table['pvals'])
         
                     # Sort pvals + record significant features
@@ -197,81 +203,7 @@ def control_variation(feat,
                                  saveDir=plot_dir,
                                  p_value_threshold=args.pval_threshold,
                                  test_name=t_test)
-                         
-            ### K significant features
-            # k_sigfeat_dir = plot_dir / 'k_sig_feats'
-            # k_sigfeat_dir.mkdir(exist_ok=True, parents=True)      
-            fset_ksig, (scores, pvalues_ksig), support = k_significant_feat(feat=feat, 
-                                                            y_class=meta[grouping_var], 
-                                                            k=(len(fset) if len(fset) > 
-                                                               args.n_sig_features else 
-                                                               args.n_sig_features), 
-                                                            score_func='f_classif', 
-                                                            scale=None, 
-                                                            feat_names=None, 
-                                                            plot=False, 
-                                                            k_to_plot=None, 
-                                                            close_after_plotting=True,
-                                                            saveto=None, #k_sigfeat_dir
-                                                            figsize=None, 
-                                                            title=None, 
-                                                            xlabel=None)
-            
-            ksig_table = pd.concat([pd.Series(scores), pd.Series(pvalues_ksig)], axis=1)
-            ksig_table.columns = ['scores','pvals']
-            ksig_table.index = fset_ksig
-
-            # Correct for multiple comparisons
-            _, ksig_table['pvals'] = _multitest_correct(ksig_table['pvals'], 
-                                                        multitest_method=args.fdr_method,
-                                                        fdr=args.pval_threshold)
-            
-            # Save k most significant features
-            ksig_table.to_csv(stats_dir / 'k_significant_features.csv', header=True, index=True)   
-            
-            # Compare k sigfeat and ANOVA (or t-test) significant feature set overlap
-            if len(fset) > 0:
-                fset_overlap = set(fset).intersection(set(fset_ksig))
-                prop_overlap = len(fset_overlap) / len(fset)
-                print("%.1f%% overlap with k-significant features" % (prop_overlap * 100))
-                if prop_overlap < 0.5 and len(fset) > 100:
-                    print("WARNING: Inconsistency in statistics for feature set agreement between "
-                                  + "%s and k significant features!\nOverlap: %.1f%%" % (t_test if 
-                                        len(group_list) == 2 else args.test, prop_overlap * 100)) 
-                if args.use_k_sig_feats_overlap:
-                    fset = list(ksig_table.loc[fset_overlap].sort_values(by='pvals', 
-                                                                         ascending=True).index)
-            else:
-                print("No significant features found for %s" % grouping_var)
-        
-# =============================================================================
-#         ### mRMR feature selection: minimum Redunduncy, Maximum Relevance
-# 
-#         from sklearn.preprocessing import StandardScaler
-#         from sklearn.pipeline import Pipeline
-#         from sklearn.linear_model import LogisticRegression
-#         from sklearn.model_selection import cross_val_score
-#         from tierpsytools.analysis.significant_features import mRMR_feature_selection
-# 
-#         estimator = Pipeline([('scaler', StandardScaler()), ('estimator', LogisticRegression())])
-#         y = meta[grouping_var].values
-#         data = meta.drop(columns=grouping_var).join(feat)
-#         
-#         (mrmr_feat_set, 
-#          mrmr_scores, 
-#          mrmr_support) = mRMR_feature_selection(data, k=10, y_class=y,
-#                                                 redundancy_func='pearson_corr', 
-#                                                 relevance_func='kruskal',
-#                                                 n_bins=4, mrmr_criterion='MID',
-#                                                 plot=True, k_to_plot=5, 
-#                                                 close_after_plotting=False,
-#                                                 saveto=None, figsize=None)
-#         
-#         cv_scores_mrmr = cross_val_score(estimator, data[mrmr_feat_set], y, cv=5)
-#         print('MRMR')
-#         print(np.mean(cv_scores_mrmr))
-# =============================================================================
-
+                                 
         ### Load statistics results
         
         # Read ANOVA results and record significant features
@@ -292,36 +224,46 @@ def control_variation(feat,
         # Use t-test significant feature set if comparing just 2 strains
         if len(group_list) == 2:
             fset = fset_ttest
-                                                               
+                       
+        if not n_sig_features:
+            if args.n_sig_features is not None:
+                n_sig_features = args.n_sig_features 
+            else:
+                n_sig_features = len(fset)
+                                   
         ##### Plotting #####
         
         superplot_dir = plot_dir / 'superplots' 
 
         if len(fset) > 1:        
-            for feature in fset[:args.n_sig_features]:
-                print("Plotting %s variation in %s" % (grouping_var, feature))
-                
+            for feature in tqdm(fset[:n_sig_features]):                
                 # plot variation in variable with respect to 'date_yyyymmdd'
                 superplot(feat, meta, feature, 
                           x1=grouping_var, 
-                          x2=(None if grouping_var == 'date_yyyymmdd' else 'date_yyyymmdd'),
+                          x2=None if grouping_var == 'date_yyyymmdd' else 'date_yyyymmdd',
                           saveDir=superplot_dir,
+                          pvals=pvals_t if grouping_var == 'date_yyyymmdd' else None,
+                          pval_threshold=args.pval_threshold,
                           show_points=True, 
                           plot_means=True,
                           dodge=True)
                 # plot variation in variable with respect to 'instrument_name'
                 superplot(feat, meta, feature, 
                           x1=grouping_var, 
-                          x2=(None if grouping_var == 'instrument_name' else 'instrument_name'),
+                          x2=None if grouping_var == 'instrument_name' else 'instrument_name',
                           saveDir=superplot_dir,
+                          pvals=pvals_t if grouping_var == 'instrument_name' else None,
+                          pval_threshold=args.pval_threshold,
                           show_points=True, 
                           plot_means=True,
                           dodge=True)
                 # plot variation in variable with respect to 'imaging_ruun_number'
                 superplot(feat, meta, feature, 
                           x1=grouping_var, 
-                          x2=(None if grouping_var == 'imaging_run_number' else 'imaging_run_number'),
+                          x2=None if grouping_var == 'imaging_run_number' else 'imaging_run_number',
                           saveDir=superplot_dir,
+                          pvals=pvals_t if grouping_var == 'imaging_run_number' else None,
+                          pval_threshold=args.pval_threshold,
                           show_points=True, 
                           plot_means=True,
                           dodge=True)
@@ -364,6 +306,7 @@ def control_variation(feat,
             #                       close_after_plotting=False)
         
         ##### Hierarchical Clustering Analysis #####
+        print("\nPerforming hierarchical clustering analysis...")
 
         assert not feat.isna().sum(axis=1).any()
         assert not (feat.std(axis=1) == 0).any()
@@ -376,24 +319,29 @@ def control_variation(feat,
         #scaler = scalingClass(scaling='standardize')
         #featZ = scaler.fit_transform(feat)
 
-        # Drop features with NaN values after normalising
-        n_cols = len(featZ.columns)
-        featZ.dropna(axis=1, inplace=True)
-        n_dropped = n_cols - len(featZ.columns)
-        if n_dropped > 0:
-            print("Dropped %d features after normalisation (NaN)" % n_dropped)
+        # NOT NEEDED?
+        # # Drop features with NaN values after normalising
+        # n_cols = len(featZ.columns)
+        # featZ.dropna(axis=1, inplace=True)
+        # n_dropped = n_cols - len(featZ.columns)
+        # if n_dropped > 0:
+        #     print("Dropped %d features after normalisation (NaN)" % n_dropped)
     
         ### Control clustermap
         
         # control data is clustered and feature order is stored and applied to full data
-        if len(group_list) > 1:
-            control_clustermap_path = plot_dir / 'HCA' / (grouping_var + '_clustermap.pdf')
+        if len(group_list) > 1 and len(group_list) < 50 and grouping_var != 'date_yyyymmdd':
+            control_clustermap_path = plot_dir / 'heatmaps' / (grouping_var + '_date_clustermap.pdf')
             cg = plot_clustermap(featZ, meta,
                                  group_by=([grouping_var] if grouping_var == 'date_yyyymmdd' 
                                            else [grouping_var, 'date_yyyymmdd']),
                                  col_linkage=None,
-                                 method='complete',#[linkage, complete, average, weighted, centroid]
-                                 figsize=[20,7],
+                                 method=METHOD,#[linkage, complete, average, weighted, centroid]
+                                 metric=METRIC,
+                                 figsize=[15,8],
+                                 sub_adj={'bottom':0.02,'left':0.02,'top':1,'right':0.85},
+                                 label_size=12,
+                                 show_xlabels=False,
                                  saveto=control_clustermap_path)
     
             #col_linkage = cg.dendrogram_col.calculated_linkage
@@ -407,12 +355,15 @@ def control_variation(feat,
         # z_stats.to_csv(z_stats_path, header=True, index=None)
         
         # Clustermap of full data       
-        full_clustermap_path = plot_dir / 'HCA' / (grouping_var + '_full_clustermap.pdf')
+        full_clustermap_path = plot_dir / 'heatmaps' / (grouping_var + '_clustermap.pdf')
         fg = plot_clustermap(featZ, meta, 
                              group_by=grouping_var,
                              col_linkage=None,
-                             method='complete',
-                             figsize=[20,7],
+                             method=METHOD,
+                             metric=METRIC,
+                             figsize=[15,8],
+                             sub_adj={'bottom':0.02,'left':0.02,'top':1,'right':0.9},
+                             label_size=12,
                              saveto=full_clustermap_path)
         
         # If no control clustering (due to no day variation) then use clustered features for all 
@@ -429,8 +380,8 @@ def control_variation(feat,
         assert all(f in featZ.columns for f in pvals_heatmap.index)
                 
         # Plot barcode heatmap (grouping by date)
-        if len(group_list) > 1 and grouping_var != 'date_yyyymmdd':
-            heatmap_date_path = plot_dir / 'HCA' / (grouping_var + '_date_heatmap.pdf')
+        if len(group_list) > 1 and len(group_list) < 50 and grouping_var != 'date_yyyymmdd':
+            heatmap_date_path = plot_dir / 'heatmaps' / (grouping_var + '_date_heatmap.pdf')
             plot_barcode_heatmap(featZ=featZ[clustered_features], 
                                  meta=meta, 
                                  group_by=[grouping_var, 'date_yyyymmdd'],
@@ -442,7 +393,7 @@ def control_variation(feat,
                                  sns_colour_palette="Pastel1")
         
         # Plot group-mean heatmap (averaged across days)
-        heatmap_path = plot_dir / 'HCA' / (grouping_var + '_heatmap.pdf')
+        heatmap_path = plot_dir / 'heatmaps' / (grouping_var + '_heatmap.pdf')
         plot_barcode_heatmap(featZ=featZ[clustered_features], 
                              meta=meta, 
                              group_by=[grouping_var], 
@@ -454,6 +405,7 @@ def control_variation(feat,
                              sns_colour_palette="Pastel1")        
                         
         ##### Principal Components Analysis #####
+        print("Performing principal components analysis")
     
         if args.remove_outliers:
             outlier_path = plot_dir / 'mahalanobis_outliers.pdf'
@@ -481,34 +433,43 @@ def control_variation(feat,
                      n_feats2print=10,
                      sns_colour_palette="plasma",
                      n_dims=2,
+                     label_size=15,
+                     figsize=[9,8],
+                     sub_adj={'bottom':0.13,'left':0.12,'top':0.98,'right':0.98},
+                     # legend_loc='upper right',
+                     # n_colours=20,
                      hypercolor=False)
         # TODO: Ensure sns colour palette does not plot white points for PCA
 
-        ##### t-distributed Stochastic Neighbour Embedding #####   
-        
-        tsne_dir = plot_dir / 'tSNE'
-        perplexities = [mean_sample_size] # NB: should be roughly equal to group size
-        
-        _ = plot_tSNE(featZ, meta,
-                      group_by=grouping_var,
-                      var_subset=None,
-                      saveDir=tsne_dir,
-                      perplexities=perplexities,
-                      sns_colour_palette="plasma")
+# =============================================================================
+#         ##### t-distributed Stochastic Neighbour Embedding #####   
+#         
+#         tsne_dir = plot_dir / 'tSNE'
+#         perplexities = [mean_sample_size] # NB: should be roughly equal to group size
+#         
+#         _ = plot_tSNE(featZ, meta,
+#                       group_by=grouping_var,
+#                       var_subset=None,
+#                       saveDir=tsne_dir,
+#                       perplexities=perplexities,
+#                       sns_colour_palette="plasma")
+# =============================================================================
        
-        ##### Uniform Manifold Projection #####  
-        
-        umap_dir = plot_dir / 'UMAP'
-        n_neighbours = [mean_sample_size] # NB: should be roughly equal to group size
-        min_dist = 0.1 # Minimum distance parameter
-        
-        _ = plot_umap(featZ, meta,
-                      group_by=grouping_var,
-                      var_subset=None,
-                      saveDir=umap_dir,
-                      n_neighbours=n_neighbours,
-                      min_dist=min_dist,
-                      sns_colour_palette="plasma")        
+# =============================================================================
+#         ##### Uniform Manifold Projection #####  
+#         
+#         umap_dir = plot_dir / 'UMAP'
+#         n_neighbours = [mean_sample_size] # NB: should be roughly equal to group size
+#         min_dist = 0.1 # Minimum distance parameter
+#         
+#         _ = plot_umap(featZ, meta,
+#                       group_by=grouping_var,
+#                       var_subset=None,
+#                       saveDir=umap_dir,
+#                       n_neighbours=n_neighbours,
+#                       min_dist=min_dist,
+#                       sns_colour_palette="plasma")        
+# =============================================================================
     
 #%%
 if __name__ == "__main__":

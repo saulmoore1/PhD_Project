@@ -47,6 +47,28 @@ TOP_N_HITS = 10
 METHOD = 'complete' # 'complete','linkage','average','weighted','centroid'
 METRIC = 'euclidean' # 'euclidean','cosine','correlation'
 
+COG_category_dict = {'J' : 'Translation, ribosomal structure, and biogenesis',
+                     'K' : 'Transcription',
+                     'L' : 'DNA replication, recombination, and repair',
+                     'D' : 'Cell division and chromosome partitioning',
+                     'O' : 'Post-translational modification, protein turnover, chaperones',
+                     'M' : 'Cell envelope biogenesis, outer membrane',
+                     'N' : 'Cell motility and secretion',
+                     'P' : 'Inorganic ion transport and metabolism',
+                     'T' : 'Signal transduction mechanisms',
+                     'C' : 'Energy production and conversion',
+                     'G' : 'Carbohydrate transport and metabolism',
+                     'E' : 'Amino acid transport and metabolism',
+                     'F' : 'Nucleotide transport and metabolism',
+                     'H' : 'Coenzyme metabolism',
+                     'I' : 'Lipid metabolism',
+                     'Q' : 'Secondary metabolites biosynthesis, transport, and catabolism',
+                     'R' : 'General function prediction only',
+                     'S' : 'Function unknown', 
+                     'U' : 'Function unknown', 
+                     'V' : 'Function unknown',
+                     'Unknown' : 'Function unknown'}
+
 #%% FUNCTIONS
 
 def compare_strains_keio(features, metadata, args):
@@ -105,30 +127,6 @@ def compare_strains_keio(features, metadata, args):
         # Drop features that are not in results
         top_feats_list = [feat for feat in list(topfeats) if feat in features.columns]
         features = features[top_feats_list]
-
-    if args.collapse_control:
-        print("Collapsing control data (mean of each day)")
-        features, metadata = average_plate_control_data(features, metadata)
-                            
-    # Record mean sample size per group
-    mean_sample_size = int(np.round(metadata.join(features).groupby([grouping_var], as_index=False).size().mean()))
-    print("Mean sample size: %d" % mean_sample_size)
-
-    save_dir = get_save_dir(args)
-    stats_dir =  save_dir / grouping_var / "Stats" / args.fdr_method
-    plot_dir = save_dir / grouping_var / "Plots" / args.fdr_method
-
-# =============================================================================
-#     ##### Pairplot Tierpsy 16 #####
-#     if args.n_top_feats == 16:
-#         g = sns.pairplot(features, height=1.5)
-#         for ax in g.axes.flatten():
-#             # rotate x and y axis labels
-#             ax.set_xlabel(ax.get_xlabel(), rotation = 90)
-#             ax.set_ylabel(ax.get_ylabel(), rotation = 0)
-#         plt.subplots_adjust(left=0.3, bottom=0.3)
-#         plt.show()
-# =============================================================================
             
     ##### Control variation #####
 
@@ -141,14 +139,36 @@ def compare_strains_keio(features, metadata, args):
                                                                    max_value_cap=False,
                                                                    imputeNaN=False)                  
     if args.analyse_control:
-        # TODO: Fix function to investigate control variation
-        control_variation(control_feat_clean,
-                          control_meta_clean, 
-                          args,
-                          variables=['date_yyyymmdd','instrument_name','imaging_run_number'])
-    
+        control_variation(control_feat_clean, control_meta_clean, args,
+                          variables=[k for k in args.control_dict.keys() if k != 'gene_name'],
+                          n_sig_features=10)
+
+    if args.collapse_control:
+        print("Collapsing control data (mean of each day)")
+        features, metadata = average_plate_control_data(features, metadata)
+                            
+    # Record mean sample size per group
+    mean_sample_size = int(np.round(metadata.join(features).groupby([grouping_var], as_index=False).size().mean()))
+    print("Mean sample size: %d" % mean_sample_size)
+
+    save_dir = get_save_dir(args)
+    stats_dir =  save_dir / grouping_var / "Stats" / args.fdr_method
+    plot_dir = save_dir / grouping_var / "Plots" / args.fdr_method
+       
     ##### STATISTICS #####
-    
+ 
+# =============================================================================
+#     ##### Pairplot Tierpsy Features - Pairwise correlation matrix #####
+#     if args.n_top_feats == 16:
+#         g = sns.pairplot(features, height=1.5)
+#         for ax in g.axes.flatten():
+#             # rotate x and y axis labels
+#             ax.set_xlabel(ax.get_xlabel(), rotation = 90)
+#             ax.set_ylabel(ax.get_ylabel(), rotation = 0)
+#         plt.subplots_adjust(left=0.3, bottom=0.3)
+#         plt.show()
+# =============================================================================
+
     print("Loading statistics results")
 
     if not args.use_corrected_pvals:
@@ -273,7 +293,7 @@ def compare_strains_keio(features, metadata, args):
 #         boxplots_grouped(feat_meta_df=metadata.join(features), 
 #                           group_by=grouping_var,
 #                           control_group=control,
-#                           test_pvalues_df=(pvals_t.T if len(fset) > 0 else None), # ranked by test pvalue significance
+#                           test_pvalues_df=(pvals_t.T if len(fset) > 0 else None), 
 #                           feature_set=fset,
 #                           max_feats2plt=args.n_sig_features, 
 #                           max_groups_plot_cap=None,
@@ -281,8 +301,9 @@ def compare_strains_keio(features, metadata, args):
 #                           drop_insignificant=False,
 #                           sns_colour_palette="tab10",
 #                           figsize=[6,130], 
-#                           saveDir=plot_dir / ('boxplots' + '_' + ('uncorrected' if args.fdr_method
-#                                               is None else args.fdr_method) + '.png'))
+#                           saveDir=plot_dir / ('boxplots' + '_' + (
+#                                   'uncorrected' if args.fdr_method is None else args.fdr_method) + 
+#                                   '.png'))
 # =============================================================================
 
         # If no sigfeats, subset for top strains ranked by lowest p-value by t-test for any feature    
@@ -317,7 +338,7 @@ def compare_strains_keio(features, metadata, args):
             strain_list = list(metadata[grouping_var].unique())
         
         # superplots of variation with respect to 'date_yyyymmdd'
-        print("Plotting superplots of date variation for significant features")
+        print("\nPlotting superplots of date variation for significant features")
         for feat in tqdm(fset[:args.n_sig_features]):
             # plot day variation
             superplot(features, metadata, feat, 
@@ -356,6 +377,8 @@ def compare_strains_keio(features, metadata, args):
                       plot_means=True,
                       dodge=True)
 
+        # TODO: Add pvalues to superplots - if stats have been done by 'control_variation' script
+        
         # from tierpsytools.analysis.significant_features import plot_feature_boxplots
         # plot_feature_boxplots(feat_to_plot=features,
         #                       y_class=metadata[grouping_var],
@@ -479,20 +502,26 @@ def compare_strains_keio(features, metadata, args):
                  hypercolor=False)
     # TODO: Ensure sns colour palette does not plot white points for PCA
 
+    # add details of COG category information to metadata 
+    # (using hard-coded dict of info from Baba et al. 2006 paper)
+    metadata['COG_category'] = metadata['COG_category'].map(COG_category_dict)
+    
     # plot pca coloured by Keio COG category    
     _ = plot_pca(featZ, metadata, 
-                 group_by='COG_info', 
+                 group_by='COG_category', 
                  control=None,
-                 var_subset=list(metadata['COG_info'].dropna().unique()), 
+                 var_subset=list(metadata['COG_category'].dropna().unique()), 
                  saveDir=pca_dir / 'COG',
                  PCs_to_keep=10,
                  n_feats2print=10,
                  kde=False,
                  n_dims=2,
                  hypercolor=False,
-                 label_size=12,
-                 figsize=[8,8],
-                 sns_colour_palette="gist_rainbow")
+                 label_size=8,
+                 figsize=[12,8],
+                 sub_adj={'bottom':0.1,'left':0.1,'top':0.95,'right':0.7},
+                 legend_loc=[1.02,0.6],
+                 sns_colour_palette="plasma")
 
     ##### t-distributed Stochastic Neighbour Embedding #####   
     

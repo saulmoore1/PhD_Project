@@ -31,7 +31,7 @@ def plot_clustermap(featZ,
                     saveto=None,
                     figsize=[10,8],
                     sns_colour_palette="Pastel1",
-                    sub_adj={'top':1,'bottom':0,'left':0,'right':1},
+                    sub_adj={'bottom':0,'left':0,'top':1,'right':1},
                     label_size=5,
                     show_xlabels=True):
     """ Seaborn clustermap (hierarchical clustering heatmap)
@@ -273,7 +273,7 @@ def plot_barcode_heatmap(featZ,
         if len(selected_feats) > 0:
             for feat in selected_feats:
                 try:
-                    axis.text(heatmap_df.columns.get_loc(feat), 1, ' *', ha='center')
+                    axis.text(heatmap_df.columns.get_loc(feat), 1.1, ' *', ha='center')
                 except KeyError:
                     print('{} not in featureset'.format(feat))
 

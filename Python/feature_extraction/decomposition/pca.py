@@ -79,6 +79,8 @@ def plot_pca(featZ,
              hypercolor=False,
              label_size=15,
              figsize=[9,8],
+             sub_adj={'bottom':0,'left':0,'top':1,'right':1},
+             legend_loc='upper right',
              n_colours=20):
     """ Perform principal components analysis 
         - group_by : column in metadata to group by for plotting (colours) 
@@ -211,15 +213,15 @@ def plot_pca(featZ,
 
         # Construct legend from custom handles
         if len(var_subset) <= n_colours:
-            plt.tight_layout() # rect=[0.04, 0, 0.84, 0.96]
+            plt.tight_layout() # rect=[0, 0, 1, 1]
             handles = []
             for key in var_subset:
                 handles.append(patches.Patch(color=palette[key], label=key))
             # add 'other' for all other strains (in gray)
-            if len(gray_palette.keys()) > 0:
+            if set(var_subset) != set(meta[group_by].unique()) and len(gray_palette.keys()) > 0:
                 other_patch = patches.Patch(color='darkgray', label='other')
                 handles.append(other_patch)  
-            ax.legend(handles=handles, frameon=True, loc='upper right', fontsize=label_size, 
+            ax.legend(handles=handles, frameon=True, loc=legend_loc, fontsize=label_size, 
                       handletextpad=0.2)
         elif hypercolor:
             ax.get_legend().remove()
@@ -229,6 +231,9 @@ def plot_pca(featZ,
             ax.legend(handles=[control_patch, other_patch])
         ax.grid(False)
         
+        # adjust subplots for figure legend
+        plt.subplots_adjust(top=sub_adj['top'], bottom=sub_adj['bottom'], 
+                            left=sub_adj['left'], right=sub_adj['right'])
     elif n_dims == 3:
         fig = plt.figure(figsize=[10,10])
         mpl_axes_logger.setLevel('ERROR') # Work-around for 3D plot colour warnings

@@ -19,6 +19,7 @@ from pathlib import Path
 
 # Custom imports
 from filter_data.clean_feature_summaries import clean_summary_results
+from visualisation.plotting_helper import sig_asterix
 from read_data.read import load_topfeats
 
 from tierpsytools.read_data.hydra_metadata import read_hydra_metadata
@@ -49,6 +50,8 @@ def superplot(features,
               show_points=None,
               plot_means=True,
               max_points=30,
+              pvals=None,
+              pval_threshold=0.05,
               sns_colour_palettes=["plasma","plasma"],
               figsize=[20,7],
               dodge=False,
@@ -136,6 +139,7 @@ def superplot(features,
 
     show_points = mean_sample_size[0] < max_points if show_points is None else show_points
     if show_points:
+        # FIXME: fix dodge for show points - why is this not working?
         sns.stripplot(x=x1, 
                       y=feat, 
                       order=x1_order, 
@@ -177,7 +181,23 @@ def superplot(features,
 #                 ax.text((ii+1)/2, y+2*h, pval_text, fontsize=12, ha='center', va='bottom')
 #     plt.subplots_adjust(left=0.15) #top=0.9,bottom=0.1,left=0.2
 # =============================================================================
-            
+        
+    # Add p-value to plot
+    if pvals is not None:
+        if x2 is not None:
+            print("WARNING: Cannot plot p-values on dodge plots!")
+        else:
+            for ii, label in enumerate(list(ax.get_xticklabels())[1:]):
+                text = label.get_text()
+                pval = pvals.loc[feat, 'pvals_'+ text]
+                if isinstance(pval, float) and pval < pval_threshold:                   
+                    y = df[feat].max() 
+                    h = (y - df[feat].min()) / 50
+                    plt.plot([0, 0, ii+1, ii+1], 
+                             [y+h, y+2*h+0.02*y*ii, y+2*h+0.02*y*ii, y+h], lw=1.5, c='k') 
+                    pval_text = sig_asterix([pval])[0] #'P < 0.001' if pval < 0.001 else 'P = %.3f' % pval
+                    ax.text((ii+1)/2, y+2*h+0.02*y*ii, pval_text, fontsize=15, ha='center', va='center')
+
     # Add custom legend
     patch_labels = []
     patch_handles = []
@@ -196,8 +216,8 @@ def superplot(features,
     # handles, labels = ax.get_legend_handles_labels()        
     plt.legend(labels=patch_labels, 
                handles=patch_handles,
-               loc=(1.05, 0.75), #'upper right'
-               borderaxespad=0.4, 
+               loc=(1.01, 0.01), #'upper right'
+               borderaxespad=0.4,
                frameon=True, 
                framealpha=1, 
                fontsize=15,

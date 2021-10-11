@@ -219,6 +219,7 @@ def barplot_sigfeats(test_pvalues_df=None, saveDir=None, p_value_threshold=0.05,
                      test_name=None):
     """ Plot barplot of number of significant features from test p-values """
     
+    import numpy as np
     from pathlib import Path
     from matplotlib import pyplot as plt
     
@@ -227,8 +228,8 @@ def barplot_sigfeats(test_pvalues_df=None, saveDir=None, p_value_threshold=0.05,
         test_pvalues_df = test_pvalues_df.T
 
         # Proportion of features significantly different from control
-        prop_sigfeats = ((test_pvalues_df < p_value_threshold).sum(axis=1) /\
-                         len(test_pvalues_df.columns))*100
+        n_sigfeats = (test_pvalues_df < p_value_threshold).sum(axis=1)
+        prop_sigfeats = (n_sigfeats / len(test_pvalues_df.columns)) * 100
         prop_sigfeats = prop_sigfeats.sort_values(ascending=False)
         
         n = len(prop_sigfeats.index)
@@ -239,15 +240,18 @@ def barplot_sigfeats(test_pvalues_df=None, saveDir=None, p_value_threshold=0.05,
         plt.style.use(CUSTOM_STYLE)
         fig = plt.figure(figsize=[6, n/4 if (n > 20 and n < 1000) else 7]) # width, height
         ax = fig.add_subplot(1,1,1)
-        ax.barh(prop_sigfeats,width=1)
         prop_sigfeats.plot.barh(x=prop_sigfeats.index,
                                 y=prop_sigfeats.values,
                                 color='gray',
                                 ec='black') # fc
-        ax.set_xlabel('% significant features') # fontsize=16, labelpad=10
+        ax.set_xlabel('% significant features', fontsize=16, labelpad=10)
         plt.xlim(0,100)
-        for i, (l, v) in enumerate((test_pvalues_df < p_value_threshold).sum(axis=1).items()):
-            ax.text(prop_sigfeats.loc[l] + 2, i, str(v), color='k',
+        
+        y_arr = np.array([l.get_text() for l in ax.get_yticklabels()])
+        
+        for i, (l, v) in enumerate(n_sigfeats.items()):
+            y = int(np.where(y_arr == l)[0])
+            ax.text(prop_sigfeats.loc[l] + 2, y, str(v), color='k',
                     va='center', ha='left') #fontweight='bold'
         plt.text(0.85, 1, 'n = %d' % len(test_pvalues_df.columns), ha='center', va='bottom',
                  transform=ax.transAxes)
