@@ -120,7 +120,7 @@ def compare_strains_keio(features, metadata, args):
 
     # Load Tierpsy Top feature set + subset (columns) for top feats only
     if args.n_top_feats is not None:
-        top_feats_path = Path(args.tierpsy_top_feats_dir) / "tierpsy_{}.csv".format(str(args.n_top_feats))        
+        top_feats_path = Path(args.tierpsy_top_feats_dir) / "tierpsy_{}.csv".format(str(args.n_top_feats))
         topfeats = load_topfeats(top_feats_path, add_bluelight=True, 
                                  remove_path_curvature=True, header=None)
 
@@ -144,11 +144,12 @@ def compare_strains_keio(features, metadata, args):
                           n_sig_features=10)
 
     if args.collapse_control:
-        print("Collapsing control data (mean of each day)")
+        print("\nCollapsing control data (mean of each day)")
         features, metadata = average_plate_control_data(features, metadata)
                             
     # Record mean sample size per group
-    mean_sample_size = int(np.round(metadata.join(features).groupby([grouping_var], as_index=False).size().mean()))
+    mean_sample_size = int(np.round(metadata.join(features).groupby([grouping_var], 
+                                                                    as_index=False).size().mean()))
     print("Mean sample size: %d" % mean_sample_size)
 
     save_dir = get_save_dir(args)
@@ -169,14 +170,13 @@ def compare_strains_keio(features, metadata, args):
 #         plt.show()
 # =============================================================================
 
-    print("Loading statistics results")
-
     if not args.use_corrected_pvals:
         anova_path = stats_dir / '{}_results_uncorrected.csv'.format(args.test)
     else:
         anova_path = stats_dir / '{}_results.csv'.format(args.test)
     
     # load results + record significant features
+    print("\nLoading statistics results")
     anova_table = pd.read_csv(anova_path, index_col=0)            
     pvals = anova_table.sort_values(by='pvals', ascending=True)['pvals'] # rank features by p-value
     fset = pvals[pvals < args.pval_threshold].index.to_list()
@@ -376,8 +376,6 @@ def compare_strains_keio(features, metadata, args):
                       show_points=False, 
                       plot_means=True,
                       dodge=True)
-
-        # TODO: Add pvalues to superplots - if stats have been done by 'control_variation' script
         
         # from tierpsytools.analysis.significant_features import plot_feature_boxplots
         # plot_feature_boxplots(feat_to_plot=features,
@@ -500,7 +498,6 @@ def compare_strains_keio(features, metadata, args):
                  n_dims=2,
                  label_size=8,
                  hypercolor=False)
-    # TODO: Ensure sns colour palette does not plot white points for PCA
 
     # add details of COG category information to metadata 
     # (using hard-coded dict of info from Baba et al. 2006 paper)

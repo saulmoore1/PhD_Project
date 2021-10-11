@@ -31,21 +31,21 @@ from pathlib import Path
 from scipy.stats import zscore # ttest_ind, f_oneway, kruskal
 
 from tierpsytools.analysis.statistical_tests import univariate_tests, get_effect_sizes
-#from tierpsytools.analysis.significant_features import k_significant_feat
-#from tierpsytools.drug_screenings.filter_compounds import compounds_with_low_effect_univariate
+# from tierpsytools.analysis.significant_features import k_significant_feat
+# from tierpsytools.drug_screenings.filter_compounds import compounds_with_low_effect_univariate
 
 from read_data.paths import get_save_dir
 from read_data.read import load_json, load_topfeats
 from write_data.write import write_list_to_file
 from filter_data.clean_feature_summaries import clean_summary_results, subset_results
-#from statistical_testing.stats_helper import shapiro_normality_test
+# from statistical_testing.stats_helper import shapiro_normality_test
 from clustering.hierarchical_clustering import plot_clustermap, plot_barcode_heatmap
 from feature_extraction.decomposition.pca import plot_pca, remove_outliers_pca
-from feature_extraction.decomposition.tsne import plot_tSNE
-from feature_extraction.decomposition.umap import plot_umap
+# from feature_extraction.decomposition.tsne import plot_tSNE
+# from feature_extraction.decomposition.umap import plot_umap
 from visualisation.super_plots import superplot
 from visualisation.plotting_helper import sig_asterix, barplot_sigfeats
-#plot_day_variation, boxplots_sigfeats, boxplots_grouped
+# plot_day_variation, boxplots_sigfeats, boxplots_grouped
 
 #%% Globals
 
@@ -162,8 +162,6 @@ def control_variation(feat,
                     fset = []
                     print("\nWARNING: Not enough groups for %s for '%s' (n=%d groups)" %\
                           (args.test, grouping_var, len(group_list)))
-
-            # TODO: LMMs using compounds_with_low_effect_univariate
             
             ### t-tests / Mann-Whitney tests
             if len(fset) > 0 or len(group_list) == 2:
@@ -207,7 +205,7 @@ def control_variation(feat,
         ### Load statistics results
         
         # Read ANOVA results and record significant features
-        print("Loading statistics results")
+        print("\nLoading statistics results")
         if len(group_list) > 2:
             anova_table = pd.read_csv(stats_path, index_col=0)
             pvals = anova_table.sort_values(by='pvals', ascending=True)['pvals']
@@ -267,9 +265,7 @@ def control_variation(feat,
                           show_points=True, 
                           plot_means=True,
                           dodge=True)
-                
-                # TODO: Add t-test/LMM pvalues to superplots       
-            
+                            
             # # Boxplots of significant features by ANOVA/LMM (all groups)
             # boxplots_grouped(feat_meta_df=meta.join(feat), 
             #                  group_by=grouping_var,
