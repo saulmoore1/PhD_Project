@@ -73,7 +73,7 @@ def read_list_from_file(filepath):
     list_from_file = []
     with open(filepath, 'r') as fid:
         for line in fid:
-            list_from_file.append(line)
+            list_from_file.append(line.strip('\n'))
     
     return list_from_file      
 
