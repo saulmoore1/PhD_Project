@@ -94,7 +94,7 @@ def process_metadata(aux_dir,
                      imaging_dates=None, 
                      add_well_annotations=True,
                      update_day_meta=False,
-                     update_colnames=True):
+                     update_colnames=False):
     """ Compile metadata from individual day metadata CSV files
     
         Parameters
@@ -155,7 +155,7 @@ def process_metadata(aux_dir,
             day_meta['row_order'] = np.arange(len(day_meta))
 
             if update_colnames:
-                # Rename metadata columns for compatibility with TierpsyTools functions 
+                # Rename old metadata column names for compatibility with TierpsyTools functions 
                 day_meta = day_meta.rename(columns={'date_recording_yyyymmdd': 'date_yyyymmdd',
                                                     'well_number': 'well_name',
                                                     'plate_number': 'imaging_plate_id',
@@ -218,6 +218,9 @@ def process_metadata(aux_dir,
                 
         # Convert 'date_yyyymmdd' column to string (factor)
         meta_df['date_yyyymmdd'] = meta_df['date_yyyymmdd'].astype(str)
+        
+        # drop any wells annotations columns that might exist as will throw an error when re-added
+        meta_df = meta_df.drop(columns=['is_bad_well', 'well_label'], errors='ignore')
         
         # Save metadata
         meta_df.to_csv(compiled_metadata_path, index=None) 
@@ -320,19 +323,18 @@ def process_feature_summaries(metadata_path,
     else:
         print("Compiling feature summary results")    
         if compile_day_summaries:
+            
             if imaging_dates:
                 assert type(imaging_dates) == list
                 feat_files = []
                 fname_files = []
                 for date in imaging_dates:
                     date_dir = Path(results_dir) / date
-                    feat_files.extend([f for f in Path(date_dir).rglob('features_summary*.csv')])
-                    fname_files.extend([Path(str(f).replace("/features_","/filenames_"))
-                                        for f in feat_files])
+                    feat_files.extend(list(Path(date_dir).rglob('features_summary*.csv')))
+                    fname_files.extend(list(Path(date_dir).rglob('filenames_summary*.csv')))
             else:
-                feat_files = [f for f in Path(results_dir).rglob('features_summary*.csv')]
-                fname_files = [Path(str(f).replace("/features_", "/filenames_"))
-                               for f in feat_files]
+                feat_files = list(Path(results_dir).rglob('features_summary*.csv'))
+                fname_files = [Path(str(f).replace("/features_", "/filenames_")) for f in feat_files]
         else:
             feat_files = list(Path(results_dir).glob('features_summary*.csv'))
             fname_files = list(Path(results_dir).glob('filenames_summary*.csv'))
@@ -343,6 +345,7 @@ def process_feature_summaries(metadata_path,
                 
         if window_summaries:
             # TODO: use compile_tierpsy_summaries to compile from windowed features summaries files
+            # see preprocessing.compile_window_suummaries
             raise Exception("ERROR: Compiling from window summaries is not yet supported")
         else:
             feat_files = [ft for ft in feat_files if not 'window' in str(ft)]

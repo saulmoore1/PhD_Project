@@ -10,7 +10,7 @@ Compile Keio Screen metadata and feature summaries
 #%% IMPORTS
 
 import argparse
-import numpy as np
+# import numpy as np
 from time import time
 from pathlib import Path
 from read_data.read import load_json
