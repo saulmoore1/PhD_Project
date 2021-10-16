@@ -49,9 +49,9 @@ from visualisation.plotting_helper import sig_asterix, barplot_sigfeats
 
 #%% Globals
 
-JSON_PARAMETERS_PATH = "analysis/20210406_parameters_keio_screen.json"
-FEATURES_PATH = "/Users/sm5911/Documents/Keio_Screen/features.csv"
-METADATA_PATH = "/Users/sm5911/Documents/Keio_Screen/metadata.csv"
+JSON_PARAMETERS_PATH = "analysis/20210914_parameters_keio_screen.json"
+FEATURES_PATH = "/Users/sm5911/Documents/Keio_Conf_Screen/features.csv"
+METADATA_PATH = "/Users/sm5911/Documents/Keio_Conf_Screen/metadata.csv"
 
 METHOD = 'complete'
 METRIC = 'euclidean'

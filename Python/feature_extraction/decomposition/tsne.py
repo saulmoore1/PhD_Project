@@ -114,7 +114,7 @@ def plot_tSNE(featZ,
             if len(gray_palette.keys()) > 0:
                 other_patch = patches.Patch(color='darkgray', label='other')
                 handles.append(other_patch)  
-            ax.legend(handles=handles, frameon=True, loc='upper right', fontsize=label_size, 
+            ax.legend(handles=handles, frameon=True, loc='best', fontsize=label_size, 
                       handletextpad=0.2)
         else:
             control_patch = patches.Patch(color='blue', label=control)

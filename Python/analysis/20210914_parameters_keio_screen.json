@@ -24,7 +24,7 @@
 "analyse_control" : true,
 "collapse_control" : false,
 "control_dict": {"gene_name": "wild_type",
-		 "date_yyyymmdd": "20210719",
+		 "date_yyyymmdd": "20210914",
                  "instrument_name": "Hydra01",
 		 "imaging_run_number": "1"},
 "f_test": false,

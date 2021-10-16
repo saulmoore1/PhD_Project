@@ -22,13 +22,14 @@ from preprocessing.compile_keio_results import RENAME_DICT
 
 #%% Globals
 
-METADATA_PATH = '/Volumes/hermes$/KeioScreen2_96WP/AuxiliaryFiles/metadata_annotated.csv'
+METADATA_PATH = '/Users/sm5911/Documents/Keio_Conf_Screen/metadata.csv'
 
-FILENAMES_SUMMARIES_PATH = '/Volumes/hermes$/KeioScreen2_96WP/Results/full_filenames.csv'
+RESULTS_DIR = '/Volumes/hermes$/KeioScreen2_96WP/Results'
+#FILENAMES_SUMMARIES_PATH = '/Volumes/hermes$/KeioScreen2_96WP/Results/full_filenames.csv'
 
-FEATURE_SET_PATH = '/Volumes/hermes$/KeioScreen2_96WP/AuxiliaryFiles/selected_features_timeseries.txt'
+FEATURE_SET_PATH = '/Users/sm5911/Documents/Keio_Screen2/selected_features_timeseries.txt'
 
-STRAIN_LIST_PATH = '/Volumes/hermes$/KeioScreen_96WP/Analysis/52_selected_strains_from_initial_keio_top100_lowest_pval_tierpsy16.txt'
+STRAIN_LIST_PATH = '/Users/sm5911/Documents/Keio_Screen/52_selected_strains_from_initial_keio_top100_lowest_pval_tierpsy16.txt'
 
 SAVE_DIR = '/Users/sm5911/Documents/Keio_Conf_Screen'
 
@@ -158,73 +159,136 @@ def plot_timeseries_turn(df, window=None, title=None, figsize=(12,6), ax=None):
     df['turn_type'] = ['NA' if pd.isna(t) else turn_dict[int(t)] for t in df['turn']]
 
 
-def plot_timeseries_motion_mode(df, window=None, mode=None, max_n_frames=None,
+def plot_timeseries_motion_mode(df, window=None, std=False, mode=None, max_n_frames=None,
                                 title=None, figsize=(12,6), ax=None, saveAs=None,
                                 sns_colour_palette='pastel', colour=None):
-    """ """
+    """ Plot motion mode timeseries from 'timeseries_data' for a given treatment (eg. strain) 
     
-    # discrete data mapping 
+        Inputs
+        ------
+        df : pd.DataFrame
+            Compiled dataframe of 'timeseries_data' from all featuresN HDF5 files for a given 
+            treatment (eg. strain) 
+        window : int
+            Moving average window of n frames
+        mode : str
+            The motion mode you would like to plot
+        max_n_frames : int
+            Maximum number of frames in video (x axis limit)
+        title : str
+            Title of figure (optional, ax is returned so title and other plot params can be added later)
+        figsize : tuple
+            Size of figure to be passed to plt.subplots figsize param
+        ax : matplotlib AxesSubplot, None
+            Axis of figure subplot
+        saveAs : str
+            Path to save directory
+        sns_colour_palette : str
+            Name of seaborn colour palette
+        colour : str, None
+            Plot single colour for plot (if plotting a single strain or a single motion mode)
+            
+        Returns
+        -------
+        fig : matplotlib Figure 
+            If ax is None, so the figure may be saved
+            
+        ax : matplotlib AxesSubplot
+            For iterative plotting   
+    """
+ 
+    # discrete data mapping
     motion_modes = ['stationary','forwards','backwards']
     motion_dict = dict(zip([0,1,-1], motion_modes))
+
+    if mode is not None:
+        if type(mode) == int or type(mode) == float:
+            mode = motion_dict[mode]     
+        else:
+            assert type(mode) == str and mode in motion_modes
     
-    assert all(c in df.columns for c in ['timestamp','motion_mode'])
+    cols = ['filename','timestamp','motion_mode']
+    assert all(c in df.columns for c in cols)
 
     # drop NaN data
-    df = df.loc[~df['motion_mode'].isna(), ['timestamp','motion_mode']]
+    df = df.loc[~df['motion_mode'].isna(), cols]
      
-    # record whether forwards, backwards or stationary motion in each frame
+    # map whether forwards, backwards or stationary motion in each frame
     df['motion_name'] = df['motion_mode'].map(motion_dict)
+    assert not df['motion_name'].isna().any()
 
-    grouped_frame = df.groupby(['timestamp'])
-
-    # timestamp average number of worms (wormIDs) in each motion mode
-    #std_df = df.groupby(['timestamp','motion_name']).std()
-    mean_df = grouped_frame['motion_mode'].mean()
-    std_df = grouped_frame['motion_mode'].std() # TODO: get std for each motion mode separately
-    total_count = grouped_frame['motion_mode'].count()
-    motion_count = grouped_frame['motion_name'].value_counts()
+    # # timestamp average number of worms (wormIDs) in each motion mode
+    # grouped_frame = df.groupby('timestamp')
+    # total_count = grouped_frame['motion_mode'].count()
+    # motion_count = grouped_frame['motion_name'].value_counts()
+    # frac_mode = motion_count / total_count
+    # frac_mode = frac_mode.reset_index(drop=None).rename(columns={0:'fraction'})
+    
+    # subset timeseries for motion mode
+    #mode_df = df[df['motion_name']==mode]
+    grouped_vid_frame = df.groupby(['filename','timestamp'])
+    total_count = grouped_vid_frame['motion_mode'].count()
+    motion_count = grouped_vid_frame['motion_name'].value_counts()
     frac_mode = motion_count / total_count
-    frac_mode = frac_mode.reset_index(drop=None)
-    frac_mode = frac_mode.rename(columns={0 :'fraction'})
+    frac_mode = frac_mode.reset_index(drop=None).rename(columns={0:'fraction'})
+    
+    mode_grouped_frame = frac_mode[frac_mode['motion_name']==mode].groupby('timestamp')
+    df = mode_grouped_frame.mean().reset_index(drop=None)
+    std_df = mode_grouped_frame.std().reset_index(drop=None)
+    
+    # tmp_total_count = grouped_vid_frame['motion_mode'].count()
+    # tmp_motion_count = grouped_vid_frame['motion_name'].value_counts()
+    # tmp_frac_mode = tmp_motion_count / tmp_total_count
+    # tmp_frac_mode = tmp_frac_mode.reset_index(drop=None).rename(columns={0:'fraction'})
+    
+    # mode_df = tmp_frac_mode[tmp_frac_mode['motion_name']==mode]
+    # grouped_frame = mode_df.groupby('timestamp')
+    # .mean()
+    # .groupby('motion_name').get_group(mode).reset_index(drop=True).mean()
+    # df = frac_mode.groupby('motion_name').get_group(mode).reset_index(drop=True)
+    
+    # # for each timestamp, what is the variance of 
+    # grouped_mode = df.groupby('motion_name')
+    # tmp = grouped_mode['timestamp'].value_counts()
+    # tmp.reset_index(drop=None)
+    
+    # motion_count.groupby('motion_name').get_group(mode) / total_count
+    # df[df['motion_name']==mode].groupby('timestamp').count()
+    
+    # mode_grouped_frame = df[df['motion_name']==mode].groupby(['timestamp']).mean().get_group(mode).reset_index(drop=True)
+    # df = mode_grouped_frame.mean()
+    # std_df = mode_grouped_frame.std()
+
+    # mode_grouped_frame = df.groupby('timestamp')        
+    # df = mode_grouped_frame.mean()
+    # std_df = mode_grouped_frame.std()
 
     # crop timeseries data to standard video length (optional)
     if max_n_frames:
-        # mean_df = mean_df[mean_df['timestamp'] <= n_frames_video]
-        # std_df = std_df[std_df['timestamp'] <= n_frames_video]
-        frac_mode = frac_mode[frac_mode['timestamp'].isin(frac_mode.index[:max_n_frames+1])]
-    
-    if ax is None:
-        fig, ax = plt.subplots(figsize=figsize)
-    
-    # plot timeseries for each mode
-    # motion_ls_dict = dict(zip(motion_modes, ['-','--','-.']))
-    grouped_mode = frac_mode.groupby('motion_name')
-    df = grouped_mode.get_group(mode)        
-    
-    # drop motion_name column
-    df = df.reset_index(drop=True)
+        df = df[df['timestamp'] < max_n_frames + 1]
+        std_df = std_df[std_df['timestamp'] < max_n_frames + 1]
     
     # moving average (optional)
     if window:
-        df = df.set_index(['timestamp','motion_name']).rolling(window=window, 
-                                                               center=True).mean().reset_index()
-        std_df = std_df.rolling(window=window, center=True).std()
+        df = df.set_index('timestamp').rolling(window=window, center=True).mean().reset_index()
+        std_df = std_df.set_index('timestamp').rolling(window=window, center=True).mean().reset_index()
     
     # create colour palette for plot
-    palette = dict(zip(['stationary','forwards','backwards'], 
-                       sns.color_palette(palette=sns_colour_palette, n_colors=3)))
-                
+    # palette = dict(zip(['stationary','forwards','backwards'], 
+    #                    sns.color_palette(palette=sns_colour_palette, n_colors=3)))
+
+    if ax is None:
+        fig, ax = plt.subplots(figsize=figsize)
+
+    # motion_ls_dict = dict(zip(motion_modes, ['-','--','-.']))                
     sns.lineplot(data=df, x='timestamp', y='fraction', ax=ax, 
                  ls='-', # motion_ls_dict[mode] if len(mode_list) > 1 else '-',
-                 hue='motion_name' if colour is None else None, 
-                 palette=palette if colour is None else None,
+                 hue=None, #'motion_name' if colour is None else None, 
+                 palette=None, #palette if colour is None else None,
                  color=colour)
-
-    # TODO: Add std error to plots
-    # ax.fill_between(mean_df.index, mean_df-std_df, mean_df+std_df, 
-    #                 where=(mean_df > 0), facecolor='lightblue', alpha=0.5) # egdecolor=None
-    # ax.fill_between(mean_df.index, mean_df-std_df, mean_df+std_df, 
-    #                 where=(mean_df < 0), facecolor='pink', alpha=0.5) # egdecolor=None
+    if std:
+        mean, std = df['fraction'], std_df['fraction']
+        ax.fill_between(df.index, mean-std, mean+std, color=colour, alpha=0.25, edgecolor=None)
     
     xmax = df['timestamp'].max()
     ax.set_xlim(0, xmax)
@@ -235,9 +299,6 @@ def plot_timeseries_motion_mode(df, window=None, mode=None, max_n_frames=None,
     if title:
         plt.title(title, pad=10)
 
-    # TODO: plot each strain as separate linetype? or colour_dict to specify line colour for each strain
-    # TODO: map plot colours for points <, = and > 0 as red, grey, and blue respectively
-    
     if saveAs is not None:
         Path(saveAs).parent.mkdir(parents=True, exist_ok=True)
         plt.savefig(saveAs)
@@ -249,13 +310,16 @@ def plot_timeseries_motion_mode(df, window=None, mode=None, max_n_frames=None,
     
 #def _timeseries_feature():
     
-def plot_timeseries_from_metadata(metadata_path, 
+def plot_timeseries_from_metadata(metadata_path,
+                                  results_dir,
                                   group_by='gene_name', 
-                                  strain_list=None, 
+                                  strain_list=None,
+                                  control='wild_type',
                                   fset=['motion_mode'],
                                   motion_mode='all', # 'forwards', 'backwards', 'stationary', 
                                   multi_strain=MULTI_STRAIN,
                                   window=WINDOW,
+                                  std_dev=False,
                                   max_n_frames=MAX_N_FRAMES,
                                   save_dir=None,
                                   sns_colour_palette='Greens'):
@@ -296,10 +360,20 @@ def plot_timeseries_from_metadata(metadata_path,
     if strain_list is None:
         strain_list = metadata[group_by].unique()
     else:
-        assert type(strain_list)==list and all(s in metadata[group_by].unique() for s in strain_list)
+        assert type(strain_list)==list
+        seta = set(strain_list)
+        setb = set([s for s in strain_list if s in metadata[group_by].unique()])
+        missing_strains = list(seta - setb)
+        if len(missing_strains) > 0:
+            print("\nNo results found for %d strains: %s" % (len(missing_strains), missing_strains))
+            strain_list = [s for s in strain_list if s in metadata[group_by].unique()]
+            
+    if not control in strain_list:
+        strain_list.insert(0, control)
 
-    res_dir = Path(str(Path(metadata_path).parent).replace('/AuxiliaryFiles','/Results'))
-    save_dir = res_dir if save_dir is None else Path(save_dir)
+    results_dir = (Path(results_dir) if results_dir is not None else 
+                   Path(str(Path(metadata_path).parent).replace('/AuxiliaryFiles','/Results')))
+    save_dir = results_dir if save_dir is None else Path(save_dir)
                             
     grouped = metadata.groupby(group_by)
     
@@ -310,15 +384,23 @@ def plot_timeseries_from_metadata(metadata_path,
         ts_save_dir = save_dir / 'timeseries_data' / 'timeseries_{}.csv'.format(strain)
         
         if not ts_save_dir.exists():
-            #print("Compiling timeseries results for: %s" % strain)
+            print("\nCompiling timeseries results for: %s" % strain)
             strain_df = grouped.get_group(strain)
             
-            is_bluelight = ['bluelight' in f for f in strain_df['imgstore_name']]
-            strain_df = strain_df[is_bluelight]
+            # if full metadata before 'align_bluelight' 
+            if 'imgstore_name' in strain_df.columns:
+                is_bluelight = ['bluelight' in f for f in strain_df['imgstore_name']]
+                strain_df = strain_df[is_bluelight]
+                
+                # find paths to bluelight featuresN files
+                featuresN_path = [str(results_dir / i / 'metadata_featuresN.hdf5') 
+                                  for i in strain_df['imgstore_name']]
             
-            # find paths to bluelight featuresN files
-            featuresN_path = [str(res_dir / i / 'metadata_featuresN.hdf5') 
-                              for i in strain_df['imgstore_name']] 
+            # After aligning metadata for all bluelight stimulus videos per row
+            elif 'imgstore_name_bluelight' in strain_df.columns:
+                featuresN_path = [str(results_dir / i / 'metadata_featuresN.hdf5') 
+                                  for i in strain_df['imgstore_name_bluelight']]
+                
             strain_df['featuresN_path'] = featuresN_path
             
             # read all bluelight video timeseries data for strain
@@ -352,7 +434,7 @@ def plot_timeseries_from_metadata(metadata_path,
         
         if feature == 'motion_mode':
             # discrete data
-            motion_mode_list = ['stationary','forwards','backwards']
+            motion_mode_list = ['forwards','backwards','stationary']
             motion_dict = dict(zip([0,1,-1], motion_mode_list))
 
             if motion_mode is None or motion_mode == 'all':
@@ -392,7 +474,8 @@ def plot_timeseries_from_metadata(metadata_path,
                         ax = plot_timeseries_motion_mode(df=timeseries_strain,
                                                          mode=mode,
                                                          window=window,
-                                                         max_n_frames=MAX_N_FRAMES,
+                                                         std=std_dev,
+                                                         max_n_frames=max_n_frames,
                                                          title=None,
                                                          ax=ax,
                                                          saveAs=None,
@@ -404,9 +487,10 @@ def plot_timeseries_from_metadata(metadata_path,
                     ax.set_xticks(np.linspace(0, max_n_frames, num=7))
                     ax.set_xticklabels([str(int(l)) for l in np.linspace(0, max_n_frames, 
                                                                     num=7) / VIDEO_FPS])
-
+                    ax.set_xlabel('Time (seconds)')
+                    ax.set_ylabel('Fraction of worms %s' % mode)
                     plt.title("%s (%s)" % (feature, str(mode)))
-                    plt.legend(handles=legend_handles, labels=colour_dict.keys(), loc='upper left',\
+                    plt.legend(handles=legend_handles, labels=colour_dict.keys(), loc='best',\
                                borderaxespad=0.4, frameon=False, fontsize=15)
                     if save_dir:
                         saveAs = save_dir / 'timeseries_plots' / ('%s_%s.pdf' % (feature, mode))
@@ -417,7 +501,7 @@ def plot_timeseries_from_metadata(metadata_path,
             elif not multi_strain:
                 
                 for strain in tqdm(strain_list):
-                    print("\nPlotting %s for %s" % (feature, strain))
+                    print("\nPlotting motion modes for: '%s'" % strain)
                 
                     # read timeseries data for strain
                     ts_save_dir = save_dir / 'timeseries_data' / 'timeseries_{}.csv'.format(strain)
@@ -436,6 +520,7 @@ def plot_timeseries_from_metadata(metadata_path,
                         
                         ax = plot_timeseries_motion_mode(df=timeseries_strain,
                                                          mode=mode,
+                                                         std=std_dev,
                                                          window=window,
                                                          max_n_frames=MAX_N_FRAMES,
                                                          title=None,
@@ -451,8 +536,8 @@ def plot_timeseries_from_metadata(metadata_path,
                                                                     num=7) / VIDEO_FPS])
                     
                     # save plot for strain
-                    plt.ylabel(feature, labelpad=10, fontsize=15)
-                    plt.xlabel("Time (seconds)")
+                    ax.set_ylabel('Fraction of worms ({})'.format(feature), labelpad=10, fontsize=15)
+                    ax.set_xlabel("Time (seconds)")
                     plt.title("%s timeseries for '%s'" % (feature, strain))
                     plt.legend(handles=legend_handles, labels=colour_dict.keys(), loc='upper left',\
                            borderaxespad=0.4, frameon=False, fontsize=15)
@@ -502,16 +587,34 @@ if __name__ == "__main__":
     if args.save_dir is None:
         args.save_dir = SAVE_DIR #Path(args.filenames_summaries_path).parent
     
-    strain_list = None if args.strain_list_path is None else read_list_from_file(args.strain_list_path)
+    #strain_list = None if args.strain_list_path is None else read_list_from_file(args.strain_list_path)
+    strain_list = ['wild_type', 'fepB', 'nuoI']
     fset = None if args.fset_path is None else read_list_from_file(args.fset_path)
     
     # plot_timeseries_from_filenames_summaries(filenames_summaries_path=args.filenames_summaries_path, 
     #                                          fset=fset, 
     #                                          save_dir=args.save_dir)
 
+    # plot timeseries of all strains together, for each motion mode separately 
     plot_timeseries_from_metadata(metadata_path=args.metadata_path, 
+                                  results_dir=RESULTS_DIR,
                                   group_by='gene_name',
                                   strain_list=strain_list, 
+                                  control='wild_type',
+                                  fset=fset,
+                                  save_dir=Path(args.save_dir) / 'timeseries',
+                                  motion_mode='all', # 'forwards', 'backwards', 'stationary', 
+                                  multi_strain=True,
+                                  window=WINDOW,
+                                  max_n_frames=MAX_N_FRAMES,
+                                  sns_colour_palette='Greens')
+
+    # plot timeseries of all motion modes together, for each strain separately
+    plot_timeseries_from_metadata(metadata_path=args.metadata_path, 
+                                  results_dir=RESULTS_DIR,
+                                  group_by='gene_name',
+                                  strain_list=strain_list, 
+                                  control='wild_type',
                                   fset=fset,
                                   save_dir=Path(args.save_dir) / 'timeseries',
                                   motion_mode='all', # 'forwards', 'backwards', 'stationary', 

@@ -130,7 +130,7 @@ def compare_strains_keio(features, metadata, args):
             
     ##### Control variation #####
 
-    control_metadata = metadata[metadata['gene_name'] == 'wild_type']
+    control_metadata = metadata[metadata[grouping_var] == control]
     control_features = features.reindex(control_metadata.index)
 
     # Clean data after subset - to remove features with zero std
@@ -140,7 +140,7 @@ def compare_strains_keio(features, metadata, args):
                                                                    imputeNaN=False)                  
     if args.analyse_control:
         control_variation(control_feat_clean, control_meta_clean, args,
-                          variables=[k for k in args.control_dict.keys() if k != 'gene_name'],
+                          variables=[k for k in args.control_dict.keys() if k != grouping_var],
                           n_sig_features=10)
 
     if args.collapse_control:
@@ -497,6 +497,8 @@ def compare_strains_keio(features, metadata, args):
                  sns_colour_palette="plasma",
                  n_dims=2,
                  label_size=8,
+                 sub_adj={'bottom':0.13,'left':0.13,'top':0.95,'right':0.88},
+                 legend_loc=[1.02,0.6],
                  hypercolor=False)
 
     # add details of COG category information to metadata 
@@ -581,6 +583,7 @@ if __name__ == "__main__":
     metadata = pd.read_csv(METADATA_PATH, dtype={'comments':str, 'source_plate_id':str})
 
     # Subset for desired imaging dates
+    
     if args.dates is not None:
         assert type(args.dates) == list
         metadata = metadata.loc[metadata['date_yyyymmdd'].astype(str).isin(args.dates)]
