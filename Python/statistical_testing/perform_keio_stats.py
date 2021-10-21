@@ -226,7 +226,8 @@ def keio_stats(features, metadata, args):
                                                         test=args.test,
                                                         comparison_type='multiclass',
                                                         multitest_correction=None, # uncorrected
-                                                        alpha=args.pval_threshold)
+                                                        alpha=args.pval_threshold,
+                                                        n_permutation_test='all')
 
                 # get effect sizes
                 effect_sizes = get_effect_sizes(X=features, 

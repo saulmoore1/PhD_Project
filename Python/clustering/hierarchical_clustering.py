@@ -87,6 +87,12 @@ def plot_clustermap(featZ,
                                      sns.color_palette(sns_colour_palette, 3)))
     feat_colour_dict = {f:bluelight_colour_dict[f.split('_')[-1]] for f in fset}
     
+    if type(label_size) == tuple:
+        x_label_size, y_label_size = label_size
+    else:
+        x_label_size = label_size
+        y_label_size = label_size
+        
     # Plot clustermap
     plt.close('all')
     sns.set(font_scale=0.8)
@@ -108,12 +114,13 @@ def plot_clustermap(featZ,
                                   'ticks': [-2, -1, 0, 1, 2],
                                   'drawedges': False},
                         linewidths=0)
-    cg.ax_heatmap.set_yticklabels(cg.ax_heatmap.get_yticklabels(), rotation=0, 
-                                  fontsize=label_size, ha='left', va='center')    
+
     #plt.setp(cg.ax_heatmap.yaxis.get_majorticklabels(), fontsize=15)
     #cg.ax_heatmap.axes.set_xticklabels([]); cg.ax_heatmap.axes.set_yticklabels([])
     if show_xlabels: # Top256 features * 3 bluelight stimuli = 768 features
-        plt.setp(cg.ax_heatmap.xaxis.get_majorticklabels(), rotation=90)
+        plt.setp(cg.ax_heatmap.xaxis.get_majorticklabels(), rotation=90, fontsize=x_label_size)
+    cg.ax_heatmap.set_yticklabels(cg.ax_heatmap.get_yticklabels(), rotation=0, fontsize=y_label_size, 
+                                  ha='left', va='center')    
     
     patch_list = []
     for l, key in enumerate(bluelight_colour_dict.keys()):

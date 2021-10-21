@@ -59,107 +59,98 @@ def add_bluelight_to_plot(ax, bluelight_frames=BLUELIGHT_FRAMES, alpha=0.5):
      
     return ax
 
-def plot_timeseries(filename, x, y, save_dir=None, window=100, n_frames_video=9000, **kwargs):
-    """ Timeseries plot of feature (y) throughout video """
+def _bootstrapped_ci(x, function=np.mean, n_boot=100, which_ci=95, axis=None):
+    """ Wrapper for tierpsytools bootstrapped_ci function, which encounters name space / 
+        variable scope conflicts when used in combination with pandas apply function 
+    """
+    from tierpsytools.analysis.statistical_tests import bootstrapped_ci
     
-    timeseries_data = get_skeleton_data(filename, rig='Hydra', dataset='timeseries_data')
-        
-    wells_list = list(timeseries_data['well_name'].unique())
+    lower, upper = bootstrapped_ci(x, func=function, n_boot=n_boot, which_ci=which_ci, axis=axis)
+    
+    return lower, upper
 
-    if not len(wells_list) == 16:
-        stem = Path(filename).parent.name
-        print("WARNING: Missing results for %d well(s): '%s'" % (16 - len(wells_list), stem))
-     
-    # get data for each well in turn
-    grouped_well = timeseries_data.groupby('well_name')
-    for well in wells_list:
-        well_data = grouped_well.get_group(well)
+# =============================================================================
+# def plot_timeseries(filename, x, y, save_dir=None, window=100, n_frames_video=9000, **kwargs):
+#     """ Timeseries plot of feature (y) throughout video """
+#     
+#     timeseries_data = get_skeleton_data(filename, rig='Hydra', dataset='timeseries_data')
+#         
+#     wells_list = list(timeseries_data['well_name'].unique())
+# 
+#     if not len(wells_list) == 16:
+#         stem = Path(filename).parent.name
+#         print("WARNING: Missing results for %d well(s): '%s'" % (16 - len(wells_list), stem))
+#      
+#     # get data for each well in turn
+#     grouped_well = timeseries_data.groupby('well_name')
+#     for well in wells_list:
+#         well_data = grouped_well.get_group(well)
+# 
+#         xmax = max(n_frames_video, well_data[x].max())
+# 
+#         # frame average
+#         grouped_frame = well_data.groupby(x)
+#         well_mean = grouped_frame[y].mean()
+#         well_std = grouped_frame[y].std()
+#         
+#         # moving average (optional)
+#         if window:
+#             well_mean = well_mean.rolling(window=window, center=True).mean()
+#             well_std = well_std.rolling(window=window, center=True).std()
+# 
+#         colours = []
+#         for mm in np.array(well_mean):
+#             if np.isnan(mm):
+#                 #colours.append('white')
+#                 colours.append([255,255,255]) # white
+#             elif int(mm) == 1:
+#                 #colours.append('blue')
+#                 colours.append([0,0,255]) # blue
+#             elif int(mm) == -1:
+#                 #colours.append('red')
+#                 colours.append([255,0,0]) # red
+#             else:
+#                 #colours.append('grey')
+#                 colours.append([128,128,128]) # gray
+#         colours = np.array(colours) / 255.0
+#                 
+#         # cmap = plt.get_cmap('Greys', 3)
+#         # cmap.set_under(color='red', alpha=0)
+#         # cmap.set_over(color='blue', alpha=0)
+#         
+#         # Plot time series                
+#         plt.close('all')
+#         fig, ax = plt.subplots(figsize=(12,6))
+# 
+#         #sns.scatterplot(x=well_mean.index, y=well_mean.values, ax=ax) # hue=well_mean.index
+#         ax.scatter(x=well_mean.index, y=well_mean.values, c=colours, ls='-', marker='.', **kwargs)
+#         ax.set_xlim(0, xmax)
+#         ax.axhline(0, 0, xmax, ls='--', marker='o') 
+#         ax.fill_between(well_mean.index, well_mean-well_std, well_mean+well_std, 
+#                         where=(well_mean > 0), facecolor='blue', alpha=0.5) # egdecolor=None
+#         ax.fill_between(well_mean.index, well_mean-well_std, well_mean+well_std, 
+#                         where=(well_mean < 0), facecolor='red', alpha=0.5) # egdecolor=None        
+# 
+#         ax = add_bluelight_to_plot(ax, alpha=0.5)
+#         
+#         # sns.scatterplot(x=x, y=y, data=timeseries_data, **kwargs)
+#         if save_dir is not None:
+#             Path(save_dir).mkdir(exist_ok=True, parents=True)
+#             plt.savefig(Path(save_dir) / 'roaming_state_{}.png'.format(well))
+#             plt.close()
+#         else:
+#             plt.show()
+#         
+#     return
+# =============================================================================
 
-        xmax = max(n_frames_video, well_data[x].max())
-
-        # frame average
-        grouped_frame = well_data.groupby(x)
-        well_mean = grouped_frame[y].mean()
-        well_std = grouped_frame[y].std()
-        
-        # moving average (optional)
-        if window:
-            well_mean = well_mean.rolling(window=window, center=True).mean()
-            well_std = well_std.rolling(window=window, center=True).std()
-
-        colours = []
-        for mm in np.array(well_mean):
-            if np.isnan(mm):
-                #colours.append('white')
-                colours.append([255,255,255]) # white
-            elif int(mm) == 1:
-                #colours.append('blue')
-                colours.append([0,0,255]) # blue
-            elif int(mm) == -1:
-                #colours.append('red')
-                colours.append([255,0,0]) # red
-            else:
-                #colours.append('grey')
-                colours.append([128,128,128]) # gray
-        colours = np.array(colours) / 255.0
-                
-        # cmap = plt.get_cmap('Greys', 3)
-        # cmap.set_under(color='red', alpha=0)
-        # cmap.set_over(color='blue', alpha=0)
-        
-        # Plot time series                
-        plt.close('all')
-        fig, ax = plt.subplots(figsize=(12,6))
-
-        #sns.scatterplot(x=well_mean.index, y=well_mean.values, ax=ax) # hue=well_mean.index
-        ax.scatter(x=well_mean.index, y=well_mean.values, c=colours, ls='-', marker='.', **kwargs)
-        ax.set_xlim(0, xmax)
-        ax.axhline(0, 0, xmax, ls='--', marker='o') 
-        ax.fill_between(well_mean.index, well_mean-well_std, well_mean+well_std, 
-                        where=(well_mean > 0), facecolor='blue', alpha=0.5) # egdecolor=None
-        ax.fill_between(well_mean.index, well_mean-well_std, well_mean+well_std, 
-                        where=(well_mean < 0), facecolor='red', alpha=0.5) # egdecolor=None        
-
-        ax = add_bluelight_to_plot(ax, alpha=0.5)
-        
-        # sns.scatterplot(x=x, y=y, data=timeseries_data, **kwargs)
-        if save_dir is not None:
-            Path(save_dir).mkdir(exist_ok=True, parents=True)
-            plt.savefig(Path(save_dir) / 'roaming_state_{}.png'.format(well))
-            plt.close()
-        else:
-            plt.show()
-        
-    return
-
-def plot_timeseries_from_filenames_summaries(filenames_summaries_path, metadata, strain_list=None, 
-                                             fset=None, saveDir=None):
-    """ """
-
-    assert Path(args.filenames_summaries_path).exists()
-    filenames_summaries = pd.read_csv(args.filenames_summaries_path, comment="#")
-    filenames_list = filenames_summaries.loc[filenames_summaries['is_good'],'filename'].to_list()
-
-    for filename in tqdm(filenames_list):
-        stem = Path(filename).parent.name
-        print("\nPlotting timeseries for '%s'" % stem)
-        
-        for feature in fset:
-            print("\t%s" % feature)
-            plot_timeseries(filename=filename, 
-                            x='timestamp', 
-                            y=feature, 
-                            saveDir=args.save_dir / feature / stem, 
-                            window=None)      
-        break
-      
-def plot_timeseries_turn(df, window=None, title=None, figsize=(12,6), ax=None):
-    """ """
-    turn_dict = {0:'straight', 1:'turn'}
-    df['turn_type'] = ['NA' if pd.isna(t) else turn_dict[int(t)] for t in df['turn']]
+# def plot_timeseries_turn(df, window=None, title=None, figsize=(12,6), ax=None):
+#     """ """
+#     turn_dict = {0:'straight', 1:'turn'}
+#     df['turn_type'] = ['NA' if pd.isna(t) else turn_dict[int(t)] for t in df['turn']]
 
 
-def plot_timeseries_motion_mode(df, window=None, std=False, mode=None, max_n_frames=None,
+def plot_timeseries_motion_mode(df, window=None, error=False, mode=None, max_n_frames=None,
                                 title=None, figsize=(12,6), ax=None, saveAs=None,
                                 sns_colour_palette='pastel', colour=None):
     """ Plot motion mode timeseries from 'timeseries_data' for a given treatment (eg. strain) 
@@ -171,6 +162,8 @@ def plot_timeseries_motion_mode(df, window=None, std=False, mode=None, max_n_fra
             treatment (eg. strain) 
         window : int
             Moving average window of n frames
+        error : bool
+            Add error to timeseries plots
         mode : str
             The motion mode you would like to plot
         max_n_frames : int
@@ -207,7 +200,7 @@ def plot_timeseries_motion_mode(df, window=None, std=False, mode=None, max_n_fra
         else:
             assert type(mode) == str and mode in motion_modes
     
-    cols = ['filename','timestamp','motion_mode']
+    cols = ['filename','well_name','timestamp','motion_mode']
     assert all(c in df.columns for c in cols)
 
     # drop NaN data
@@ -217,62 +210,35 @@ def plot_timeseries_motion_mode(df, window=None, std=False, mode=None, max_n_fra
     df['motion_name'] = df['motion_mode'].map(motion_dict)
     assert not df['motion_name'].isna().any()
 
-    # # timestamp average number of worms (wormIDs) in each motion mode
-    # grouped_frame = df.groupby('timestamp')
-    # total_count = grouped_frame['motion_mode'].count()
-    # motion_count = grouped_frame['motion_name'].value_counts()
-    # frac_mode = motion_count / total_count
-    # frac_mode = frac_mode.reset_index(drop=None).rename(columns={0:'fraction'})
-    
-    # subset timeseries for motion mode
-    #mode_df = df[df['motion_name']==mode]
-    grouped_vid_frame = df.groupby(['filename','timestamp'])
+    # average number of worms (wormIDs) in each motion mode for each video/well/timestamp
+    grouped_vid_frame = df.groupby(['filename','well_name','timestamp'])
     total_count = grouped_vid_frame['motion_mode'].count()
     motion_count = grouped_vid_frame['motion_name'].value_counts()
     frac_mode = motion_count / total_count
     frac_mode = frac_mode.reset_index(drop=None).rename(columns={0:'fraction'})
     
-    mode_grouped_frame = frac_mode[frac_mode['motion_name']==mode].groupby('timestamp')
+    # mean and bootstrap CI error for each timestamp
+    mode_df = frac_mode[frac_mode['motion_name']==mode]
+    mode_grouped_frame = mode_df.groupby('timestamp')
+     
+    # mean mode df
     df = mode_grouped_frame.mean().reset_index(drop=None)
-    std_df = mode_grouped_frame.std().reset_index(drop=None)
-    
-    # tmp_total_count = grouped_vid_frame['motion_mode'].count()
-    # tmp_motion_count = grouped_vid_frame['motion_name'].value_counts()
-    # tmp_frac_mode = tmp_motion_count / tmp_total_count
-    # tmp_frac_mode = tmp_frac_mode.reset_index(drop=None).rename(columns={0:'fraction'})
-    
-    # mode_df = tmp_frac_mode[tmp_frac_mode['motion_name']==mode]
-    # grouped_frame = mode_df.groupby('timestamp')
-    # .mean()
-    # .groupby('motion_name').get_group(mode).reset_index(drop=True).mean()
-    # df = frac_mode.groupby('motion_name').get_group(mode).reset_index(drop=True)
-    
-    # # for each timestamp, what is the variance of 
-    # grouped_mode = df.groupby('motion_name')
-    # tmp = grouped_mode['timestamp'].value_counts()
-    # tmp.reset_index(drop=None)
-    
-    # motion_count.groupby('motion_name').get_group(mode) / total_count
-    # df[df['motion_name']==mode].groupby('timestamp').count()
-    
-    # mode_grouped_frame = df[df['motion_name']==mode].groupby(['timestamp']).mean().get_group(mode).reset_index(drop=True)
-    # df = mode_grouped_frame.mean()
-    # std_df = mode_grouped_frame.std()
 
-    # mode_grouped_frame = df.groupby('timestamp')        
-    # df = mode_grouped_frame.mean()
-    # std_df = mode_grouped_frame.std()
-
+    if error:           
+        conf_ints = mode_grouped_frame['fraction'].apply(_bootstrapped_ci, function=np.mean, n_boot=100)
+        lower_ci = [x[0] for x in conf_ints]   
+        upper_ci = [x[1] for x in conf_ints]
+        df['lower'] = lower_ci
+        df['upper'] = upper_ci
+    
     # crop timeseries data to standard video length (optional)
     if max_n_frames:
         df = df[df['timestamp'] < max_n_frames + 1]
-        std_df = std_df[std_df['timestamp'] < max_n_frames + 1]
     
     # moving average (optional)
     if window:
         df = df.set_index('timestamp').rolling(window=window, center=True).mean().reset_index()
-        std_df = std_df.set_index('timestamp').rolling(window=window, center=True).mean().reset_index()
-    
+        
     # create colour palette for plot
     # palette = dict(zip(['stationary','forwards','backwards'], 
     #                    sns.color_palette(palette=sns_colour_palette, n_colors=3)))
@@ -286,15 +252,15 @@ def plot_timeseries_motion_mode(df, window=None, std=False, mode=None, max_n_fra
                  hue=None, #'motion_name' if colour is None else None, 
                  palette=None, #palette if colour is None else None,
                  color=colour)
-    if std:
-        mean, std = df['fraction'], std_df['fraction']
-        ax.fill_between(df.index, mean-std, mean+std, color=colour, alpha=0.25, edgecolor=None)
+    if error:
+        ax.fill_between(df.index, df['lower'], df['upper'], color=colour, alpha=0.25, edgecolor=None)
     
     xmax = df['timestamp'].max()
     ax.set_xlim(0, xmax)
+    #ax.set_ylim(0, 1)
 
     # add decorations
-    ax = add_bluelight_to_plot(ax, alpha=0.5)
+    ax = add_bluelight_to_plot(ax, alpha=0.25)
     # ax.axhline(0, 0, xmax, ls='--', marker='o')    
     if title:
         plt.title(title, pad=10)
@@ -319,7 +285,7 @@ def plot_timeseries_from_metadata(metadata_path,
                                   motion_mode='all', # 'forwards', 'backwards', 'stationary', 
                                   multi_strain=MULTI_STRAIN,
                                   window=WINDOW,
-                                  std_dev=False,
+                                  error=False,
                                   max_n_frames=MAX_N_FRAMES,
                                   save_dir=None,
                                   sns_colour_palette='Greens'):
@@ -413,8 +379,9 @@ def plot_timeseries_from_metadata(metadata_path,
                 # subset for well data
                 df = df[df['well_name'] == well]
                 
-                # append filename info
+                # append filename + well_name info
                 df['filename'] = file
+                df['well_name'] = well
                 
                 assert all(f in df.columns for f in fset)
                 #df = df[['filename','timestamp','well_name',*fset]] # append data for fset only
@@ -474,7 +441,7 @@ def plot_timeseries_from_metadata(metadata_path,
                         ax = plot_timeseries_motion_mode(df=timeseries_strain,
                                                          mode=mode,
                                                          window=window,
-                                                         std=std_dev,
+                                                         error=error,
                                                          max_n_frames=max_n_frames,
                                                          title=None,
                                                          ax=ax,
@@ -520,7 +487,7 @@ def plot_timeseries_from_metadata(metadata_path,
                         
                         ax = plot_timeseries_motion_mode(df=timeseries_strain,
                                                          mode=mode,
-                                                         std=std_dev,
+                                                         error=error,
                                                          window=window,
                                                          max_n_frames=MAX_N_FRAMES,
                                                          title=None,
@@ -606,6 +573,7 @@ if __name__ == "__main__":
                                   motion_mode='all', # 'forwards', 'backwards', 'stationary', 
                                   multi_strain=True,
                                   window=WINDOW,
+                                  error=True,
                                   max_n_frames=MAX_N_FRAMES,
                                   sns_colour_palette='Greens')
 
@@ -620,6 +588,7 @@ if __name__ == "__main__":
                                   motion_mode='all', # 'forwards', 'backwards', 'stationary', 
                                   multi_strain=False,
                                   window=WINDOW,
+                                  error=True,
                                   max_n_frames=MAX_N_FRAMES,
-                                  sns_colour_palette='Greens')
+                                  sns_colour_palette='Blues')
     

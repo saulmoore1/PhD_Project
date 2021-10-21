@@ -251,25 +251,33 @@ def compare_strains_keio(features, metadata, args):
                                        ('uncorrected' if args.fdr_method is None else 
                                         args.fdr_method) + '.png')
         plt.ioff()
-        fig, ax = plt.subplots()
+        plt.close('all')
+        fig, ax = plt.subplots(figsize=(20,6))
         ax.plot(ranked_nsig)
-        ax.set_xticklabels([])
-        plt.xlabel("Strains (ranked)", fontsize=10)
-        plt.ylabel("Number of significant features", fontsize=10)
+        if len(ranked_nsig.index) > 250:
+            ax.set_xticklabels([])
+        else:
+            ax.set_xticklabels(ranked_nsig.index.to_list(), rotation=90, fontsize=5)
+        plt.xlabel("Strains (ranked)", fontsize=12, labelpad=10)
+        plt.ylabel("Number of significant features", fontsize=12, labelpad=10)
+        plt.subplots_adjust(left=0.08, right=0.98, bottom=0.15)
         plt.savefig(ranked_nsig_path, dpi=600)
-        plt.close()
         
         print("Plotting ranked strains by lowest p-value of any feature")
         lowest_pval_path = plot_dir / ('ranked_lowest_pval' + '_' + 
                                        ('uncorrected' if args.fdr_method is None else 
                                         args.fdr_method) + '.png')
-        plt.ioff()
-        fig, ax = plt.subplots()
+        plt.close('all')
+        fig, ax = plt.subplots(figsize=(20,6))
         ax.plot(ranked_pval)
         plt.axhline(y=args.pval_threshold, c='dimgray', ls='--')
-        ax.set_xticklabels([])
-        plt.xlabel("Strains (ranked)", fontsize=10)
-        plt.ylabel("Lowest p-value by t-test", fontsize=10)
+        if len(ranked_nsig.index) > 250:
+            ax.set_xticklabels([])
+        else:
+            ax.set_xticklabels(ranked_nsig.index.to_list(), rotation=90, fontsize=5)
+        plt.xlabel("Strains (ranked)", fontsize=12, labelpad=10)
+        plt.ylabel("Lowest p-value by t-test", fontsize=12, labelpad=10)
+        plt.subplots_adjust(left=0.08, right=0.98, bottom=0.15)
         plt.savefig(lowest_pval_path, dpi=600)
         plt.close()
 
@@ -281,11 +289,11 @@ def compare_strains_keio(features, metadata, args):
                           rank_by='mean',
                           max_feats2plt=args.n_sig_features, 
                           figsize=[20,10], 
-                          fontsize=4,
+                          fontsize=5,
                           ms=8,
                           elinewidth=1.5,
                           fmt='.',
-                          tight_layout=[0,0,1,1],
+                          tight_layout=[0.01,0.01,0.99,0.99],
                           saveDir=plot_dir / 'errorbar')
         
 # =============================================================================
@@ -337,46 +345,49 @@ def compare_strains_keio(features, metadata, args):
         else:
             strain_list = list(metadata[grouping_var].unique())
         
-        # superplots of variation with respect to 'date_yyyymmdd'
-        print("\nPlotting superplots of date variation for significant features")
-        for feat in tqdm(fset[:args.n_sig_features]):
-            # plot day variation
-            superplot(features, metadata, feat, 
-                      x1='date_yyyymmdd', 
-                      x2=None,
-                      saveDir=plot_dir / 'superplots',
-                      figsize=[24,6],
-                      show_points=False, 
-                      plot_means=True,
-                      dodge=False)
-            # plot run number vs day variation
-            superplot(features, metadata, feat, 
-                      x1='date_yyyymmdd', 
-                      x2='imaging_run_number',
-                      saveDir=plot_dir / 'superplots',
-                      figsize=[24,6],
-                      show_points=False, 
-                      plot_means=True,
-                      dodge=True)
-            # plot plate number variation
-            superplot(features, metadata, feat, 
-                      x1='date_yyyymmdd', 
-                      x2='source_plate_id',
-                      saveDir=plot_dir / 'superplots',
-                      figsize=[24,6],
-                      show_points=False, 
-                      plot_means=True,
-                      dodge=True)
-            # plot instrument name variation
-            superplot(features, metadata, feat, 
-                      x1='date_yyyymmdd', 
-                      x2='instrument_name',
-                      saveDir=plot_dir / 'superplots',
-                      figsize=[24,6],
-                      show_points=False, 
-                      plot_means=True,
-                      dodge=True)
-        
+# =============================================================================
+#         # NOT NECESSARY FOR ALL STRAINS - LOOK AT CONTROL ONLY FOR THIS
+#         # superplots of variation with respect to 'date_yyyymmdd'
+#         print("\nPlotting superplots of date variation for significant features")
+#         for feat in tqdm(fset[:args.n_sig_features]):
+#             # plot day variation
+#             superplot(features, metadata, feat, 
+#                       x1='date_yyyymmdd', 
+#                       x2=None,
+#                       saveDir=plot_dir / 'superplots',
+#                       figsize=[24,6],
+#                       show_points=False, 
+#                       plot_means=True,
+#                       dodge=False)
+#             # plot run number vs day variation
+#             superplot(features, metadata, feat, 
+#                       x1='date_yyyymmdd', 
+#                       x2='imaging_run_number',
+#                       saveDir=plot_dir / 'superplots',
+#                       figsize=[24,6],
+#                       show_points=False, 
+#                       plot_means=True,
+#                       dodge=True)
+#             # plot plate number variation
+#             superplot(features, metadata, feat, 
+#                       x1='date_yyyymmdd', 
+#                       x2='source_plate_id',
+#                       saveDir=plot_dir / 'superplots',
+#                       figsize=[24,6],
+#                       show_points=False, 
+#                       plot_means=True,
+#                       dodge=True)
+#             # plot instrument name variation
+#             superplot(features, metadata, feat, 
+#                       x1='date_yyyymmdd', 
+#                       x2='instrument_name',
+#                       saveDir=plot_dir / 'superplots',
+#                       figsize=[24,6],
+#                       show_points=False, 
+#                       plot_means=True,
+#                       dodge=True)
+# =============================================================================
+
         # from tierpsytools.analysis.significant_features import plot_feature_boxplots
         # plot_feature_boxplots(feat_to_plot=features,
         #                       y_class=metadata[grouping_var],
@@ -399,24 +410,38 @@ def compare_strains_keio(features, metadata, args):
     
     # control data is clustered and feature order is stored and applied to full data
     print("\nPlotting control clustermap")
+    
     control_clustermap_path = plot_dir / 'heatmaps' / 'date_clustermap.pdf'
     cg = plot_clustermap(control_featZ, control_metadata,
                          group_by=([grouping_var] if grouping_var == 'date_yyyymmdd' 
                                    else [grouping_var, 'date_yyyymmdd']),
                          method=METHOD, 
                          metric=METRIC,
-                         figsize=[20,5],
+                         figsize=[20,6],
                          sub_adj={'bottom':0.05,'left':0,'top':1,'right':0.85},
                          saveto=control_clustermap_path,
                          label_size=15,
                          show_xlabels=False)
+    # control clustermap with labels
+    if args.n_top_feats <= 256:
+        control_clustermap_path = plot_dir / 'heatmaps' / 'date_clustermap_label.pdf'
+        cg = plot_clustermap(control_featZ, control_metadata,
+                             group_by=([grouping_var] if grouping_var == 'date_yyyymmdd' 
+                                       else [grouping_var, 'date_yyyymmdd']),
+                             method=METHOD, 
+                             metric=METRIC,
+                             figsize=[20,10],
+                             sub_adj={'bottom':0.5,'left':0,'top':1,'right':0.85},
+                             saveto=control_clustermap_path,
+                             label_size=(15,15),
+                             show_xlabels=True)
 
     #col_linkage = cg.dendrogram_col.calculated_linkage
     control_clustered_features = np.array(control_featZ.columns)[cg.dendrogram_col.reordered_ind]
 
     ### Full clustermap 
 
-    # Z-normalise data
+    # Z-normalise data for all strains
     featZ = features.apply(zscore, axis=0)
                     
     ## Save z-normalised values
@@ -433,10 +458,23 @@ def compare_strains_keio(features, metadata, args):
                          method=METHOD, 
                          metric=METRIC,
                          figsize=[20,30],
-                         sub_adj={'bottom':0.05,'left':0,'top':1,'right':0.95},
+                         sub_adj={'bottom':0.01,'left':0,'top':1,'right':0.95},
                          saveto=full_clustermap_path,
                          label_size=8,
                          show_xlabels=False)
+    
+    if args.n_top_feats <= 256:
+        full_clustermap_path = plot_dir / 'heatmaps' / (grouping_var + '_clustermap_label.pdf')
+        fg = plot_clustermap(featZ, metadata, 
+                             group_by=grouping_var,
+                             row_colours=None,
+                             method=METHOD, 
+                             metric=METRIC,
+                             figsize=[20,40],
+                             sub_adj={'bottom':0.18,'left':0,'top':1,'right':0.95},
+                             saveto=full_clustermap_path,
+                             label_size=(15,10),
+                             show_xlabels=True)
     
     # clustered feature order for all strains
     _ = np.array(featZ.columns)[fg.dendrogram_col.reordered_ind]
@@ -465,9 +503,6 @@ def compare_strains_keio(features, metadata, args):
 
     pca_dir = plot_dir / 'PCA'
     
-    # Z-normalise data for all strains
-    featZ = features.apply(zscore, axis=0)
-
     # remove outlier samples from PCA
     if args.remove_outliers:
         outlier_path = pca_dir / 'mahalanobis_outliers.pdf'
@@ -531,6 +566,19 @@ def compare_strains_keio(features, metadata, args):
                   group_by=grouping_var,
                   var_subset=coloured_strains_pca,
                   saveDir=tsne_dir,
+                  perplexities=perplexities,
+                  figsize=[8,8],
+                  label_size=8,
+                  marker_size=20,
+                  sns_colour_palette="plasma")
+    
+    print("\nPerforming tSNE")
+    tsne_dir = plot_dir / 'tSNE'
+    perplexities = [mean_sample_size] # NB: should be roughly equal to group size    
+    _ = plot_tSNE(featZ, metadata,
+                  group_by='COG_category',
+                  var_subset=list(metadata['COG_category'].dropna().unique()),
+                  saveDir=tsne_dir / 'COG_category',
                   perplexities=perplexities,
                   figsize=[8,8],
                   label_size=8,

@@ -15,17 +15,13 @@ tracked worm trajectories throughout the video, for the entire 96-well plate
 
 #%% Imports 
 
-import sys, os
+import os
 import argparse
 import pandas as pd
 from tqdm import tqdm
 from pathlib import Path
 from matplotlib import pyplot as plt
 
-sys.path.insert(0, "/Users/sm5911/Documents/GitHub/PhD_Project/Python")
-sys.path.insert(0, "/Users/sm5911/Tierpsy_Versions/tierpsy-tracker")
-
-# Custom imports
 from read_data.read import get_trajectory_data
 from filter_data.filter_trajectories import filter_worm_trajectories
 
@@ -259,11 +255,7 @@ def plot_plate_trajectories(featurefilepath,
                         bbox_inches='tight',
                         dpi=300,
                         pad_inches=0,
-                        transparent=True)  
-    else:
-        # TODO: Fix show plot figsize
-        plt.tight_layout()
-        plt.show()
+                        transparent=True)
     
     print(errlog) # TODO: Save errlog to file?
     return

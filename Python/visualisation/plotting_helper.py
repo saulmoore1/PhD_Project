@@ -350,7 +350,8 @@ def boxplots_sigfeats(features,
                       max_sig_feats=10,
                       max_strains=100,
                       sns_colour_palette="tab10",
-                      verbose=True):
+                      verbose=True, 
+                      scale_outliers=True):
     """ Box plots of most significantly different features between each strain and the control 
     
         Inputs
@@ -435,8 +436,10 @@ def boxplots_sigfeats(features,
         colour_dict = {control:colour_labels[0], str(strain):colour_labels[1]}
         
         if z_class is not None:
-            cols = sns.color_palette("pastel", len(z_class.unique()))
-            col_dict = dict(zip(list(z_class.unique()), cols))
+            cols = sns.color_palette("Greens", len(z_class.unique()))
+            col_dict = dict(zip(list(z_class.unique()), cols))   
+            # pchs = ['.','+','*'] # CANNOT DO THIS IN MATPLOTLIB: https://github.com/mwaskom/seaborn/issues/1210
+            # pch_dict = dict(zip(list(z_class.unique()), pchs))
             
         order = list(strain_data[y_class.name].unique())
         order.remove(control)
@@ -467,7 +470,7 @@ def boxplots_sigfeats(features,
             sns.stripplot(x=y_class.name, 
                           y=feature, 
                           data=strain_data,
-                          s=20,
+                          s=10,
                           order=order,
                           hue=z_class if z_class is not None else None,
                           palette=col_dict if z_class is not None else None,
@@ -490,13 +493,22 @@ def boxplots_sigfeats(features,
             if z_class is not None:
                 plt.xlim(right=len(order)-0.3)
                 plt.legend(loc='upper right')
-            
+ 
+            if scale_outliers:
+                grouped_strain = strain_data.groupby('gene_name')
+                y_bar = grouped_strain[feature].median() # median is less skewed by outliers
+                # Computing IQR
+                Q1 = grouped_strain[feature].quantile(0.25)
+                Q3 = grouped_strain[feature].quantile(0.75)
+                IQR = Q3 - Q1
+                plt.ylim(min(y_bar) - 2.5 * max(IQR), max(y_bar) + 2.5 * max(IQR))
+
             # Add p-value to plot
             p = strain_pvals.loc[feature]
             text = ax.get_xticklabels()[-1]
             assert text.get_text() == strain
-            y = strain_data[feature].max() 
-            h = (y - strain_data[feature].min()) / 50
+            y = (max(y_bar) + 2 * max(IQR)) if scale_outliers else strain_data[feature].max()
+            h = (max(IQR) / 8) if scale_outliers else (y - strain_data[feature].min()) / 50
             plt.plot([0, 0, 1, 1], [y+h, y+2*h, y+2*h, y+h], lw=1.5, c='k')
             p_text = 'P < 0.001' if p < 0.001 else 'P = %.3f' % p
             # TODO: Write pvalue as scientific abbrev standard form 
@@ -512,7 +524,7 @@ def boxplots_sigfeats(features,
             # plt.legend(handles=patch_list, labels=colour_dict.keys(), loc=(1.02, 0.8),\
             #           borderaxespad=0.4, frameon=False, fontsize=15)
             plt.subplots_adjust(left=0.15)
-
+            
             # Save figure
             if saveDir:
                 plot_path = saveDir / ('{0}_'.format(s + 1) + str(strain)) /\
@@ -641,3 +653,13 @@ def boxplots_grouped(feat_meta_df,
             plt.savefig(plot_path)
         else:
             plt.show()
+
+
+#%%
+# Q1 = strain_data[feature].quantile(0.25)
+# Q3 = strain_data[feature].quantile(0.75)
+# IQR = Q3 - Q1
+
+# # REMOVE OUTLIERS
+# # Filtering Values between Q1-1.5IQR and Q3+1.5IQR
+# # filtered = df.query('(@Q1 - 1.5 * @IQR) <= nb <= (@Q3 + 1.5 * @IQR)')
