@@ -77,8 +77,26 @@ def read_list_from_file(filepath):
     
     return list_from_file      
 
+def get_fov_well_data(featuresfilepath):
+    """ Read Tierpsy-generated featuresN HDF5 file data for 'fov_wells' and return as a dataframe """
+
+    import h5py
+    import pandas as pd
+    
+    # Read HDF5 file and extract fov_well info
+    with h5py.File(featuresfilepath, 'r') as f:
+        df = pd.DataFrame({'x_min': f['fov_wells']['x_min'],
+                           'x_max': f['fov_wells']['x_max'],
+                           'y_min': f['fov_wells']['y_min'],
+                           'y_max': f['fov_wells']['y_max'],
+                           'well_name': f['fov_wells']['well_name'],
+                           'is_good_well': f['fov_wells']['is_good_well']})
+        df['well_name'] = [i.decode("utf-8") for i in df['well_name']]
+        
+    return df
+
 def get_trajectory_data(featuresfilepath):
-    """ A function to read Tierpsy-generated featuresN file trajectories data
+    """ A function to read Tierpsy-generated featuresN HDF5 file trajectories data
         and extract the following info as a dataframe:
         ['coord_x', 'coord_y', 'frame_number', 'worm_index_joined'] """
 

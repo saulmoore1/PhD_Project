@@ -12,7 +12,8 @@ Filter Tierpsy worm trajectory data (Phenix only)
 
 def filter_worm_trajectories(trajectory_df, threshold_move=10, threshold_time=25,
                              fps=25, microns_per_pixel=10, worm_id_col='worm_id', 
-                             x_coord_col='x', y_coord_col='y', verbose=True):
+                             timestamp_col='frame_number', x_coord_col='x', y_coord_col='y', 
+                             verbose=True):
     """ A function to filter Tierpsy trajectory data worm IDs to remove unwanted
         tracked entities (ie. not worms), based on threshold parameters for the 
         duration (in frames) and amount of movement (in pixels) of their trajectories
@@ -47,7 +48,7 @@ def filter_worm_trajectories(trajectory_df, threshold_move=10, threshold_time=25
     n_worms = group_worm.count().shape[0]
     
     # Filter by TRAJECTORY LENGTH
-    trajectory_df = group_worm.filter(lambda x: x['frame_number'].count() > threshold_time)
+    trajectory_df = group_worm.filter(lambda x: x[timestamp_col].count() > threshold_time)
     
     # Re-group by worm id
     group_worm = trajectory_df.groupby(worm_id_col)

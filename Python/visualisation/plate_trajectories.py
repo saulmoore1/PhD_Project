@@ -15,7 +15,7 @@ tracked worm trajectories throughout the video, for the entire 96-well plate
 
 #%% Imports 
 
-import os
+import sys
 import argparse
 import pandas as pd
 from tqdm import tqdm
@@ -25,6 +25,7 @@ from matplotlib import pyplot as plt
 from read_data.read import get_trajectory_data
 from filter_data.filter_trajectories import filter_worm_trajectories
 
+sys.path.insert(0, "/Users/sm5911/Tierpsy_Versions/tierpsy-tracker") # path to tierpsy tracker repo
 from tierpsy.analysis.split_fov.FOVMultiWellsSplitter import FOVMultiWellsSplitter
 from tierpsy.analysis.split_fov.helper import CAM2CH_df, serial2channel, parse_camera_serial
 
@@ -50,6 +51,7 @@ MICRONS_PER_PIXEL = 12.4
 #%% Functions
 
 def plot_trajectory(featurefilepath, 
+                    well_name=None,
                     downsample=10,
                     filter_trajectories=False,
                     mark_endpoints=False,
@@ -64,7 +66,7 @@ def plot_trajectory(featurefilepath,
 
     from matplotlib import pyplot as plt
     
-    df = get_trajectory_data(featurefilepath)
+    df = get_trajectory_data(featurefilepath)        
     
     # Optional - filter trajectories using global movement/time threshold parameters
     if filter_trajectories:
