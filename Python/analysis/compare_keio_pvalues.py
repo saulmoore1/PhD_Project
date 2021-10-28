@@ -11,80 +11,197 @@ check for correlation
 
 """
 
+#%% Imports
 import numpy as np
 import pandas as pd
+import seaborn as sns
 from pathlib import Path
 from matplotlib import pyplot as plt
-from sklearn.metrics import r2_score
-from scipy.stats import linregress
 
-TIERPSY_FEATSET = 256 # 16
-FDR_METHOD = 'fdr_bh'
+from sklearn import linear_model
+from sklearn.metrics import mean_squared_error, r2_score
+
+# from sklearn.metrics import r2_score
+# from scipy.stats import linregress
+
+#%% Globals
+
+strain_list = None #['atpB','sdhD', 'nuoC', 'fepD']
+
+N_TOP_FEATS = 16
+
+KEIO_STATS_PATH = '/Users/sm5911/Documents/Keio_Screen/Top{}/gene_name/Stats/fdr_by/t-test_results_uncorrected.csv'.format(N_TOP_FEATS)
+KEIO_CONF_STATS_PATH = '/Users/sm5911/Documents/Keio_Conf_Screen/Top{}/gene_name/Stats/fdr_by/t-test_results_uncorrected.csv'.format(N_TOP_FEATS)
+SAVE_DIR = '/Users/sm5911/Documents/Keio_Conf_Screen/Top{}/p-value_corr'.format(N_TOP_FEATS)
+            
+#%%
 
 # Load p-values from initial Keio screen (Top256)
-keio_stats_path = "/Users/sm5911/Documents/Keio_Screen/Top{}".format(TIERPSY_FEATSET) \
-                  + "/gene_name/Stats_{}/t-test_results.csv".format(FDR_METHOD)
-pvals = pd.read_csv(keio_stats_path, index_col=0)
+pvals = pd.read_csv(KEIO_STATS_PATH, index_col=0)
 pvals = pvals[[c for c in pvals.columns if 'pval' in c]]
 pvals.columns = [c.split('pvals_')[-1] for c in pvals.columns]
 
 # Load p-values from confirmational Keio screen (Top256)
-keio2_stats_path = "/Users/sm5911/Documents/Keio_Screen2/Top{}".format(TIERPSY_FEATSET) \
-                   + "/gene_name/Stats_{}/t-test_results.csv".format(FDR_METHOD)
-pvals2 = pd.read_csv(keio2_stats_path, index_col=0)
+pvals2 = pd.read_csv(KEIO_CONF_STATS_PATH, index_col=0)
 pvals2 = pvals2[[c for c in pvals2.columns if 'pval' in c]]
 pvals2.columns = [c.split('pvals_')[-1] for c in pvals2.columns]
 
-# Subset for shared columns only (strains present in both screens, ie. hit strains)
-shared = list(set(pvals.columns).intersection(set(pvals2.columns)))
-pvals, pvals2 = pvals[shared], pvals2[shared]
+def strain_pval_pairplot(pvals, pvals2, strain_list=None, saveAs=None):
+    
+    assert set(pvals.index) == set(pvals2.index) # assert features index matches
 
-# -log10 transformation
-pvals = - np.log10(pvals.values.flatten())
-pvals2 = - np.log10(pvals2.values.flatten())
+    # Subset for shared columns only (strains present in both screens, ie. hit strains)
+    shared = list(set(pvals.columns).intersection(set(pvals2.columns)))
+    pvals, pvals2 = pvals[shared], pvals2[shared]
+    
+    # subset for hit strains / selected features only
+    if strain_list is not None:
+        assert all(s in pvals.columns for s in strain_list)
+    else:
+        strain_list = pvals.columns.to_list()
+    
+    # reshape for pairplot
+    _pvals = pvals.reset_index(drop=None).melt(id_vars=['index'], 
+                                               var_name='gene_name', 
+                                               value_name='p1')
+    _pvals2 = pvals2.reset_index(drop=None).melt(id_vars=['index'], 
+                                                 var_name='gene_name', 
+                                                 value_name='p2')
+    paired = pd.merge(_pvals, _pvals2, how='inner', on=['index','gene_name']).set_index('index')
+    
+    # -log10 transformation
+    paired['p1'] = - np.log10(paired['p1'])
+    paired['p2'] = - np.log10(paired['p2'])
+    
+    grouped_strain = paired.groupby('gene_name')
+    
+    n = int(np.ceil(np.sqrt(len(pvals.columns))))
+    plt.close('all')
+    fig, axs = plt.subplots(nrows=n, ncols=n, figsize=(10,10))
+    strain_counter = 0
+    for i in range(n):
+        for ii in range(n):
+            try: 
+                strain = strain_list[strain_counter]
+                strain_pvals = grouped_strain.get_group(strain)
+    
+                sns.scatterplot(x='p1', y='p2', data=strain_pvals, ax=axs[i,ii], 
+                                marker='+', s=10, color='k')
+                
+                # perform linear regression fit
+                X = strain_pvals['p1'].values.reshape((-1, 1))
+                Y = strain_pvals['p2']
+                model = linear_model.LinearRegression()
+                model = model.fit(X, Y)
+    
+                axs[i,ii].plot(X, model.predict(X), "r-", lw=1)
+                
+                r2 = r2_score(Y, model.predict(X))
+                
+                if r2 > 0.5:
+                    axs[i,ii].text(0.5, 0.5, strain, transform=axs[i,ii].transAxes, 
+                                   fontsize=10, c='k', horizontalalignment='center')
+                
+            except Exception as E:
+                print(E)
+                
+            # x and y labels only  for middle columns and rows, respectively
+            if i == int(n / 2) and ii == 0:
+                axs[i,ii].set_ylabel('Confirmation screen (-log10 p-value)', 
+                                     fontsize=15, labelpad=10)
+            else:
+                axs[i,ii].set_ylabel('')
+            if i == 0 and ii == int(n / 2):
+                axs[i,ii].set_xlabel('Initial screen (-log10 p-value)', 
+                                     fontsize=15, labelpad=10)
+            else:
+                axs[i,ii].set_xlabel('')
+            # x and y ticks sete to false
+            axs[i,ii].axes.xaxis.set_visible(False)
+            axs[i,ii].axes.yaxis.set_visible(False)
+    
+            strain_counter += 1
+            
+    if saveAs is not None:
+        Path(saveAs).parent.mkdir(exist_ok=True, parents=True)
+        plt.savefig(saveAs, dpi=600)
+    
+    return fig, axs
 
-# Perform linear regression fit
-m, b = np.polyfit(pvals, pvals2, deg=1) # m = slope, b = intercept
-y_pred = np.poly1d([m, b])(pvals) # y_pred = m * pvals + b
-
-# Estimate correlation coefficient of determination
-# You can calculate coefficient of determination (r2) by:
-# 1. sklearn.metrics.r2_score(y,y_pred)
-# 2. numpy.corrcoef(x,y)[0,1]**2 
-# 3. scipy.stats.linregress(x,y)[2]**2
-
-#1
-r2 = r2_score(pvals2, y_pred)
-
-#2
-correlation_matrix = np.corrcoef(pvals, pvals2)
-correlation_xy = correlation_matrix[0,1]
-r2 = correlation_xy ** 2
-
-#3
-# scipy.stats.linregress is a ready function for the linear regression fit
-slope, intercept, r_value, p_value, std_err = linregress(pvals, pvals2)
-
-# Assert that the linregress method is identical (within limits of machine precision)
-assert ((np.round(slope,6) == np.round(m,6)) and 
-        (np.round(intercept,6) == np.round(b,6)) and 
-        (np.round(r_value**2,6) == np.round(r2,6)))
-
-# Plot scatterplot
-plt.close('all')
-plt.figure(figsize=(8,7))
-plt.plot(pvals, pvals2, '+', ms=10, mec='k')
-plt.plot(pvals, y_pred, "r--", lw=1)
-
-text = f"$y={m:0.3f}\;x{b:+0.3f}$\n$R^2 = {r2:0.3f}$"
-plt.gca().text(0, 1.1, text,transform=plt.gca().transAxes, fontsize=14, verticalalignment='top')
-plt.xlabel('Initial screen (-log10 p-value)', fontsize=15)
-plt.ylabel('Confirmation screen (-log10 p-value)', fontsize=15)
-plt.title(FDR_METHOD, fontsize=15)
-
-# Save figure
-SAVE_PATH = "/Users/sm5911/Documents/Keio_Screen2/Top{}".format(TIERPSY_FEATSET) \
-            + "/p-value_corr/{}_corr.pdf".format(FDR_METHOD)
-Path(SAVE_PATH).parent.mkdir(exist_ok=True, parents=True)
-plt.savefig(SAVE_PATH, dpi=300)
+fig, axs = strain_pval_pairplot(pvals, pvals2, strain_list=strain_list, saveAs=Path(SAVE_DIR) / 'pairplot.pdf')
+plt.tight_layout(pad=0.2)
 plt.show()
+
+
+# for strain in strain_list:
+#     strain_pvals = grouped_strain.get_group(strain)
+    
+#     plt.close('all')
+#     fig, ax = plt.subplots(figsize=(10,10))
+#     sns.scatterplot(x='p1', y='p2', data=strain_pvals, ax=ax, marker='+', s=50, color='k')
+#     # ax.set_xlim(-0.02, 1.02)
+#     # ax.set_ylim(-0.02, 1.02)
+#     ax.set_xlabel('Initial screen (-log10 p-value)', fontsize=15, labelpad=10)
+#     ax.set_ylabel('Confirmation screen (-log10 p-value)', fontsize=15, labelpad=10)
+#     plt.title(strain, fontsize=15, pad=10)    
+
+#     # save plot
+#     # Save figure
+#     Path(SAVE_DIR).mkdir(exist_ok=True, parents=True)
+#     plt.savefig(Path(SAVE_DIR) / '{}_pval_corr.pdf'.format(strain), dpi=300)
+#     plt.show()
+            
+#     #strain_pvals = strain_pvals.T.reset_index(drop=None)
+    
+#     sns.pairplot(strain_pvals)
+
+#     # -log10 transformation
+#     _pvals = - np.log10(pvals[strain].values) # initial screen pvals
+#     _pvals2 = - np.log10(pvals2[strain].values) # conf screen pvals
+    
+#     # perform linear regression fit
+#     model = linear_model.LinearRegression()
+#     model = model.fit(_pvals.reshape((-1, 1)), _pvals2)
+    
+#     r2_score(_pvals2, _pvals2_pred)
+#     r_sq = model.score(_pvals.reshape((-1, 1)), _pvals2)
+    
+#     plt.plot(_pvals, model.predict())
+    
+#         # obtain slope and intercept parameters
+#     # Perform linear regression fit
+#     m, b = np.polyfit(pvals, pvals2, deg=1) # m = slope, b = intercept
+#     y_pred = np.poly1d([m, b])(pvals) # y_pred = m * pvals + b
+    
+#     # Estimate correlation coefficient of determination
+#     # You can calculate coefficient of determination (r2) by:
+#     # 1. sklearn.metrics.r2_score(y,y_pred)
+#     # 2. numpy.corrcoef(x,y)[0,1]**2 
+#     # 3. scipy.stats.linregress(x,y)[2]**2
+    
+#     #1
+#     r2 = r2_score(pvals2, y_pred)
+    
+#     #2
+#     correlation_matrix = np.corrcoef(pvals, pvals2)
+#     correlation_xy = correlation_matrix[0,1]
+#     r2 = correlation_xy ** 2
+    
+#     #3
+#     # scipy.stats.linregress is a ready function for the linear regression fit
+#     slope, intercept, r_value, p_value, std_err = linregress(pvals, pvals2)
+    
+#     # Assert that the linregress method is identical (within limits of machine precision)
+#     assert ((np.round(slope,6) == np.round(m,6)) and 
+#             (np.round(intercept,6) == np.round(b,6)) and 
+#             (np.round(r_value**2,6) == np.round(r2,6)))
+    
+#     # Plot scatterplot
+#     plt.close('all')
+#     plt.figure(figsize=(8,7))
+#     plt.plot(pvals, pvals2, '+', ms=10, mec='k')
+#     plt.plot(pvals, y_pred, "r--", lw=1)
+
+#     text = f"$y={m:0.3f}\;x{b:+0.3f}$\n$R^2 = {r2:0.3f}$"
+#     plt.gca().text(0, 1.1, text,transform=plt.gca().transAxes, fontsize=14, verticalalignment='top')
+    

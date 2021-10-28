@@ -10,12 +10,14 @@ Side-by-side trajectory plots for strain vs control
 
 #%% Imports 
 
+import os
 import pandas as pd
 import numpy as np
 from pathlib import Path
 from matplotlib import pyplot as plt
 from visualisation.plate_trajectories import CH2PLATE_dict, get_video_set, plot_trajectory
 
+os.path.insert(0, "/Users/sm5911/Tierpsy_Versions/tierpsy-tracker/")
 from tierpsy.analysis.split_fov.FOVMultiWellsSplitter import FOVMultiWellsSplitter
 
 #%% Globals
@@ -61,7 +63,10 @@ def plot_pairwise_trajectory(metadata, strain_colname, strain, control, downsamp
         strain_info.append((s_file, s_well))
         control_info.append((c_file, c_well))
         
+    # TODO: Pair up bluelight conditions as well
+    
     for s, c in zip(control_info, strain_info):
+        print(s, c)
         s_file, s_well = s
         c_file, c_well = c
         
