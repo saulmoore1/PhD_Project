@@ -29,7 +29,8 @@ RESULTS_DIR = '/Volumes/hermes$/KeioScreen2_96WP/Results'
 
 FEATURE_SET_PATH = '/Users/sm5911/Documents/Keio_Screen2/selected_features_timeseries.txt'
 
-STRAIN_LIST_PATH = '/Users/sm5911/Documents/Keio_Screen/52_selected_strains_from_initial_keio_top100_lowest_pval_tierpsy16.txt'
+STRAIN_LIST_PATH = None #'/Users/sm5911/Documents/Keio_Screen/52_selected_strains_from_initial_keio_top100_lowest_pval_tierpsy16.txt'
+STRAIN_LIST = ['wild_type','fepB','fepD','fes','atpB','nuoC','sdhD','entA'] # missing: 'trpA','trpD'
 
 SAVE_DIR = '/Users/sm5911/Documents/Keio_Conf_Screen'
 
@@ -541,41 +542,38 @@ if __name__ == "__main__":
                                      filenames summaries file")
     # parser.add_argument('-f', '--filenames_summaries_path', help="Tierpsy filenames summaries path", 
     #                     default=FILENAMES_SUMMARIES_PATH, type=str)
-    parser.add_argument('--metadata_path', help="Path to metadata file", 
-                        default=METADATA_PATH, type=str)
-    parser.add_argument('--strain_list_path', help="Path to text file with list of strains to plot",
-                        default=STRAIN_LIST_PATH, type=str)
-    parser.add_argument('--fset_path', help="Path to text file with list of features to plot", 
-                        default=FEATURE_SET_PATH, type=str)
-    parser.add_argument('--save_dir', help="Path to save timeseries plots", 
-                        default=SAVE_DIR, type=str)
+    parser.add_argument('--metadata_path', 
+                        help="Path to metadata file", type=str, default=METADATA_PATH)
+    parser.add_argument('--strain_list_path', 
+                        help="Path to text file with list of strains to plot", type=str,
+                        default=STRAIN_LIST_PATH)
+    parser.add_argument('--fset_path', 
+                        help="Path to text file with list of features to plot (currently only \
+                        'motion_mode' is supported!)", type=str, default=FEATURE_SET_PATH)
+    parser.add_argument('--save_dir', 
+                        help="Path to save timeseries plots", type=str, default=SAVE_DIR)
     args = parser.parse_args()
     
     if args.save_dir is None:
         args.save_dir = SAVE_DIR #Path(args.filenames_summaries_path).parent
     
-    #strain_list = None if args.strain_list_path is None else read_list_from_file(args.strain_list_path)
-    strain_list = ['wild_type', 'fepB', 'nuoI']
+    strain_list = STRAIN_LIST if args.strain_list_path is None else read_list_from_file(args.strain_list_path)
     fset = None if args.fset_path is None else read_list_from_file(args.fset_path)
-    
-    # plot_timeseries_from_filenames_summaries(filenames_summaries_path=args.filenames_summaries_path, 
-    #                                          fset=fset, 
-    #                                          save_dir=args.save_dir)
 
-    # plot timeseries of all strains together, for each motion mode separately 
-    plot_timeseries_from_metadata(metadata_path=args.metadata_path, 
-                                  results_dir=RESULTS_DIR,
-                                  group_by='gene_name',
-                                  strain_list=strain_list, 
-                                  control='wild_type',
-                                  fset=fset,
-                                  save_dir=Path(args.save_dir) / 'timeseries',
-                                  motion_mode='all', # 'forwards', 'backwards', 'stationary', 
-                                  multi_strain=True,
-                                  window=WINDOW,
-                                  error=True,
-                                  max_n_frames=MAX_N_FRAMES,
-                                  sns_colour_palette='Greens')
+    # # plot timeseries of all strains together, for each motion mode separately 
+    # plot_timeseries_from_metadata(metadata_path=args.metadata_path, 
+    #                               results_dir=RESULTS_DIR,
+    #                               group_by='gene_name',
+    #                               strain_list=strain_list, 
+    #                               control='wild_type',
+    #                               fset=fset,
+    #                               save_dir=Path(args.save_dir) / 'timeseries',
+    #                               motion_mode='all', # 'forwards', 'backwards', 'stationary', 
+    #                               multi_strain=True,
+    #                               window=WINDOW,
+    #                               error=False,
+    #                               max_n_frames=MAX_N_FRAMES,
+    #                               sns_colour_palette='Greens')
 
     # plot timeseries of all motion modes together, for each strain separately
     plot_timeseries_from_metadata(metadata_path=args.metadata_path, 
@@ -590,5 +588,5 @@ if __name__ == "__main__":
                                   window=WINDOW,
                                   error=True,
                                   max_n_frames=MAX_N_FRAMES,
-                                  sns_colour_palette='Blues')
+                                  sns_colour_palette='Greens')
     

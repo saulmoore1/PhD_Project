@@ -15,6 +15,7 @@ tracked worm trajectories throughout the video, for the entire 96-well plate
 
 #%% Imports 
 
+import os
 import sys
 import argparse
 import pandas as pd

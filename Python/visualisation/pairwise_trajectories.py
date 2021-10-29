@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Side-by-side trajectory plots for strain vs control
+Side-by-side trajectory plots of sampled wells for strain vs control
 
 @author: sm5911
 @date: 20/10/2021
@@ -10,9 +10,7 @@ Side-by-side trajectory plots for strain vs control
 
 #%% Imports 
 
-import os
 import sys
-import h5py
 import argparse
 import numpy as np
 import pandas as pd
@@ -20,13 +18,11 @@ from pathlib import Path
 from matplotlib import pyplot as plt
 
 from filter_data.filter_trajectories import filter_worm_trajectories
-from visualisation.plate_trajectories import CH2PLATE_dict, plot_trajectory
 
 from tierpsytools.read_data.get_timeseries import read_timeseries
 
 sys.path.insert(0, "/Users/sm5911/Tierpsy_Versions/tierpsy-tracker") # path to tierpsy tracker repo
 from tierpsy.analysis.split_fov.FOVMultiWellsSplitter import FOVMultiWellsSplitter
-from tierpsy.analysis.split_fov.helper import serial2channel, parse_camera_serial
 from tierpsy.helper.params.read_attrs import read_microns_per_pixel, read_fps
 
 #%% Globals
@@ -35,8 +31,8 @@ METADATA_PATH = '/Users/sm5911/Documents/Keio_Conf_Screen/metadata.csv'
 FEATURES_PATH = '/Users/sm5911/Documents/Keio_Conf_Screen/features.csv'
 SAVE_DIR = '/Users/sm5911/Documents/Keio_Conf_Screen/pairwise_trajectories'
 
-STRAIN_LIST = ['fepB']
-MAX_N_PAIRS = 5
+STRAIN_LIST = ['fepB','fepD','fes','atpB','nuoC','sdhD','entA'] # missing: 'trpA','trpD'
+MAX_N_PAIRS = 4
 
 # set seed for reproducibility 
 np.random.seed(0)
@@ -45,25 +41,11 @@ np.random.seed(0)
 THRESHOLD_DISTANCE_PIXELS = 10
 THRESHOLD_DURATION_FRAMES = 25
 
-
 #%% Functions
 
 def plot_well_trajectory(featuresfilepath, maskedvideopath, well_name, downsample=10, 
                          filter_trajectories=False, ax=None, verbose=True, **kwargs):
     """ Plot centroid coordinates for worms in a given well """
-    
-    # from read_data.read import get_fov_well_data
-    # fov_wells = get_fov_well_data(featuresfilepath)
-    # well_fov = fov_wells[fov_wells['well_name']==well_name]
-    # assert well_fov.shape[0] == 1
-    # well_fov = well_fov.iloc[0]
-        
-    # # get camera serial + channel from filename
-    # camera_serial = parse_camera_serial(featuresfilepath)
-    # channel = serial2channel(camera_serial)
-    
-    # # get whether to rotate plot for video
-    # _, rotate = CH2PLATE_dict[channel]
             
     # plot first frame of video for sample well
     FOVsplitter = FOVMultiWellsSplitter(maskedvideopath)
@@ -77,11 +59,10 @@ def plot_well_trajectory(featuresfilepath, maskedvideopath, well_name, downsampl
     if not ax:
         fig, ax = plt.subplots(**kwargs)
         
-    #FOVsplitter.plot_wells(is_rotate180=rotate, ax=ax, line_thickness=10)
     img_list = FOVsplitter.tile_FOV(FOVsplitter.img)
     well_img = [i[1] for i in img_list if i[0] == well_name][0]
     
-    ax.imshow(well_img)
+    ax.imshow(well_img, cmap='gray')
 
     df = read_timeseries(featuresfilepath, 
                          names=['worm_index','timestamp','well_name','coord_x_body','coord_y_body'], 
@@ -92,8 +73,8 @@ def plot_well_trajectory(featuresfilepath, maskedvideopath, well_name, downsampl
     df['y'] = df['coord_y_body'] / microns_per_pixel
 
     # subtract x,y offset to set bottom left coords of well as plot origin for trajectory plot
-    df['x'] = df['x'] - well_fov.iloc[0]['x']
-    df['y'] = df['y'] - well_fov.iloc[0]['y']
+    df['x'] = df['x'] - well_fov.iloc[0]['x_min']
+    df['y'] = df['y'] - well_fov.iloc[0]['y_min']
 
     # Optional - filter trajectories using global movement/time threshold parameters
     if filter_trajectories:
@@ -108,22 +89,15 @@ def plot_well_trajectory(featuresfilepath, maskedvideopath, well_name, downsampl
                                          y_coord_col='y',
                                          verbose=verbose)
             
-    # # Rotate trajectories if necessary (for tiling 96-well plate)
-    # if rotate:
-    #     img_shape = well_img.shape
-    #     height, width = img_shape[0], img_shape[1]
-    #     df['x'] = width - df['x']
-    #     df['y'] = height - df['y']
-            
     # Plot trajectory
     if downsample is not None:
         # Downsample frames for plotting
         downsample = 1 if downsample < 1 else downsample
         
         ax.scatter(x=df['x'][::downsample], y=df['y'][::downsample], 
-                   c=df['timestamp'][::downsample], cmap='plasma', s=10)
+                   c=df['timestamp'][::downsample], cmap='plasma', s=7)
     else:
-        ax.scatter(x=df['x'], y=df['y'], c=df['timestamp'], cmap='plasma', s=10)
+        ax.scatter(x=df['x'], y=df['y'], c=df['timestamp'], cmap='plasma', s=7)
         
     ax.axes.get_xaxis().set_visible(False)
     ax.axes.get_yaxis().set_visible(False)    
@@ -133,8 +107,8 @@ def plot_well_trajectory(featuresfilepath, maskedvideopath, well_name, downsampl
     return
 
 def plot_pairwise_trajectory(metadata, strain_colname, strain, control, downsample=10, 
-                             filter_trajectories=False, stim_type='bluelight', saveAs=None, 
-                             del_if_exists=True, verbose=True):
+                             filter_trajectories=False, stim_type='bluelight', max_n_pairs=5, 
+                             saveAs=None, del_if_exists=True, verbose=True, **kwargs):
     """ Plot pairwise trajectory plots of strain vs control """
     
     assert strain in metadata[strain_colname].unique() and control in metadata[strain_colname].unique()
@@ -146,7 +120,6 @@ def plot_pairwise_trajectory(metadata, strain_colname, strain, control, downsamp
     assert strain_meta.shape[0] == len(strain_meta['featuresN_filename'].unique())
 
     # subset for bluelight condition
-    #if stim_type is not None:
     assert stim_type in ['prestim','bluelight','poststim']
             
     # for each strain well, pair with random control well of the same plate
@@ -194,44 +167,47 @@ def plot_pairwise_trajectory(metadata, strain_colname, strain, control, downsamp
     strain_info = np.array(strain_info)[idxs].tolist()
     control_info = np.array(control_info)[idxs].tolist()
 
-    if saveAs is not None and saveAs.exists():
+    if saveAs is not None and saveAs.exists() and not del_if_exists:
         if verbose:
             print("Skipping file '%s' (already exists)" % saveAs.name)
     else:           
         # define multi-panel figure
         plt.close('all')
         plt.ioff() if saveAs else plt.ion()
-        fig, axs = plt.subplots(nrows=n, ncols=2) # figsize=(5, len(strain_info)*2)
+        fig, axs = plt.subplots(nrows=n, ncols=2, **kwargs)
         
-        errlog = []
         for i, (s, c) in enumerate(zip(strain_info, control_info)):
             s_file, s_mask, s_well = s
             c_file, c_mask, c_well = c
             
-            try:
-                # plot worm trajectories in sample well
-                plot_well_trajectory(s_file,
-                                     s_mask,
-                                     well_name=s_well,
-                                     downsample=downsample,
-                                     filter_trajectories=filter_trajectories,
-                                     ax=axs[i,0],
-                                     verbose=verbose)
-                
-                # plot worm trajectories in control well
-                plot_well_trajectory(c_file, 
-                                     c_mask,
-                                     well_name=c_well,
-                                     downsample=downsample,
-                                     filter_trajectories=filter_trajectories,
-                                     ax=axs[i,1],
-                                     verbose=verbose)
-            except Exception as e:
-                print("WARNING: Could not plot video file!\n%s\n%s\n%s" % (s, c, e))
-                errlog.append((s, c, e))
+            # plot worm trajectories in sample well
+            plot_well_trajectory(s_file,
+                                 s_mask,
+                                 well_name=s_well,
+                                 downsample=downsample,
+                                 filter_trajectories=filter_trajectories,
+                                 ax=axs[i,0],
+                                 verbose=verbose)
+            
+            # plot worm trajectories in control well
+            plot_well_trajectory(c_file, 
+                                 c_mask,
+                                 well_name=c_well,
+                                 downsample=downsample,
+                                 filter_trajectories=filter_trajectories,
+                                 ax=axs[i,1],
+                                 verbose=verbose)
+    
+        # add labels to plot
+        axs[0,0].text(0.5, 1.02, strain, transform=axs[0,0].transAxes, fontsize=15, c='k', 
+                      horizontalalignment='center', verticalalignment='bottom')
+        axs[0,1].text(0.5, 1.02, control, transform=axs[0,1].transAxes, fontsize=15, c='k', 
+                      horizontalalignment='center', verticalalignment='bottom')
         
+        # save figure        
         if saveAs is not None:
             Path(saveAs).parent.mkdir(exist_ok=True, parents=True)
+            plt.tight_layout(pad=0, rect=[0,0,1,1.25])
             fig.savefig(saveAs,
                         bbox_inches='tight',
                         dpi=300,
@@ -277,7 +253,8 @@ if __name__ == "__main__":
                                  stim_type='bluelight',
                                  downsample=args.downsample,
                                  filter_trajectories=args.filter_trajectories,
+                                 max_n_pairs=MAX_N_PAIRS,
                                  saveAs=Path(args.save_dir) / (strain + '_trajectories.pdf'),
-                                 verbose=True)
-        
+                                 del_if_exists=True,
+                                 verbose=True) #figsize=[8,15]       
         
