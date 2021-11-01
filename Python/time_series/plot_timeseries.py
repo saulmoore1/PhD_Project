@@ -36,6 +36,8 @@ SAVE_DIR = '/Users/sm5911/Documents/Keio_Conf_Screen'
 
 BLUELIGHT_FRAMES = [(1500,1751),(4000,4251),(6500,6751)]
 
+CONTROL = 'wild_type'
+
 WINDOW = 100
 MAX_N_FRAMES = 9000
 MULTI_STRAIN = True # plot multiple strains on the same plot?
@@ -239,10 +241,6 @@ def plot_timeseries_motion_mode(df, window=None, error=False, mode=None, max_n_f
     # moving average (optional)
     if window:
         df = df.set_index('timestamp').rolling(window=window, center=True).mean().reset_index()
-        
-    # create colour palette for plot
-    # palette = dict(zip(['stationary','forwards','backwards'], 
-    #                    sns.color_palette(palette=sns_colour_palette, n_colors=3)))
 
     if ax is None:
         fig, ax = plt.subplots(figsize=figsize)
@@ -461,7 +459,9 @@ def plot_timeseries_from_metadata(metadata_path,
                     plt.legend(handles=legend_handles, labels=colour_dict.keys(), loc='best',\
                                borderaxespad=0.4, frameon=False, fontsize=15)
                     if save_dir:
-                        saveAs = save_dir / 'timeseries_plots' / ('%s_%s.pdf' % (feature, mode))
+                        '_'.join(strain_list)
+                        saveAs = save_dir / 'timeseries_plots' / '_'.join(strain_list) /\
+                                 ('%s_%s.pdf' % (feature, mode))
                         saveAs.parent.mkdir(parents=True, exist_ok=True)
                         plt.savefig(saveAs, dpi=300)
            
@@ -560,27 +560,13 @@ if __name__ == "__main__":
     strain_list = STRAIN_LIST if args.strain_list_path is None else read_list_from_file(args.strain_list_path)
     fset = None if args.fset_path is None else read_list_from_file(args.fset_path)
 
-    # # plot timeseries of all strains together, for each motion mode separately 
-    # plot_timeseries_from_metadata(metadata_path=args.metadata_path, 
-    #                               results_dir=RESULTS_DIR,
-    #                               group_by='gene_name',
-    #                               strain_list=strain_list, 
-    #                               control='wild_type',
-    #                               fset=fset,
-    #                               save_dir=Path(args.save_dir) / 'timeseries',
-    #                               motion_mode='all', # 'forwards', 'backwards', 'stationary', 
-    #                               multi_strain=True,
-    #                               window=WINDOW,
-    #                               error=False,
-    #                               max_n_frames=MAX_N_FRAMES,
-    #                               sns_colour_palette='Greens')
-
     # plot timeseries of all motion modes together, for each strain separately
+    print("Plotting timeseries for each strain:")
     plot_timeseries_from_metadata(metadata_path=args.metadata_path, 
                                   results_dir=RESULTS_DIR,
                                   group_by='gene_name',
                                   strain_list=strain_list, 
-                                  control='wild_type',
+                                  control=CONTROL,
                                   fset=fset,
                                   save_dir=Path(args.save_dir) / 'timeseries',
                                   motion_mode='all', # 'forwards', 'backwards', 'stationary', 
@@ -590,3 +576,20 @@ if __name__ == "__main__":
                                   max_n_frames=MAX_N_FRAMES,
                                   sns_colour_palette='Greens')
     
+    # plot timeseries of strain vs control, for each motion mode separately
+    strain_list = ['fepB','fepD','fes','atpB','nuoC','sdhD','entA']
+    for strain in strain_list:
+        print("\nPlotting timeseries for: %s vs %s.." % (strain, CONTROL))
+        plot_timeseries_from_metadata(metadata_path=args.metadata_path, 
+                                      results_dir=RESULTS_DIR,
+                                      group_by='gene_name',
+                                      strain_list=[CONTROL, strain], 
+                                      control=CONTROL,
+                                      fset=fset,
+                                      save_dir=Path(args.save_dir) / 'timeseries',
+                                      motion_mode='all', # 'all','forwards', 'backwards', 'stationary'
+                                      multi_strain=True,
+                                      window=WINDOW,
+                                      error=True,
+                                      max_n_frames=MAX_N_FRAMES,
+                                      sns_colour_palette='Greens')

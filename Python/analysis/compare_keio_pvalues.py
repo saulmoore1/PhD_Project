@@ -19,32 +19,20 @@ from pathlib import Path
 from matplotlib import pyplot as plt
 
 from sklearn import linear_model
-from sklearn.metrics import mean_squared_error, r2_score
-
-# from sklearn.metrics import r2_score
+from sklearn.metrics import r2_score # mean_squared_error
 # from scipy.stats import linregress
 
 #%% Globals
 
-strain_list = None #['atpB','sdhD', 'nuoC', 'fepD']
+strain_list = None #['wild_type','fepB','fepD','fes','atpB','nuoC','sdhD','entA']
 
 N_TOP_FEATS = 16
 
 KEIO_STATS_PATH = '/Users/sm5911/Documents/Keio_Screen/Top{}/gene_name/Stats/fdr_by/t-test_results_uncorrected.csv'.format(N_TOP_FEATS)
 KEIO_CONF_STATS_PATH = '/Users/sm5911/Documents/Keio_Conf_Screen/Top{}/gene_name/Stats/fdr_by/t-test_results_uncorrected.csv'.format(N_TOP_FEATS)
 SAVE_DIR = '/Users/sm5911/Documents/Keio_Conf_Screen/Top{}/p-value_corr'.format(N_TOP_FEATS)
-            
-#%%
 
-# Load p-values from initial Keio screen (Top256)
-pvals = pd.read_csv(KEIO_STATS_PATH, index_col=0)
-pvals = pvals[[c for c in pvals.columns if 'pval' in c]]
-pvals.columns = [c.split('pvals_')[-1] for c in pvals.columns]
-
-# Load p-values from confirmational Keio screen (Top256)
-pvals2 = pd.read_csv(KEIO_CONF_STATS_PATH, index_col=0)
-pvals2 = pvals2[[c for c in pvals2.columns if 'pval' in c]]
-pvals2.columns = [c.split('pvals_')[-1] for c in pvals2.columns]
+#%% Functions
 
 def strain_pval_pairplot(pvals, pvals2, strain_list=None, saveAs=None):
     
@@ -95,13 +83,36 @@ def strain_pval_pairplot(pvals, pvals2, strain_list=None, saveAs=None):
                 model = model.fit(X, Y)
     
                 axs[i,ii].plot(X, model.predict(X), "r-", lw=1)
+ 
+                # Perform linear regression fit
+                # m, b = np.polyfit(pvals, pvals2, deg=1) # m = slope, b = intercept
+                # y_pred = np.poly1d([m, b])(pvals) # y_pred = m * pvals + b
                 
+                # Estimate correlation coefficient of determination
+                # You can calculate coefficient of determination (r2) by:
+                # 1. sklearn.metrics.r2_score(y,y_pred)
+                # 2. numpy.corrcoef(x,y)[0,1]**2 
+                # 3. scipy.stats.linregress(x,y)[2]**2
+                
+                # #1
+                # r2 = r2_score(pvals2, y_pred)
                 r2 = r2_score(Y, model.predict(X))
+
+                # #2
+                # correlation_matrix = np.corrcoef(pvals, pvals2)
+                # correlation_xy = correlation_matrix[0,1]
+                # r2 = correlation_xy ** 2
                 
+                # #3
+                # # scipy.stats.linregress is a ready function for the linear regression fit
+                # slope, intercept, r_value, p_value, std_err = linregress(pvals, pvals2)
+
                 if r2 > 0.5:
                     axs[i,ii].text(0.5, 0.5, strain, transform=axs[i,ii].transAxes, 
                                    fontsize=10, c='k', horizontalalignment='center')
-                
+                # text = f"$y={m:0.3f}\;x{b:+0.3f}$\n$R^2 = {r2:0.3f}$"
+                # plt.gca().text(0, 1.1, text,transform=plt.gca().transAxes, fontsize=14, verticalalignment='top')
+
             except Exception as E:
                 print(E)
                 
@@ -127,81 +138,23 @@ def strain_pval_pairplot(pvals, pvals2, strain_list=None, saveAs=None):
         plt.savefig(saveAs, dpi=600)
     
     return fig, axs
+           
+#%% Main
 
-fig, axs = strain_pval_pairplot(pvals, pvals2, strain_list=strain_list, saveAs=Path(SAVE_DIR) / 'pairplot.pdf')
-plt.tight_layout(pad=0.2)
-plt.show()
-
-
-# for strain in strain_list:
-#     strain_pvals = grouped_strain.get_group(strain)
+if __name__ == "__main__":
     
-#     plt.close('all')
-#     fig, ax = plt.subplots(figsize=(10,10))
-#     sns.scatterplot(x='p1', y='p2', data=strain_pvals, ax=ax, marker='+', s=50, color='k')
-#     # ax.set_xlim(-0.02, 1.02)
-#     # ax.set_ylim(-0.02, 1.02)
-#     ax.set_xlabel('Initial screen (-log10 p-value)', fontsize=15, labelpad=10)
-#     ax.set_ylabel('Confirmation screen (-log10 p-value)', fontsize=15, labelpad=10)
-#     plt.title(strain, fontsize=15, pad=10)    
-
-#     # save plot
-#     # Save figure
-#     Path(SAVE_DIR).mkdir(exist_ok=True, parents=True)
-#     plt.savefig(Path(SAVE_DIR) / '{}_pval_corr.pdf'.format(strain), dpi=300)
-#     plt.show()
-            
-#     #strain_pvals = strain_pvals.T.reset_index(drop=None)
+    # Load p-values from initial Keio screen (Top256)
+    pvals = pd.read_csv(KEIO_STATS_PATH, index_col=0)
+    pvals = pvals[[c for c in pvals.columns if 'pval' in c]]
+    pvals.columns = [c.split('pvals_')[-1] for c in pvals.columns]
     
-#     sns.pairplot(strain_pvals)
-
-#     # -log10 transformation
-#     _pvals = - np.log10(pvals[strain].values) # initial screen pvals
-#     _pvals2 = - np.log10(pvals2[strain].values) # conf screen pvals
+    # Load p-values from confirmational Keio screen (Top256)
+    pvals2 = pd.read_csv(KEIO_CONF_STATS_PATH, index_col=0)
+    pvals2 = pvals2[[c for c in pvals2.columns if 'pval' in c]]
+    pvals2.columns = [c.split('pvals_')[-1] for c in pvals2.columns]
     
-#     # perform linear regression fit
-#     model = linear_model.LinearRegression()
-#     model = model.fit(_pvals.reshape((-1, 1)), _pvals2)
+    fig, axs = strain_pval_pairplot(pvals, pvals2, strain_list=strain_list, saveAs=Path(SAVE_DIR) / 'pairplot.pdf')
+    plt.tight_layout(pad=0.2)
+    plt.show()
     
-#     r2_score(_pvals2, _pvals2_pred)
-#     r_sq = model.score(_pvals.reshape((-1, 1)), _pvals2)
-    
-#     plt.plot(_pvals, model.predict())
-    
-#         # obtain slope and intercept parameters
-#     # Perform linear regression fit
-#     m, b = np.polyfit(pvals, pvals2, deg=1) # m = slope, b = intercept
-#     y_pred = np.poly1d([m, b])(pvals) # y_pred = m * pvals + b
-    
-#     # Estimate correlation coefficient of determination
-#     # You can calculate coefficient of determination (r2) by:
-#     # 1. sklearn.metrics.r2_score(y,y_pred)
-#     # 2. numpy.corrcoef(x,y)[0,1]**2 
-#     # 3. scipy.stats.linregress(x,y)[2]**2
-    
-#     #1
-#     r2 = r2_score(pvals2, y_pred)
-    
-#     #2
-#     correlation_matrix = np.corrcoef(pvals, pvals2)
-#     correlation_xy = correlation_matrix[0,1]
-#     r2 = correlation_xy ** 2
-    
-#     #3
-#     # scipy.stats.linregress is a ready function for the linear regression fit
-#     slope, intercept, r_value, p_value, std_err = linregress(pvals, pvals2)
-    
-#     # Assert that the linregress method is identical (within limits of machine precision)
-#     assert ((np.round(slope,6) == np.round(m,6)) and 
-#             (np.round(intercept,6) == np.round(b,6)) and 
-#             (np.round(r_value**2,6) == np.round(r2,6)))
-    
-#     # Plot scatterplot
-#     plt.close('all')
-#     plt.figure(figsize=(8,7))
-#     plt.plot(pvals, pvals2, '+', ms=10, mec='k')
-#     plt.plot(pvals, y_pred, "r--", lw=1)
-
-#     text = f"$y={m:0.3f}\;x{b:+0.3f}$\n$R^2 = {r2:0.3f}$"
-#     plt.gca().text(0, 1.1, text,transform=plt.gca().transAxes, fontsize=14, verticalalignment='top')
-    
+        

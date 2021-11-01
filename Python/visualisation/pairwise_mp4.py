@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Side-by-side RawVideo mp4 of sampled wells for strain vs control
+Side-by-side mp4 videos of sampled wells (pairwise) for strain vs control
 
 @author: sm5911
 @date: 29/10/2021
@@ -16,7 +16,6 @@ import argparse
 import numpy as np
 import pandas as pd
 from tqdm import tqdm
-from time import time
 from pathlib import Path
 
 sys.path.insert(0, "/Users/sm5911/Tierpsy_Versions/tierpsy-tracker") # path to tierpsy tracker repo
@@ -36,9 +35,9 @@ CODEC = 'avc1' #'H264','MPEG','mp4v'
 
 #%% Functions
 
-def plot_pairwise_mp4(metadata, strain_colname, strain, control, saveDir, downsample=10, 
-                      stim_type='bluelight', max_n_pairs=5, del_if_exists=False, verbose=True):
-    """ Plot pairwise trajectory plots of strain vs control """
+def pairwise_mp4(metadata, strain_colname, strain, control, saveDir, downsample=10, 
+                 stim_type='bluelight', max_n_pairs=5, del_if_exists=False, verbose=True):
+    """ Create mp4 videos of n pairs of strain vs control wells """
     
     assert strain in metadata[strain_colname].unique() and control in metadata[strain_colname].unique()
     
@@ -90,49 +89,56 @@ def plot_pairwise_mp4(metadata, strain_colname, strain, control, saveDir, downsa
         s_file, s_well = s
         c_file, c_well = c
         
-        # store time
-        tic = time()
-        
         # read original video frame rate
         fps = read_fps(s_file)
 
         # create the generator for the sample + control
         s_well_img_gen = well_reader(s_file, s_well)
-        c_well_img_gen = well_reader(c_file, c_well)
+        c_well_img_gen = well_reader(c_file, c_well)        
+
+        # calculate size of output video       
+        for s_img, c_img in zip(s_well_img_gen, c_well_img_gen):
+            # get size of first frame of each video
+            s_shape = s_img.shape 
+            c_shape = c_img.shape
+            
+            # dimensions for horizontal stack of both videos
+            height = max(s_shape[0], c_shape[0])
+            width = s_shape[1] + c_shape[1]
+
+            break
         
-                
-        for i, (s_img, c_img) in enumerate(zip(s_well_img_gen, c_well_img_gen)):
+        # open video writer
+        Path(saveDir).mkdir(parents=True, exist_ok=True)
+        videoname = Path(saveDir) / (saveDir.name + '_(left)_vs_control_(right)_' + 
+                                     '{}.mp4'.format(i + 1))
+        vid_writer = cv2.VideoWriter(str(videoname), cv2.VideoWriter_fourcc(*CODEC), 
+                                     fps, (width, height), isColor=False) # fps/downsample
+        assert vid_writer.isOpened()
+            
+        # re-create the generator for the sample + control
+        s_well_img_gen = well_reader(s_file, s_well)
+        c_well_img_gen = well_reader(c_file, c_well)   
+        
+        for s_img, c_img in zip(s_well_img_gen, c_well_img_gen):
             
             # create black frame with width = sum of two widths, height = max of two heights
-            height = max(s_img.shape[0], c_img.shape[0])
-            width = s_img.shape[1] + c_img.shape[1]
             img = np.zeros(shape=(height, width), dtype=np.uint8)
  
             # set the sample frame as the left image, control frame as the right image
             img[0:s_img.shape[0], 0:s_img.shape[1]] = s_img
             img[0:c_img.shape[0], s_img.shape[1]:] = c_img 
             
-            if i == 0:
-                # open video writer
-                Path(saveDir).mkdir(parents=True, exist_ok=True)
-                videoname = Path(saveDir) / (saveDir.name + '_(left)_vs_control_(right)_{}.mp4'.format(i + 1))
-                vid_writer = cv2.VideoWriter(str(videoname), cv2.VideoWriter_fourcc(*CODEC), 
-                                             fps/downsample, (img.shape[1], img.shape[0]), 
-                                             isColor=False)
-                assert vid_writer.isOpened()
-
             # write out with video writer
             vid_writer.write(img)
         
         # close video writer
         vid_writer.release()
-        print("Done in %.1f seconds" % (time() - tic))
         
 #%% Main
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Plot pairwise trajectories for each strain vs \
-                                     control (aligned bluelight only)")
+    parser = argparse.ArgumentParser(description="Create mp4 videos of pairwise strain vs control wells")
     parser.add_argument('--metadata_path', help="Path to metadata file containing columns: \
                         ['featuresN_filename','well_name','date_yyyymmdd','imaging_plate_id']",
                         default=METADATA_PATH)
@@ -157,17 +163,16 @@ if __name__ == "__main__":
     
     assert all(s in metadata[args.strain_colname].unique() for s in args.strain_list)
     
-    # plot pairwise trajectory plots
+    # create mp4 videos of pairwise strain vs control wells
     for strain in args.strain_list:
-        print("Plotting pairwise mp4 videos for '%s' vs '%s'" % (strain, args.control))
-        plot_pairwise_mp4(metadata,
-                          strain=strain,
-                          strain_colname=args.strain_colname,
-                          control=args.control,
-                          stim_type='bluelight',
-                          downsample=args.downsample,
-                          max_n_pairs=MAX_N_PAIRS,
-                          saveDir=Path(args.save_dir) / strain,
-                          del_if_exists=False,
-                          verbose=True)
-        
+        print("\nPlotting pairwise mp4 videos for '%s' vs '%s'" % (strain, args.control))
+        pairwise_mp4(metadata,
+                     strain=strain,
+                     strain_colname=args.strain_colname,
+                     control=args.control,
+                     stim_type='bluelight',
+                     downsample=args.downsample,
+                     max_n_pairs=MAX_N_PAIRS,
+                     saveDir=Path(args.save_dir) / strain,
+                     del_if_exists=False,
+                     verbose=True)
