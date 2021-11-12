@@ -39,6 +39,7 @@ from visualisation.plotting_helper import errorbar_sigfeats, boxplots_sigfeats #
 #%% GLOBALS
 
 JSON_PARAMETERS_PATH = "analysis/20210914_parameters_keio_screen.json"
+# JSON_PARAMETERS_PATH = "analysis/20210406_parameters_keio_screen.json"
 
 N_LOWEST_PVAL = 100
 SUBSET_HIT_STRAINS = False
