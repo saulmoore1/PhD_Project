@@ -50,18 +50,11 @@ def df_summary_stats(df, columns=None):
     elif type(columns) != list:
         raise TypeError("'columns' must be a list!")
     assert all(c in df.columns for c in columns)  
-    
-    sample_dict = {}
-    for c in columns:
-        samples = list(df[c].unique())
-        for s in samples:
-            sample_dict[(c, s)] = df[df[c]==s].shape[0]
                     
-    stats_df = pd.DataFrame.from_dict(sample_dict, orient='index', columns=['n_samples'])
-    stats_df['column_name'] = [c for (c, s) in stats_df.index]
-    stats_df['sample_name'] = [s for (c, s) in stats_df.index]
+    stats_df = df.groupby(columns).size().reset_index(drop=False)
+    stats_df = stats_df.rename(columns={stats_df.columns[-1]: 'n_samples'})
 
-    return stats_df[['column_name','sample_name','n_samples']].reset_index(drop=True)
+    return stats_df
 
 def average_plate_control_data(features, metadata, control='wild_type', grouping_var='gene_name', 
                                plate_var='imaging_plate_id'):

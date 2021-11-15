@@ -1,53 +1,27 @@
-project_dir # str, Path to project root directory (assuming Tierpsy directory structure for relative paths)
-
-save_dir # str, Path to directory to save (will be created if it does not exist)
-
-grouping_variable # str, Categorical variable to investigate, eg.'worm_strain'
-
-compile_day_summaries # bool, Compile full feature summaries from day feature summary results
-
-align_bluelight # bool, Align bluelight conditions
-
-omit_strains # List of strains in 'analyse_variables' to omit from the analysis
-
-dates # list, List of imaging dates to use for analysis. If None, all dates will be investigated
-
-runs # list, List of imaging run numbers to use for analysis. If None, all runs will be investigated
-
-test # str, Choose between 'LMM' (if >1 day replicate), 'ANOVA' or 'Kruskal'. If is_normal=None and data is not normally distributed, Kruskal tests will be performed. If significant features are found, pairwise t-tests are then performed
-
-use_top256 # bool, Use Tierpsy Top256 features only
-
-percentile_to_use # str, Use only feature summaries for given percentile in analysis (eg. '50th')
-
-drop_size_features # bool, Remove size-related Tierpsy features from analysis 
-
-norm_features_only # bool, Use only normalised size-invariant features ('_norm') for analysis
-
-is_normal # bool or None, Decide between parametric/non-parametric statistics. If None, will check for normality
-
-remove_outliers # bool, Use Mahalanobis distance to exclude outliers from analysis
-
-impute_nans # bool, Impute NaN valus using global mean value
-
-max_value_cap # float, Max value limit for feature summaries
-
-nan_threshold # float, Threshold proportion of NaN values to drop feature from analysis
-
-pval_threshold # float, Threshold p-value for statistical significance
-
-k_sig_features # int, Number of most significantly different features to plot
-
-selected_features_path # str, Path to CSV containing list of selected features to load
-
-add_well_annotations # bool, Add 'is_bad_well' labels from WellAnnotator GUI
-
-control_dict, # dict, Dictionary of control group names for each categorical variable to investigate
-
-fdr_method # str, Benjamini-Yekutieli correction for multiple testing
-
-lmm_random_effect # str, Random effect variable to use for linear mixed models
-
+project_dir 		# str, Path to project root directory (assuming Tierpsy directory structure for relative paths)
+save_dir 		# str, Path to directory to save (will be created if it does not exist)
+grouping_variable 	# str, Categorical variable to investigate, eg.'worm_strain'
+compile_day_summaries 	# bool, Compile full feature summaries from day feature summary results
+align_bluelight 	# bool, Align bluelight conditions
+omit_strains 		# list, List of strains in 'analyse_variables' to omit from the analysis
+dates 			# list, List of imaging dates to use for analysis. If None, all dates will be investigated
+runs 			# list, List of imaging run numbers to use for analysis. If None, all runs will be investigated
+test 			# str, Choose between 'LMM' (if >1 day replicate), 'ANOVA' or 'Kruskal'. Kruskal tests performed if is_normal=None and data is not Gaussian. t-tests performed if significant features are found.
+use_top256 		# bool, Use Tierpsy Top256 features only
+percentile_to_use 	# str, Use only feature summaries for given percentile in analysis (eg. '50th')
+drop_size_features 	# bool, Remove size-related Tierpsy features from analysis 
+norm_features_only 	# bool, Use only normalised size-invariant features ('_norm') for analysis
+is_normal 		# bool or None, Decide between parametric/non-parametric statistics. If None, will check for normality
+remove_outliers 	# bool, Use Mahalanobis distance to exclude outliers from analysis
+impute_nans 		# bool, Impute NaN valus using global mean value
+max_value_cap 		# float, Max value limit for feature summaries
+nan_threshold 		# float, Threshold proportion of NaN values to drop feature from analysis
+pval_threshold 		# float, Threshold p-value for statistical significance
+k_sig_features 		# int, Number of most significantly different features to plot
+selected_features_path 	# str, Path to CSV containing list of selected features to load
+add_well_annotations 	# bool, Add 'is_bad_well' labels from WellAnnotator GUI
+control_dict 		# dict, Dictionary of control group names for each categorical variable to investigate
+fdr_method 		# str, Benjamini-Yekutieli correction for multiple testing
+lmm_random_effect 	# str, Random effect variable to use for linear mixed models
 use_k_sig_feats_overlap # bool, Restrict significant feature set to overlap with k sig feats?
-
-max_features_plot_cap # int, Maximum number of (significant) features to plot
+max_features_plot_cap 	# int, Maximum number of (significant) features to plot

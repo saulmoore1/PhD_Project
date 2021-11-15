@@ -21,17 +21,12 @@
 "min_nskel_sum": 6000,
 "selected_features_path": null,
 "add_well_annotations": true,
-"analyse_control" : true,
+"analyse_control" : false,
 "collapse_control" : false,
 "control_dict": {"gene_name": "wild_type",
-                 "instrument_name": "Hydra01",
-		 "imaging_run_number": "1"},
-"f_test": false,
-"test": "ANOVA",
+                 "dead": false},
 "n_sig_features": null,
 "pval_threshold": 0.05,
 "fdr_method": "fdr_by",
-"use_corrected_pvals" : true,
-"use_k_sig_feats_overlap": false,
-"lmm_random_effect": "date_yyyymmdd"
+"use_corrected_pvals" : true
 }

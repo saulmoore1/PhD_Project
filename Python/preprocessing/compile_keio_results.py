@@ -24,7 +24,8 @@ from filter_data.clean_feature_summaries import clean_summary_results
 #%% GLOBALS
 
 #JSON_PARAMETERS_PATH = "analysis/20210914_parameters_keio_screen.json"
-JSON_PARAMETERS_PATH = "analysis/20211102_parameters_keio_rescue.json"
+#JSON_PARAMETERS_PATH = "analysis/20211102_parameters_keio_rescue.json"
+JSON_PARAMETERS_PATH = "analysis/20211109_parameters_keio_dead.json"
 
 RENAME_DICT = {"BW" : "wild_type",
                "FECE" : "fecE",

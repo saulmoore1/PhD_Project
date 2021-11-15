@@ -20,7 +20,7 @@
 "min_nskel_per_video": null,
 "min_nskel_sum": 6000,
 "selected_features_path": null,
-"add_well_annotations": true,
+"add_well_annotations": false,
 "analyse_control" : true,
 "collapse_control" : false,
 "control_dict": {"gene_name": "wild_type",

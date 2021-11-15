@@ -174,7 +174,8 @@ def plot_barcode_heatmap(featZ,
                          figsize=[18,6],
                          saveto=None,
                          sns_colour_palette="bright",
-                         label_size=20):
+                         label_size=20,
+                         sub_adj={'top':0.95,'bottom':0.05,'left':0.08,'right':0.88}):
     """  """
     
     import numpy as np
@@ -226,7 +227,7 @@ def plot_barcode_heatmap(featZ,
     height_ratios = list(np.repeat(3,len(var_list)))
     height_ratios.extend([3,3])
     gs = GridSpec(len(var_list)+2, 1, wspace=0, hspace=0, height_ratios=height_ratios)
-    cbar_ax = f.add_axes([.885, .275, .01, .68]) #  [left, bottom, width, height]
+    cbar_ax = f.add_axes([.95, .75, .02, .2]) #  [left, bottom, width, height]
     
     # Stimulus colors
     stim_order = ['prestim','bluelight','poststim']
@@ -271,8 +272,8 @@ def plot_barcode_heatmap(featZ,
                         fontsize=12, handletextpad=0.2)
         lg.get_title().set_fontsize(15)
 
-        plt.subplots_adjust(top=0.95, bottom=0.05, 
-                            left=0.08*len(group_by), right=0.88, 
+        plt.subplots_adjust(top=sub_adj['top'], bottom=sub_adj['bottom'], 
+                            left=sub_adj['left']*len(group_by), right=sub_adj['right'], 
                             hspace=0.01, wspace=0.01)
         #f.tight_layout(rect=[0, 0, 0.89, 1], w_pad=0.5)
     
