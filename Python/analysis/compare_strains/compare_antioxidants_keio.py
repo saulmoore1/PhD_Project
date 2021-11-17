@@ -7,6 +7,8 @@ Please run the following scripts beforehand:
 1. preprocessing/compile_keio_results.py
 2. statistical_testing/perform_rescue_stats.py
 
+Main feature we are using as an indicator for the rescue: 'motion_mode_paused_fraction_bluelight'
+
 @author: sm5911
 @date: 13/11/2021
 """
@@ -21,21 +23,17 @@ from time import time
 from tqdm import tqdm
 from pathlib import Path
 from matplotlib import pyplot as plt
-from matplotlib import patches, transforms
+from matplotlib import transforms
 from scipy.stats import zscore # levene, ttest_ind, f_oneway, kruskal
 
 from read_data.paths import get_save_dir
 from read_data.read import load_json, load_topfeats
-from write_data.write import write_list_to_file
-from analysis.control_variation import control_variation
-from filter_data.clean_feature_summaries import clean_summary_results, subset_results
+#from analysis.control_variation import control_variation
+#from filter_data.clean_feature_summaries import clean_summary_results, subset_results
 from clustering.hierarchical_clustering import plot_clustermap, plot_barcode_heatmap
 from feature_extraction.decomposition.pca import plot_pca, remove_outliers_pca
 from feature_extraction.decomposition.tsne import plot_tSNE
 from feature_extraction.decomposition.umap import plot_umap
-from visualisation.super_plots import superplot
-from visualisation.plotting_helper import errorbar_sigfeats, boxplots_sigfeats # boxplots_grouped, 
-                                        # barplot_sigfeats, plot_day_variation
 from analysis.compare_strains.run_keio_analysis import COG_category_dict
 from statistical_testing.perform_keio_stats import df_summary_stats
 
@@ -48,6 +46,7 @@ TREATMENT_COLNAME = 'antioxidant'
 CONTROL_STRAIN = 'wild_type'
 CONTROL_TREATMENT = 'None'
 
+FEATURE = 'motion_mode_paused_fraction_bluelight'
 scale_outliers_box = True
 
 METHOD = 'complete' # 'complete','linkage','average','weighted','centroid'

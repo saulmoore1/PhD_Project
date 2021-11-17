@@ -117,8 +117,8 @@ def dead_keio_stats(features, metadata, args):
                                                       multitest_correction=None, 
                                                       alpha=0.05)
         # get effect sizes for comparisons
-        effect_sizes_t =  get_effect_sizes(X=feat_strain, 
-                                           y=meta_strain[TREATMENT_COLNAME], 
+        effect_sizes_t =  get_effect_sizes(X=strain_feat, 
+                                           y=strain_meta[TREATMENT_COLNAME], 
                                            control=CONTROL_TREATMENT,
                                            effect_type=None,
                                            linked_test=t_test)

@@ -39,6 +39,8 @@ STRAIN_COLNAME = 'gene_name'
 CONTROL_TREATMENT = 'None'
 TREATMENT_COLNAME = 'antioxidant'
     
+FEATURE = 'motion_mode_paused_fraction_bluelight'
+
 #%% FUNCTIONS
 
 def pairwise_ttest(control_df, strain_df, feature_list, group_by='antioxidant', 
@@ -112,18 +114,7 @@ def antioxidant_stats(features, metadata, args):
     assert len(metadata[STRAIN_COLNAME].unique()) == len(metadata[STRAIN_COLNAME].str.upper().unique())
     assert len(metadata[TREATMENT_COLNAME].unique()) == len(metadata[TREATMENT_COLNAME].str.upper().unique())
     
-    # load Tierpsy top feature set + subset (columns) for top feats only
-    if args.n_top_feats is not None:
-        top_feats_path = Path(args.tierpsy_top_feats_dir) / "tierpsy_{}.csv".format(str(args.n_top_feats))
-        topfeats = load_topfeats(top_feats_path, add_bluelight=args.align_bluelight, 
-                                 remove_path_curvature=True, header=None)
-        
-        # drop features that are not in results
-        top_feats_list = [feat for feat in list(topfeats) if feat in features.columns]
-        features = features[top_feats_list]
-    
-    assert not features.isna().any().any()
-    n_feats = features.shape[1]
+    assert not features.isna().any()
     
     strain_list = list(metadata[STRAIN_COLNAME].unique())
     antioxidant_list = list(metadata[TREATMENT_COLNAME].unique())
@@ -140,10 +131,11 @@ def antioxidant_stats(features, metadata, args):
     ### For each antioxidant treatment in turn...
     
     for antiox in antioxidant_list:
+        print("\n%s" % antiox)
         meta_antiox = metadata[metadata[TREATMENT_COLNAME]==antiox]
         feat_antiox = features.reindex(meta_antiox.index)
 
-        ### ANOVA tests for significant feature variation between strains
+        ### ANOVA tests for significant variation between strains
         
         # make path to save ANOVA results
         test_path_unncorrected = stats_dir / '{}_uncorrected.csv'.format((args.test + '_' + antiox))
@@ -187,77 +179,67 @@ def antioxidant_stats(features, metadata, args):
             test_results = test_results.sort_values(by=['pvals'], ascending=True) # rank pvals
             test_results.to_csv(test_path, header=True, index=True)
         
-            # use reject mask to find significant feature set
-            fset = pvals.loc[reject[args.test]].sort_values(by=args.test, ascending=True).index.to_list()
-            print("%d (%.1f%%) significant features found by %s for %s across '%s' (P<%.2f, %s)" %\
-                  (len(fset), (len(fset)/n_feats*100), args.test, antiox, STRAIN_COLNAME, 
-                  args.pval_threshold, args.fdr_method))
-
-            if len(fset) > 0:
-                anova_sigfeats_path = stats_dir / '{}_sigfeats.txt'.format((args.test + '_' + antiox))
-                write_list_to_file(fset, anova_sigfeats_path)
+            print("%s differences in '%s' across strains on %s (%s, P<%.2f, %s)" %(("SIGNIFICANT" if 
+                  reject_corrected.loc[FEATURE, args.test] else "No significant"), FEATURE,
+                  antiox, args.test, args.pval_threshold, args.fdr_method))
         else:
-            fset = []
-            print("\nWARNING: Not enough groups for %s for '%s' (n=%d groups)" %\
-                  (args.test, STRAIN_COLNAME, len(strain_list)))                      
+            print("\nWARNING: Not enough %s groups for %s (n=%d)" %\
+                  (STRAIN_COLNAME, args.test, len(strain_list)))                      
 
-        ### t-tests for each feature comparing each strain vs control for paired antioxidant treatment conditions
-                
-        # t-test to use        
-        t_test = 't-test' if args.test == 'ANOVA' else 'Mann-Whitney' # aka. Wilcoxon rank-sum      
-        ttest_path_uncorrected = stats_dir / '{}_uncorrected.csv'.format((t_test + '_' + antiox))
-        ttest_path = stats_dir / '{}_results.csv'.format((t_test + '_' + antiox))  
-        ttest_path.parent.mkdir(exist_ok=True, parents=True)
-
-        # perform t-tests (without correction for multiple testing)
-        stats_t, pvals_t, reject_t = univariate_tests(X=feat_antiox, 
-                                                      y=meta_antiox[STRAIN_COLNAME], 
-                                                      control=CONTROL_STRAIN, 
-                                                      test=t_test,
-                                                      comparison_type='binary_each_group',
-                                                      multitest_correction=None, 
-                                                      alpha=0.05)
-        # get effect sizes for comparisons
-        effect_sizes_t =  get_effect_sizes(X=feat_antiox, 
-                                           y=meta_antiox[STRAIN_COLNAME], 
-                                           control=CONTROL_STRAIN,
-                                           effect_type=None,
-                                           linked_test=t_test)
+        ### t-tests comparing each strain vs control for each antioxidant treatment conditions
         
-        # compile + save t-test results (uncorrected)
-        stats_t.columns = ['stats_' + str(c) for c in stats_t.columns]
-        pvals_t.columns = ['pvals_' + str(c) for c in pvals_t.columns]
-        reject_t.columns = ['reject_' + str(c) for c in reject_t.columns]
-        effect_sizes_t.columns = ['effect_size_' + str(c) for c in effect_sizes_t.columns]
-        ttest_uncorrected = pd.concat([stats_t, effect_sizes_t, pvals_t, reject_t], axis=1)
-        ttest_uncorrected.to_csv(ttest_path_uncorrected, header=True, index=True)
-        
-        # correct for multiple comparisons
-        pvals_t.columns = [c.split("_")[-1] for c in pvals_t.columns]
-        reject_t, pvals_t = _multitest_correct(pvals_t, 
-                                               multitest_method=args.fdr_method,
-                                               fdr=args.pval_threshold)
+        if len(meta_antiox[STRAIN_COLNAME].unique()) == 2 or (len(meta_antiox[STRAIN_COLNAME].unique()) > 2 
+                                                              and reject_corrected.loc[FEATURE, args.test]):
 
-        # compile + save t-test results (corrected)
-        pvals_t.columns = ['pvals_' + str(c) for c in pvals_t.columns]
-        reject_t.columns = ['reject_' + str(c) for c in reject_t.columns]
-        ttest_corrected = pd.concat([stats_t, effect_sizes_t, pvals_t, reject_t], axis=1)
-        ttest_corrected.to_csv(ttest_path, header=True, index=True)
-
-        # record t-test significant features (not ordered)
-        fset_ttest = pvals_t[np.asmatrix(reject_t)].index.unique().to_list()
-        #assert set(fset_ttest) == set(pvals_t.index[(pvals_t < args.pval_threshold).sum(axis=1) > 0])
-        print("%d significant features on %s for any %s vs %s (%s, P<%.2f)" % (len(fset_ttest),
-              antiox, STRAIN_COLNAME, CONTROL_STRAIN, t_test, args.pval_threshold))
-
-        if len(fset_ttest) > 0:
-            ttest_sigfeats_path = stats_dir / '{}_sigfeats.txt'.format((t_test + '_' + antiox))
-            write_list_to_file(fset_ttest, ttest_sigfeats_path)
-
+            # t-test to use        
+            t_test = 't-test' if args.test == 'ANOVA' else 'Mann-Whitney' # aka. Wilcoxon rank-sum      
+            ttest_path_uncorrected = stats_dir / '{}_uncorrected.csv'.format((t_test + '_' + antiox))
+            ttest_path = stats_dir / '{}_results.csv'.format((t_test + '_' + antiox))  
+            ttest_path.parent.mkdir(exist_ok=True, parents=True)
+    
+            # perform t-tests (without correction for multiple testing)
+            stats_t, pvals_t, reject_t = univariate_tests(X=feat_antiox, 
+                                                          y=meta_antiox[STRAIN_COLNAME], 
+                                                          control=CONTROL_STRAIN, 
+                                                          test=t_test,
+                                                          comparison_type='binary_each_group',
+                                                          multitest_correction=None, 
+                                                          alpha=0.05)
+            # get effect sizes for comparisons
+            effect_sizes_t =  get_effect_sizes(X=feat_antiox, 
+                                               y=meta_antiox[STRAIN_COLNAME], 
+                                               control=CONTROL_STRAIN,
+                                               effect_type=None,
+                                               linked_test=t_test)
+            
+            # compile + save t-test results (uncorrected)
+            stats_t.columns = ['stats_' + str(c) for c in stats_t.columns]
+            pvals_t.columns = ['pvals_' + str(c) for c in pvals_t.columns]
+            reject_t.columns = ['reject_' + str(c) for c in reject_t.columns]
+            effect_sizes_t.columns = ['effect_size_' + str(c) for c in effect_sizes_t.columns]
+            ttest_uncorrected = pd.concat([stats_t, effect_sizes_t, pvals_t, reject_t], axis=1)
+            ttest_uncorrected.to_csv(ttest_path_uncorrected, header=True, index=True)
+            
+            # correct for multiple comparisons
+            pvals_t.columns = [c.split("_")[-1] for c in pvals_t.columns]
+            reject_t, pvals_t = _multitest_correct(pvals_t, 
+                                                   multitest_method=args.fdr_method,
+                                                   fdr=args.pval_threshold)
+    
+            # compile + save t-test results (corrected)
+            pvals_t.columns = ['pvals_' + str(c) for c in pvals_t.columns]
+            reject_t.columns = ['reject_' + str(c) for c in reject_t.columns]
+            ttest_corrected = pd.concat([stats_t, effect_sizes_t, pvals_t, reject_t], axis=1)
+            ttest_corrected.to_csv(ttest_path, header=True, index=True)
+    
+            nsig = reject_t.loc[FEATURE].sum()
+            print("%d %ss differ from %s in '%s' on %s (%s, P<%.2f, %s)" %(nsig, STRAIN_COLNAME, 
+                  CONTROL_STRAIN, FEATURE, antiox, t_test, args.pval_threshold, args.fdr_method))
     
     ### For each strain in turn...
     
     for strain in strain_list:
+        print("\n%s" % strain)
         meta_strain = metadata[metadata[STRAIN_COLNAME]==strain]
         feat_strain = features.reindex(meta_strain.index)
         
@@ -305,79 +287,64 @@ def antioxidant_stats(features, metadata, args):
             test_results = test_results.sort_values(by=['pvals'], ascending=True) # rank pvals
             test_results.to_csv(test_path, header=True, index=True)
     
-            # use reject mask to find significant feature set
-            fset = pvals.loc[reject[args.test]].sort_values(by=args.test, ascending=True).index.to_list()
-            #assert set(fset) == set(anova_corrected['pvals'].index[np.where(anova_corrected['pvals'] < 
-            #args.pval_threshold)[0]])
-
-            print("%d (%.1f%%) significant features found by %s for %s across '%s' (P<%.2f, %s)" %\
-                  (len(fset), (len(fset)/n_feats*100), args.test, strain, TREATMENT_COLNAME, 
-                   args.pval_threshold, args.fdr_method))
-                
-            if len(fset) > 0:
-                anova_sigfeats_path = stats_dir / '{}_sigfeats.txt'.format((args.test + '_' + strain))
-                write_list_to_file(fset, anova_sigfeats_path)
+            print("%s differences in '%s' across %ss for %s (%s, P<%.2f, %s)" %(("SIGNIFICANT" if 
+                  reject_corrected.loc[FEATURE, args.test] else "No"), FEATURE, TREATMENT_COLNAME, 
+                  strain, args.test, args.pval_threshold, args.fdr_method))
         else:
-            fset = []
-            print("\nWARNING: Not enough groups for %s for '%s' (n=%d groups)" %\
-                  (args.test, TREATMENT_COLNAME, len(antioxidant_list)))                      
+            print("\nWARNING: Not enough %s groups for %s (n=%d)" %\
+                  (TREATMENT_COLNAME, args.test, len(antioxidant_list)))                      
                                                         
-        ### t-tests for each feature comparing each antioxidant treatment to no antioxidant for each strain 
+        ### t-tests comparing each antioxidant treatment to no antioxidant for each strain 
  
-        # t-test to use        
-        t_test = 't-test' if args.test == 'ANOVA' else 'Mann-Whitney' # aka. Wilcoxon rank-sum      
-        ttest_path_uncorrected = stats_dir / '{}_uncorrected.csv'.format((t_test + '_' + strain))
-        ttest_path = stats_dir / '{}_results.csv'.format((t_test + '_' + strain))  
-        ttest_path.parent.mkdir(exist_ok=True, parents=True)
-
-        # perform t-tests (without correction for multiple testing)
-        stats_t, pvals_t, reject_t = univariate_tests(X=feat_strain, 
-                                                      y=meta_strain[TREATMENT_COLNAME], 
-                                                      control=CONTROL_TREATMENT, 
-                                                      test=t_test,
-                                                      comparison_type='binary_each_group',
-                                                      multitest_correction=None, 
-                                                      alpha=0.05)
-        # get effect sizes for comparisons
-        effect_sizes_t =  get_effect_sizes(X=feat_strain, 
-                                           y=meta_strain[TREATMENT_COLNAME], 
-                                           control=CONTROL_TREATMENT,
-                                           effect_type=None,
-                                           linked_test=t_test)
-        
-        # compile + save t-test results (uncorrected)
-        stats_t.columns = ['stats_' + str(c) for c in stats_t.columns]
-        pvals_t.columns = ['pvals_' + str(c) for c in pvals_t.columns]
-        reject_t.columns = ['reject_' + str(c) for c in reject_t.columns]
-        effect_sizes_t.columns = ['effect_size_' + str(c) for c in effect_sizes_t.columns]
-        ttest_uncorrected = pd.concat([stats_t, effect_sizes_t, pvals_t, reject_t], axis=1)
-        ttest_uncorrected.to_csv(ttest_path_uncorrected, header=True, index=True)
-        
-        # correct for multiple comparisons
-        pvals_t.columns = [c.split("_")[-1] for c in pvals_t.columns]
-        reject_t, pvals_t = _multitest_correct(pvals_t, 
-                                               multitest_method=args.fdr_method,
-                                               fdr=args.pval_threshold)
-
-        # compile + save t-test results (corrected)
-        pvals_t.columns = ['pvals_' + str(c) for c in pvals_t.columns]
-        reject_t.columns = ['reject_' + str(c) for c in reject_t.columns]
-        ttest_corrected = pd.concat([stats_t, effect_sizes_t, pvals_t, reject_t], axis=1)
-        ttest_corrected.to_csv(ttest_path, header=True, index=True)
-
-        # record t-test significant features (not ordered)
-        fset_ttest = pvals_t[np.asmatrix(reject_t)].index.unique().to_list()
-        #assert set(fset_ttest) == set(pvals_t.index[(pvals_t < args.pval_threshold).sum(axis=1) > 0])
-        print("%d significant features for %s on any %s vs %s (%s, %s, P<%.2f)" % (len(fset_ttest),
-              strain, TREATMENT_COLNAME, CONTROL_TREATMENT, t_test, args.fdr_method, args.pval_threshold))
-
-        if len(fset_ttest) > 0:
-            ttest_sigfeats_path = stats_dir / '{}_sigfeats.txt'.format((t_test + '_' + strain))
-            write_list_to_file(fset_ttest, ttest_sigfeats_path)
-  
-                    
-    ### Pairwise t-tests comparing strain vs control behaviour on each antioxidant
+        if len(meta_strain[TREATMENT_COLNAME].unique()) == 2 or (len(meta_strain[TREATMENT_COLNAME].unique()) > 2 
+                                                                 and reject_corrected.loc[FEATURE, args.test]):
+            # t-test to use        
+            t_test = 't-test' if args.test == 'ANOVA' else 'Mann-Whitney' # aka. Wilcoxon rank-sum      
+            ttest_path_uncorrected = stats_dir / '{}_uncorrected.csv'.format((t_test + '_' + strain))
+            ttest_path = stats_dir / '{}_results.csv'.format((t_test + '_' + strain))  
+            ttest_path.parent.mkdir(exist_ok=True, parents=True)
     
+            # perform t-tests (without correction for multiple testing)
+            stats_t, pvals_t, reject_t = univariate_tests(X=feat_strain, 
+                                                          y=meta_strain[TREATMENT_COLNAME], 
+                                                          control=CONTROL_TREATMENT, 
+                                                          test=t_test,
+                                                          comparison_type='binary_each_group',
+                                                          multitest_correction=None, 
+                                                          alpha=0.05)
+            # get effect sizes for comparisons
+            effect_sizes_t =  get_effect_sizes(X=feat_strain, 
+                                               y=meta_strain[TREATMENT_COLNAME], 
+                                               control=CONTROL_TREATMENT,
+                                               effect_type=None,
+                                               linked_test=t_test)
+            
+            # compile + save t-test results (uncorrected)
+            stats_t.columns = ['stats_' + str(c) for c in stats_t.columns]
+            pvals_t.columns = ['pvals_' + str(c) for c in pvals_t.columns]
+            reject_t.columns = ['reject_' + str(c) for c in reject_t.columns]
+            effect_sizes_t.columns = ['effect_size_' + str(c) for c in effect_sizes_t.columns]
+            ttest_uncorrected = pd.concat([stats_t, effect_sizes_t, pvals_t, reject_t], axis=1)
+            ttest_uncorrected.to_csv(ttest_path_uncorrected, header=True, index=True)
+            
+            # correct for multiple comparisons
+            pvals_t.columns = [c.split("_")[-1] for c in pvals_t.columns]
+            reject_t, pvals_t = _multitest_correct(pvals_t, 
+                                                   multitest_method=args.fdr_method,
+                                                   fdr=args.pval_threshold)
+    
+            # compile + save t-test results (corrected)
+            pvals_t.columns = ['pvals_' + str(c) for c in pvals_t.columns]
+            reject_t.columns = ['reject_' + str(c) for c in reject_t.columns]
+            ttest_corrected = pd.concat([stats_t, effect_sizes_t, pvals_t, reject_t], axis=1)
+            ttest_corrected.to_csv(ttest_path, header=True, index=True)
+    
+            nsig = reject_t.loc[FEATURE].sum()
+            print("%d %ss differ from %s in '%s' for %s (%s, P<%.2f, %s)" %(nsig, TREATMENT_COLNAME, 
+                  CONTROL_TREATMENT, FEATURE, strain, t_test, args.pval_threshold, args.fdr_method))
+
+    ### Pairwise t-tests comparing strain vs control behaviour on each antioxidant
+    print("\nPerforming pairwise t-tests:")
     # subset for control data
     control_strain_meta = metadata[metadata[STRAIN_COLNAME] == CONTROL_STRAIN]
     control_strain_feat = features.reindex(control_strain_meta.index)
@@ -393,7 +360,7 @@ def antioxidant_stats(features, metadata, args):
         strain_df = strain_meta.join(strain_feat)
         
         # perform pairwise t-tests comparing strain with control for each antioxidant treatment
-        stats, pvals, reject = pairwise_ttest(control_df, strain_df, feature_list=features.columns, 
+        stats, pvals, reject = pairwise_ttest(control_df, strain_df, feature_list=[FEATURE], 
                                               group_by=TREATMENT_COLNAME, fdr_method=args.fdr_method, 
                                               fdr=args.pval_threshold)
         
@@ -409,16 +376,12 @@ def antioxidant_stats(features, metadata, args):
         ttest_strain_path.parent.mkdir(parents=True, exist_ok=True)
         test_results.to_csv(ttest_strain_path, header=True, index=True)
         
-        # record t-test significant features (not ordered)
-        fset_ttest = pvals[np.asmatrix(reject)].index.unique().to_list()
-        print("%d significant features between %s vs %s on any %s (%s, %s, P<%.2f)" % (len(fset_ttest),
-              strain, CONTROL_STRAIN, TREATMENT_COLNAME, t_test, args.fdr_method, args.pval_threshold))
-    
-        if len(fset_ttest) > 0:
-            ttest_sigfeats_path = stats_dir / 'pairwise_ttests' / '{}_sigfeats.txt'.format(strain + 
-                                  "_vs_" + CONTROL_STRAIN)
-            write_list_to_file(fset_ttest, ttest_sigfeats_path)
-
+        for antiox in antioxidant_list:
+            print("%s difference in '%s' between %s vs %s on %s (paired t-test, P=%.3f, %s)" %\
+                  (("SIGNIFICANT" if reject.loc[FEATURE, 'reject_{}'.format(antiox)] else "No"), 
+                  FEATURE, strain, CONTROL_STRAIN, antiox, pvals.loc[FEATURE, 'pvals_{}'.format(antiox)], 
+                  args.fdr_method))
+            
 
 #%% MAIN
 
@@ -444,7 +407,7 @@ if __name__ == "__main__":
         METADATA_PATH = Path(args.save_dir) / 'metadata.csv'
         
     # load feature summaries and metadata
-    features = pd.read_csv(FEATURES_PATH)
+    features = pd.read_csv(FEATURES_PATH)[FEATURE]
     metadata = pd.read_csv(METADATA_PATH, dtype={'comments':str, 'source_plate_id':str})
     
     # subset for desired imaging dates

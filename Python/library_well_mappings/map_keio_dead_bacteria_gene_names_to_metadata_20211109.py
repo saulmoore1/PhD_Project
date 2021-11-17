@@ -16,7 +16,7 @@ import pandas as pd
 
 #%% Globals
 
-METADATA_PATH = "/Volumes/hermes$/Keio_Dead_96WP/AuxiliaryFiles/20211109/20211109_day_metadata.csv"
+METADATA_PATH = "/Volumes/hermes$/Keio_Dead_96WP/AuxiliaryFiles/20211116/20211116_day_metadata.csv"
 PATH_GENE_MAPPING = "/Volumes/hermes$/Keio_Dead_96WP/AuxiliaryFiles/20211109_plate_layout_dead.csv"
 
 #%% Functions
