@@ -36,8 +36,8 @@ def plot_tSNE(featZ,
               figsize=[8,8],
               sns_colour_palette="tab10",
               label_size=15,
-              marker_size=100,
-              n_colours=20):
+              n_colours=20,
+              **kwargs):
     """ t-distributed stochastic neighbour embedding """
     
     import pandas as pd
@@ -102,7 +102,7 @@ def plot_tSNE(featZ,
             if pd.isna(key):
                 continue
             group = grouped.get_group(key)
-            sns.scatterplot(x='tSNE_1', y='tSNE_2', data=group, color=palette[key], s=marker_size)
+            sns.scatterplot(x='tSNE_1', y='tSNE_2', data=group, color=palette[key], **kwargs)
 
         # Construct legend from custom handles
         if len(var_subset) <= n_colours:
@@ -111,9 +111,9 @@ def plot_tSNE(featZ,
             for key in var_subset:
                 handles.append(patches.Patch(color=palette[key], label=key))
             # add 'other' for all other strains (in gray)
-            if len(gray_palette.keys()) > 0:
+            if set(var_subset) != set(meta[group_by].unique()):
                 other_patch = patches.Patch(color='darkgray', label='other')
-                handles.append(other_patch)  
+                handles.append(other_patch)
             ax.legend(handles=handles, frameon=True, loc='best', fontsize=label_size, 
                       handletextpad=0.2)
         else:

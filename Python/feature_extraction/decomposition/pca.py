@@ -81,7 +81,8 @@ def plot_pca(featZ,
              figsize=[9,8],
              sub_adj={'bottom':0,'left':0,'top':1,'right':1},
              legend_loc='upper right',
-             n_colours=20):
+             n_colours=20,
+             **kwargs):
     """ Perform principal components analysis 
         - group_by : column in metadata to group by for plotting (colours) 
         - n_dims : number of principal component dimensions to plot (2 or 3)
@@ -190,7 +191,8 @@ def plot_pca(featZ,
                        x='PC1', 
                        y='PC2', 
                        label=key, 
-                       color=palette[key])
+                       color=palette[key],
+                       **kwargs)
             
         if len(var_subset) <= n_colours and kde:
             sns.kdeplot(x='PC1', 
@@ -343,7 +345,6 @@ def remove_outliers_pca(df, features_to_analyse=None, saveto=None):
     import numpy as np
     from scipy.stats import zscore
     from sklearn.decomposition import PCA
-    from matplotlib import pyplot as plt
 
     if features_to_analyse:
         data = df[features_to_analyse]
@@ -380,7 +381,6 @@ def remove_outliers_pca(df, features_to_analyse=None, saveto=None):
     
     # Get outlier indices in original dataframe
     indsOutliers = np.array(data.index[indsOutliers])
-    plt.pause(5); plt.close()
     
     # Drop outlier(s)
     print("Dropping %d outliers from analysis" % len(indsOutliers))

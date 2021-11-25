@@ -7,7 +7,8 @@ A script to compare correlation of p-values from initial Keio screen vs confirma
   
 1. for each gene, plot significant feature p-values only
 2. for each feature, plot p-values of all genes OR significant genes only
-3. for each gene, correlation of initial vs confirm mean values for all features, eg. corr(feature_vector_initial, feature_vector_confirm)
+3. for each gene, correlation of initial vs confirm mean values for all features, 
+   eg. corr(feature_vector_initial, feature_vector_confirm)
 
 @author: sm5911
 @date: 15/08/2021
@@ -24,14 +25,16 @@ from matplotlib import pyplot as plt
 
 from sklearn import linear_model
 from sklearn.metrics import r2_score # mean_squared_error
+
+from tierpsytools.preprocessing.filter_data import select_feat_set
 # from scipy.stats import linregress
 
 #%% Globals
 
-N_TOP_FEATS = 256
+N_TOP_FEATS = 16
 PVAL_THRESHOLD = 0.05
 
-FEATURE_SET_PATH = '/Users/sm5911/Tierpsy_Versions/tierpsy-tools-python/tierpsytools/extras/feat_sets/tierpsy_{}.csv'.format(N_TOP_FEATS)
+#FEATURE_SET_PATH = '/Users/sm5911/Tierpsy_Versions/tierpsy-tools-python/tierpsytools/extras/feat_sets/tierpsy_{}.csv'.format(N_TOP_FEATS)
 
 KEIO_STATS_PATH = '/Users/sm5911/Documents/Keio_Screen/Top{}/gene_name/Stats/fdr_by/t-test_results_uncorrected.csv'.format(N_TOP_FEATS)
 KEIO_CONF_STATS_PATH = '/Users/sm5911/Documents/Keio_Conf_Screen/Top{}/gene_name/Stats/fdr_by/t-test_results_uncorrected.csv'.format(N_TOP_FEATS)
@@ -40,6 +43,8 @@ KEIO_FEATURES_PATH = '/Users/sm5911/Documents/Keio_Screen/features.csv'
 KEIO_CONF_FEATURES_PATH = '/Users/sm5911/Documents/Keio_Conf_Screen/features.csv'
 
 SAVE_DIR = '/Users/sm5911/Documents/Keio_Conf_Screen/Top{}'.format(N_TOP_FEATS)
+
+#TODO: tierpsy_16 
 
 #%% Functions
 
@@ -88,7 +93,6 @@ def strain_pval_pairplot(pvals, pvals2, strain_list=None, saveAs=None):
     
                 axs[i,ii].plot(X, model.predict(X), "r-", lw=1)
  
-                # Perform linear regression fit
                 # m, b = np.polyfit(pvals, pvals2, deg=1) # m = slope, b = intercept
                 # y_pred = np.poly1d([m, b])(pvals) # y_pred = m * pvals + b
                 
@@ -98,11 +102,10 @@ def strain_pval_pairplot(pvals, pvals2, strain_list=None, saveAs=None):
                 # 2. numpy.corrcoef(x,y)[0,1]**2 
                 # 3. scipy.stats.linregress(x,y)[2]**2
                 
-                # #1
-                # r2 = r2_score(pvals2, y_pred)
+                # 1
                 r2 = r2_score(Y, model.predict(X))
 
-                # #2 alternative method to find r2 using correlation matrix:
+                # #2 - find r2 using correlation matrix
                 # correlation_matrix = np.corrcoef(initial.values, confirm.values)
                 # correlation_xy = correlation_matrix[0,1]
                 # r2 = correlation_xy ** 2
@@ -115,7 +118,8 @@ def strain_pval_pairplot(pvals, pvals2, strain_list=None, saveAs=None):
                     axs[i,ii].text(0.5, 0.5, strain, transform=axs[i,ii].transAxes, 
                                    fontsize=10, c='k', horizontalalignment='center')
                 # text = f"$y={m:0.3f}\;x{b:+0.3f}$\n$R^2 = {r2:0.3f}$"
-                # plt.gca().text(0, 1.1, text,transform=plt.gca().transAxes, fontsize=14, verticalalignment='top')
+                # plt.gca().text(0, 1.1, text, transform=plt.gca().transAxes, 
+                #                fontsize=14, verticalalignment='top')
 
             except Exception as E:
                 print(E)
@@ -184,7 +188,7 @@ def strain_pval_plot(pvals, pvals2, strain_list=None, sig_feats_only=True,
         
         plt.close('all')
         fig, ax = plt.subplots(figsize=figsize)
-        sns.scatterplot(x=initial.values, y=confirm.values, marker='o', s=50, color='k')
+        sns.scatterplot(x=initial.values, y=confirm.values, marker='o', s=50, color='k', ax=ax)
                 
         # perform linear regression fit
         X = initial.values.reshape((-1, 1))
@@ -330,8 +334,10 @@ def strain_mean_plot(initial_feat, initial_meta, confirm_feat, confirm_meta,
         confirm_strain_feat = confirm_feat[feature_list].reindex(confirm_strain_meta.index)
         
         # rank features by lowest log10 abs mean value from initial screen
-        initial_log10absmean = np.log10(initial_strain_feat.mean(axis=0).abs()).sort_values(ascending=True)
-        confirm_log10absmean = np.log10(confirm_strain_feat.mean(axis=0).abs())[initial_log10absmean.index]
+        initial_log10absmean = initial_strain_feat.mean(axis=0)
+        #np.log10(initial_strain_feat.mean(axis=0).abs()).sort_values(ascending=True)
+        confirm_log10absmean = confirm_strain_feat.mean(axis=0)
+        #np.log10(confirm_strain_feat.mean(axis=0).abs())[initial_log10absmean.index]
 
         if saveDir is not None:
             saveDir.mkdir(parents=True, exist_ok=True)
@@ -371,6 +377,93 @@ def strain_mean_plot(initial_feat, initial_meta, confirm_feat, confirm_meta,
         
     return
 
+def feature_mean_plot(initial_feat, initial_meta, confirm_feat, confirm_meta,
+                      strain_list=None, feature_list=None, saveDir=None, figsize=(8,8),
+                      plt_strain_names=True, fontsize=8):
+    """ Plot of correlation of mean values of Keio initial vs confirm screen for all features for 
+        each gene, eg. corr(feature_vector_initial, feature_vector_confirm) 
+    """
+    
+    assert set(initial_feat.index) == set(initial_meta.index)
+    assert set(confirm_feat.index) == set(confirm_meta.index)
+    
+    initial_strains = list(initial_meta['gene_name'].unique())
+    confirm_strains = list(confirm_meta['gene_name'].unique())
+    
+    if strain_list is not None:
+        assert type(strain_list) == list
+        assert all(s in initial_strains and s in confirm_strains for s in strain_list)
+        # subset for strains in strain list
+        initial_meta = initial_meta[initial_meta['gene_name'].isin(strain_list)]
+        initial_feat =  initial_feat.reindex(initial_meta.index)
+        confirm_meta = confirm_meta[confirm_meta['gene_name'].isin(strain_list)]
+        confirm_feat =  confirm_feat.reindex(confirm_meta.index)
+    else:
+        # shared strains only (present in both screens, ie. hit strains)
+        strain_list = list(set(initial_strains).intersection(set(confirm_strains))) 
+
+    if feature_list is not None:
+        assert type(feature_list) == list
+        assert all(f in initial_feat.columns and f in confirm_feat.columns for f in feature_list)
+        initial_feat = initial_feat[feature_list]
+        confirm_feat = confirm_feat[feature_list]
+    else:
+        # shared features only
+        feature_list = list(set(initial_feat.columns).intersection(set(confirm_feat.columns))) 
+        
+    for feature in tqdm(feature_list):
+        # subset for strain and feature(s) of interest
+        initial_df = initial_meta[['gene_name']].join(initial_feat[feature])
+        confirm_df = confirm_meta[['gene_name']].join(confirm_feat[feature])
+                
+        # rank strains by mean feature value from initial screen
+        initial_df = initial_df.groupby('gene_name').mean().sort_values(by=feature, ascending=True)
+        confirm_df = confirm_df.groupby('gene_name').mean().reindex(initial_df.index)
+        
+        if saveDir is not None:
+            saveDir.mkdir(parents=True, exist_ok=True)
+            save_path = saveDir / '{}_mean_corr.pdf'.format(feature)
+        
+        plt.close('all')
+        fig, ax = plt.subplots(figsize=figsize)
+        sns.scatterplot(x=initial_df[feature].values, y=confirm_df[feature].values, 
+                        marker='.', s=30, color='k')
+                
+        # perform linear regression fit
+        X = initial_df[feature].values.reshape((-1, 1))
+        Y = confirm_df[feature].values
+        model = linear_model.LinearRegression()
+        model = model.fit(X, Y)
+        ax.plot(X, model.predict(X), "r-", lw=3)
+ 
+        # m = slope, b = intercept
+        m, b = np.polyfit(initial_df[feature].values, confirm_df[feature].values, deg=1) 
+             
+        # coefficient of determination, r2
+        r2 = r2_score(Y, model.predict(X)) #r2_score(confirm, confirm_pred)
+
+        if plt_strain_names:
+            for strain in initial_df.index.to_list():
+                x, y = initial_df.loc[strain, feature], confirm_df.loc[strain, feature]
+                ax.text(x, y, '{}\n'.format(strain), fontsize=fontsize, c='k', 
+                        verticalalignment='bottom', horizontalalignment='center', linespacing=0)
+        
+        ax.text(0.5, 1.05, feature, transform=ax.transAxes, fontsize=15, c='k', 
+                horizontalalignment='center')
+        ax.text(0.02, 0.95, "y = {0:.2f} * x + {1:.2f}".format(m,b), transform=ax.transAxes, 
+                fontsize=15, c='k', horizontalalignment='left')
+        ax.text(0.02, 0.9, "$r^2$={:.2f}".format(r2), transform=ax.transAxes, fontsize=15, c='k', 
+                horizontalalignment='left')   
+        ax.set_xlabel('Initial screen (mean value)', fontsize=18, labelpad=12)
+        ax.set_ylabel('Confirmation screen (mean value)', fontsize=18, labelpad=12)
+        
+        if saveDir is not None:
+            plt.savefig(save_path, dpi=300)
+        else:
+            plt.show(); plt.pause(2)
+        
+    return
+
 #%% Main
 
 if __name__ == "__main__":
@@ -386,22 +479,21 @@ if __name__ == "__main__":
     pvals2.columns = [c.split('pvals_')[-1] for c in pvals2.columns]
     
     # assert index match
-    assert set(pvals.index) == set(pvals2.index) 
+    assert set(pvals.index) == set(pvals2.index)
 
     # subset for shared columns only (strains present in both screens, ie. hit strains)
     shared = list(set(pvals.columns).intersection(set(pvals2.columns)))
     pvals, pvals2 = pvals[shared], pvals2[shared]
 
-    # fig, axs = strain_pval_pairplot(pvals, pvals2, strain_list=strain_list, saveAs=Path(SAVE_DIR) / 'pairplot.pdf')
-    # plt.tight_layout(pad=0.2)
-    # plt.show()
-    strain_list = pvals.columns.to_list()
-    
     # load Tierpsy top features (and expand for bluelight)
-    feature_list = pd.read_csv(FEATURE_SET_PATH, header=None)[0].to_list()
-    feature_list = [f + s for s in ['_prestim','_bluelight','_poststim'] for f in feature_list]
-    assert all(f in pvals.index for f in feature_list)
+    pvals = select_feat_set(pvals.T, 'tierpsy_{}'.format(N_TOP_FEATS), append_bluelight=True).T
     
+    feature_list = pvals.index.to_list()
+    strain_list = pvals.columns.to_list()
+
+    # fig, axs = strain_pval_pairplot(pvals, pvals2, strain_list=strain_list, 
+    #                                 saveAs=Path(SAVE_DIR) / 'pairplot.pdf')
+        
     # initial vs confirm screen - plot p-value corr of significant features for each strain
     errlog = strain_pval_plot(pvals, pvals2, strain_list=strain_list, 
                               saveDir=Path(SAVE_DIR) / 'p-value_strain_corr', figsize=(8,8))
@@ -432,5 +524,14 @@ if __name__ == "__main__":
     strain_mean_plot(initial_feat, initial_meta, confirm_feat, confirm_meta,
                      strain_list=strain_list, feature_list=feature_list, 
                      saveDir=Path(SAVE_DIR) / 'mean_value_strain_corr', figsize=(8,8))
+    
+    # initial vs confirm screen - plot of mean value corr of all strains for each feature
+    feature_mean_plot(initial_feat, initial_meta, confirm_feat, confirm_meta,
+                      strain_list=strain_list, feature_list=feature_list, 
+                      saveDir=Path(SAVE_DIR) / 'mean_value_feature_corr', figsize=(8,8))
        
+    # TODO: pearson corr on pvals
+    # r, pval = scistats.pearsonr(initial.values, confirm.values)
+    
+    # make sure t-tests results from both screens - like for lke
     

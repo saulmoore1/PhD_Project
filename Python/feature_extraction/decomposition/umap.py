@@ -33,9 +33,9 @@ def plot_umap(featZ,
               min_dist=0.3,
               figsize=[8,8],
               label_size=15,
-              marker_size=100,
               n_colours=20,
-              sns_colour_palette="tab10"):
+              sns_colour_palette="tab10",
+              **kwargs):
     """ Uniform manifold projection """
     
     import umap
@@ -102,7 +102,7 @@ def plot_umap(featZ,
             if pd.isna(key):
                 continue
             group = grouped.get_group(key)
-            sns.scatterplot(x='UMAP_1', y='UMAP_2', data=group, color=palette[key], s=marker_size)
+            sns.scatterplot(x='UMAP_1', y='UMAP_2', data=group, color=palette[key], **kwargs)
             
         # Construct legend from custom handles
         if len(var_subset) <= n_colours:
@@ -111,7 +111,7 @@ def plot_umap(featZ,
             for key in var_subset:
                 handles.append(patches.Patch(color=palette[key], label=key))
             # add 'other' for all other strains (in gray)
-            if len(gray_palette.keys()) > 0:
+            if set(var_subset) != set(meta[group_by].unique()):
                 other_patch = patches.Patch(color='darkgray', label='other')
                 handles.append(other_patch)  
             ax.legend(handles=handles, frameon=True, loc='best', fontsize=label_size, 

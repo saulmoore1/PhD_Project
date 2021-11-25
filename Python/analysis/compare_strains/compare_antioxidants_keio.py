@@ -37,6 +37,8 @@ from feature_extraction.decomposition.umap import plot_umap
 from analysis.compare_strains.run_keio_analysis import COG_category_dict
 from statistical_testing.perform_keio_stats import df_summary_stats
 
+from tierpsytools.preprocessing.filter_data import select_feat_set
+
 #%% GLOBALS
 
 JSON_PARAMETERS_PATH = "analysis/20211102_parameters_keio_rescue.json"
@@ -98,16 +100,6 @@ def compare_keio_rescue(features, metadata, args):
     # assert there will be no errors due to case-sensitivity
     assert len(metadata[STRAIN_COLNAME].unique()) == len(metadata[STRAIN_COLNAME].str.upper().unique())
     assert len(metadata[TREATMENT_COLNAME].unique()) == len(metadata[TREATMENT_COLNAME].str.upper().unique())
-
-    # Load Tierpsy Top feature set + subset (columns) for top feats only
-    if args.n_top_feats is not None:
-        top_feats_path = Path(args.tierpsy_top_feats_dir) / "tierpsy_{}.csv".format(str(args.n_top_feats))
-        topfeats = load_topfeats(top_feats_path, add_bluelight=args.align_bluelight, 
-                                 remove_path_curvature=True, header=None)
-        
-        # Drop features that are not in results
-        top_feats_list = [feat for feat in list(topfeats) if feat in features.columns]
-        features = features[top_feats_list]
     
     assert not features.isna().any().any()
     n_feats = features.shape[1]
@@ -131,8 +123,8 @@ def compare_keio_rescue(features, metadata, args):
     control_strain_meta = metadata[metadata[STRAIN_COLNAME] == CONTROL_STRAIN]
     control_strain_feat = features.reindex(control_strain_meta.index)
     
-    control_antiox_meta = metadata[metadata[TREATMENT_COLNAME] == CONTROL_TREATMENT]
-    control_antiox_feat = features.reindex(control_antiox_meta.index)
+    #control_antiox_meta = metadata[metadata[TREATMENT_COLNAME] == CONTROL_TREATMENT]
+    #control_antiox_feat = features.reindex(control_antiox_meta.index)
                 
 # =============================================================================
 #     ##### Control variation ##### 
@@ -172,7 +164,7 @@ def compare_keio_rescue(features, metadata, args):
             anova_strain_path = stats_dir / '{}_results.csv'.format((args.test + '_' + strain))
         anova_strain_table = pd.read_csv(anova_strain_path, index_col=0)            
         strain_pvals = anova_strain_table.sort_values(by='pvals', ascending=True)['pvals'] # rank features by p-value
-        strain_fset = strain_pvals[strain_pvals < args.pval_threshold].index.to_list()  
+        #strain_fset = strain_pvals[strain_pvals < args.pval_threshold].index.to_list()  
         
         # load antioxidant t-test results
         ttest_strain_path = stats_dir / 'pairwise_ttests' / '{}_results.csv'.format(strain + 
@@ -180,7 +172,7 @@ def compare_keio_rescue(features, metadata, args):
         ttest_strain_table = pd.read_csv(ttest_strain_path, index_col=0)
         strain_pvals_t = ttest_strain_table[[c for c in ttest_strain_table if "pvals_" in c]] 
         strain_pvals_t.columns = [c.split('pvals_')[-1] for c in strain_pvals_t.columns]       
-        strain_fset_t = strain_pvals_t[(strain_pvals_t < args.pval_threshold).sum(axis=1) > 0].index.to_list()
+        #strain_fset_t = strain_pvals_t[(strain_pvals_t < args.pval_threshold).sum(axis=1) > 0].index.to_list()
            
         # Plot ranked n significant features by t-test for each antioxidant treatment
         ranked_antiox_nsig = (strain_pvals_t < args.pval_threshold).sum(axis=0).sort_values(ascending=False)
@@ -266,8 +258,8 @@ def compare_keio_rescue(features, metadata, args):
                         text = ax.get_xticklabels()[ii]
                         assert text.get_text() == antiox
                         p_text = 'P < 0.001' if p < 0.001 else 'P = %.3f' % p
-                        y = (y_bar[antiox] + 2 * IQR[antiox]) if scale_outliers_box else plot_df[feature].max()
-                        h = (max(IQR) / 10) if scale_outliers_box else (y - plot_df[feature].min()) / 50
+                        #y = (y_bar[antiox] + 2 * IQR[antiox]) if scale_outliers_box else plot_df[feature].max()
+                        #h = (max(IQR) / 10) if scale_outliers_box else (y - plot_df[feature].min()) / 50
                         trans = transforms.blended_transform_factory(ax.transData, ax.transAxes)
                         plt.plot([ii-.2, ii-.2, ii+.2, ii+.2], 
                                  [0.8, 0.81, 0.81, 0.8], #[y+h, y+2*h, y+2*h, y+h], 
@@ -285,17 +277,17 @@ def compare_keio_rescue(features, metadata, args):
     
     for antiox in antioxidant_list:
         print("\nPlotting results for %s:" % antiox)
-        antiox_meta = metadata[metadata[TREATMENT_COLNAME]==antiox]
-        antiox_feat = features.reindex(antiox_meta.index)
+        #antiox_meta = metadata[metadata[TREATMENT_COLNAME]==antiox]
+        #antiox_feat = features.reindex(antiox_meta.index)
 
         # Load ANOVA results for antioxidant
-        if not args.use_corrected_pvals:
-            anova_antiox_path = stats_dir / '{}_uncorrected.csv'.format((args.test + '_' + antiox))
-        else:
-            anova_antiox_path = stats_dir / '{}_results.csv'.format((args.test + '_' + antiox))
-        anova_antiox_table = pd.read_csv(anova_antiox_path, index_col=0)            
-        antiox_pvals = anova_antiox_table.sort_values(by='pvals', ascending=True)['pvals'] # rank features by p-value
-        antiox_fset = antiox_pvals[antiox_pvals < args.pval_threshold].index.to_list()  
+        # if not args.use_corrected_pvals:
+        #     anova_antiox_path = stats_dir / '{}_uncorrected.csv'.format((args.test + '_' + antiox))
+        # else:
+        #     anova_antiox_path = stats_dir / '{}_results.csv'.format((args.test + '_' + antiox))
+        #anova_antiox_table = pd.read_csv(anova_antiox_path, index_col=0)            
+        #antiox_pvals = anova_antiox_table.sort_values(by='pvals', ascending=True)['pvals'] # rank features by p-value
+        #antiox_fset = antiox_pvals[antiox_pvals < args.pval_threshold].index.to_list()  
         
         # Load t-test results
         if not args.use_corrected_pvals:
@@ -305,7 +297,7 @@ def compare_keio_rescue(features, metadata, args):
         ttest_antiox_table = pd.read_csv(ttest_antiox_path, index_col=0)
         antiox_pvals_t = ttest_antiox_table[[c for c in ttest_antiox_table if "pvals_" in c]] 
         antiox_pvals_t.columns = [c.split('pvals_')[-1] for c in antiox_pvals_t.columns]       
-        antiox_fset_t = antiox_pvals_t[(antiox_pvals_t < args.pval_threshold).sum(axis=1) > 0].index.to_list()
+        #antiox_fset_t = antiox_pvals_t[(antiox_pvals_t < args.pval_threshold).sum(axis=1) > 0].index.to_list()
      
         # Plot ranked n significant features by t-test for each strain
         ranked_strain_nsig = (antiox_pvals_t < args.pval_threshold).sum(axis=0).sort_values(ascending=False)
@@ -415,7 +407,7 @@ def compare_keio_rescue(features, metadata, args):
                              method=METHOD, 
                              metric=METRIC,
                              figsize=[20,10],
-                             sub_adj={'bottom':0.5,'left':0,'top':1,'right':0.85},
+                             sub_adj={'bottom':0.7,'left':0,'top':1,'right':0.85},
                              saveto=control_clustermap_path,
                              label_size=(15,15),
                              show_xlabels=True)
@@ -619,45 +611,20 @@ if __name__ == "__main__":
     metadata = pd.read_csv(METADATA_PATH, dtype={'comments':str, 'source_plate_id':str})
 
     # Subset for desired imaging dates
-    
     if args.dates is not None:
         assert type(args.dates) == list
         metadata = metadata.loc[metadata['date_yyyymmdd'].astype(str).isin(args.dates)]
         features = features.reindex(metadata.index)
 
+    # Single feature only, or tierpsy feature set?
+    if FEATURE is not None:
+        features = features[[FEATURE]]
+    else:
+        # Load Tierpsy feature set + subset (columns) for selected features only
+        features = select_feat_set(features, 'tierpsy_{}'.format(args.n_top_feats), append_bluelight=True)
+        features = features[[f for f in features.columns if 'path_curvature' not in f]]
+
     compare_keio_rescue(features, metadata, args)
     
     toc = time()
     print("\nDone in %.1f seconds (%.1f minutes)" % (toc - tic, (toc - tic) / 60))  
-
-#%%
-
-# # Scale the features (necessary if you want to do PCA)
-# scaler = scalingClass(scaling='standardize')
-# features = scaler.fit_transform(features)
-
-# # Check day-to-day variation
-# # Get the PCA decomposition
-# pca = PCA(n_components=2)
-# Y = pca.fit_transform(features)
-
-# # Plot the samples of each day in the first two PCs
-# plt.figure()
-# for day in metadata['date_yyyymmdd'].unique():
-#     plt.scatter(*Y[metadata['date_yyyymmdd']==day, :].T, label=day)
-# plt.legend()
-
-# # Hierarchical clutering
-# # Get row colors and mathcing legend data
-# labels = metadata['worm_strain']
-# unique_labels = labels.unique()
-
-# # lut aka. look-up table - {label ---> color}
-# palette = sns.color_palette(n_colors=unique_labels.shape[0])
-# lut = dict(zip(unique_labels, palette))
-
-# # Convert the dictionary into a Series
-# row_colors = pd.DataFrame(labels)['worm_strain'].map(lut)
-
-# # metric: try ['euclidean', 'cosine', 'correlation']
-# g = sns.clustermap(features, method='complete', metric='cosine', row_colors=row_colors)

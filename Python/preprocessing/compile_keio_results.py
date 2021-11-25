@@ -10,16 +10,15 @@ Compile Keio Screen metadata and feature summaries
 #%% IMPORTS
 
 import argparse
-# import numpy as np
 from time import time
 from pathlib import Path
+
 from read_data.read import load_json
-
-from tierpsytools.hydra.platechecker import fix_dtypes
-
 from preprocessing.compile_hydra_data import process_metadata, process_feature_summaries
 from preprocessing.append_supplementary_info import load_supplementary_7, append_supplementary_7
 from filter_data.clean_feature_summaries import clean_summary_results
+
+#from tierpsytools.hydra.platechecker import fix_dtypes
 
 #%% GLOBALS
 
@@ -78,8 +77,8 @@ def compile_keio_results(args):
                                                    align_bluelight=args.align_bluelight,
                                                    window_summaries=False)
 
-    # Fix data types
-    metadata = fix_dtypes(metadata)
+    # # Fix data types
+    # metadata = fix_dtypes(metadata)
  
     # Rename gene names in metadata
     for k, v in RENAME_DICT.items():

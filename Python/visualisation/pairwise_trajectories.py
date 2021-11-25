@@ -76,7 +76,7 @@ def plot_well_trajectory(featuresfilepath, maskedvideopath, well_name, downsampl
     df['x'] = df['x'] - well_fov.iloc[0]['x_min']
     df['y'] = df['y'] - well_fov.iloc[0]['y_min']
 
-    # Optional - filter trajectories using global movement/time threshold parameters
+    # Optional - filter trajectories using movement/time threshold parameters (globals)
     if filter_trajectories:
         df, _ = filter_worm_trajectories(df, 
                                          threshold_move=THRESHOLD_DISTANCE_PIXELS, 

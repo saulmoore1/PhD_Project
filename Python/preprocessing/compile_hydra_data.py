@@ -90,11 +90,108 @@ def compile_day_metadata(aux_dir, day, from_source_plate=False, from_robot_runlo
     
     return day_metadata
 
+def add_imgstore_name(metadata, raw_day_dir, n_wells=96, run_number_regex=r'run\d+_'):
+    """
+    Add the imgstore name of the hydra videos to the day metadata dataframe
+    Inputs:
+        metadata = pandas dataframe
+            Dataframe with metadata for a given day of experiments. 
+            See README.md for details on fields.
+        raw_day_dir = path to directory
+            RawVideos root directory of the specific day, where the imgstore names can be found.
+        n_wells = integer
+            Number of wells in imaging plate (only 96 and 6 are supported at the moment)
+            NB: if n_wells != 96, 'camera_serial' information must exist in metadata 
+                (with no missing entries)
+
+    Returns:
+        out_metadata = metadata dataframe with imgstore_name added
+
+    """
+
+    import warnings
+    from tierpsytools.hydra.hydra_helper import run_number_from_regex
+    from tierpsytools.hydra.hydra_helper import get_camera_serial # TODO: Remove once re-integrated into tierpsytools
+    from tierpsytools.hydra import CAM2CH_df
+
+    # check if raw_day_dir exists
+    if not raw_day_dir.exists:
+        warnings.warn("\nRawVideos day directory was not found. " +
+                      "Imgstore names cannot be added to the metadata.\n" + 
+                      "Path {} not found.".format(raw_day_dir))
+        return metadata
+
+    # if the raw_day_dir contains a date in yyyymmdd format, check if the date in raw_day_dir 
+    # matches the date of runs stored in the metadata dataframe
+    date_of_runs = metadata['date_yyyymmdd'].astype(str).values[0]
+    date_in_dir = re.findall(r'(\d{8})',raw_day_dir.stem)
+    if len(date_in_dir)==1 and date_of_runs != date_in_dir[0]:
+        warnings.warn(
+            '\nThe date in the RawVideos day directory does not match ' +
+            'the date_yyyymmdd in the day metadata dataframe. ' + 
+            'Imgstore names cannot be added to the metadata.\n' +
+            'Please check the dates and try again.')
+        return metadata
+
+    # add camera serial number to metadata
+    if n_wells == 96:
+        metadata = get_camera_serial(metadata, n_wells=n_wells)
+    elif n_wells == 6:
+        # check that camera serial/channel/rig information are present in metadata
+        assert 'camera_serial' in metadata.columns and not any(metadata['camera_serial'].isna())
+        assert 'channel' in metadata.columns and not any(metadata['channel'].isna())
+        assert 'instrument_name' in metadata.columns and not any(metadata['instrument_name'].isna())
+        
+        # convert to str
+        metadata['camera_serial'] = metadata['camera_serial'].astype(str)
+        metadata['channel'] = metadata['channel'].astype(str)
+        
+        # check that camera serial/channel/rig information are correct
+        CAM2CH_DICT = {s:(c.split('Ch')[-1],r) for (s,c,r) in zip(CAM2CH_df['camera_serial'], 
+                                                                  CAM2CH_df['channel'], 
+                                                                  CAM2CH_df['rig'])}
+        assert all((CAM2CH_DICT[s][0]==c and CAM2CH_DICT[s][1]==r) for s,c,r in 
+                   zip(metadata['camera_serial'], metadata['channel'], metadata['instrument_name']))
+
+    else:
+        raise IOError("n_wells not supported! Only 96 and 6 wells are supported")
+
+    # get imgstore full paths = raw video directories that contain a
+    # metadata.yaml file and get the run and camera number from the names
+    file_list = [file for file in raw_day_dir.rglob("metadata.yaml")]
+    camera_serial = [str(file.parent.parts[-1]).split('.')[-1] for file in file_list]
+
+    imaging_run_number = run_number_from_regex(file_list, run_number_regex=r'run\d+_')
+
+    file_meta = pd.DataFrame({'file_name': file_list,
+                              'camera_serial': camera_serial,
+                              'imaging_run_number': imaging_run_number})
+
+    # keep only short imgstore_name (experiment_day_dir/imgstore_name_dir)
+    file_meta['imgstore_name'] = file_meta['file_name'].apply(lambda x: "/".join(x.parts[-3:-1]))
+
+    # merge dataframes to store imgstore_name for each metadata row
+    out_metadata = pd.merge(metadata, 
+                            file_meta[['imaging_run_number','camera_serial','imgstore_name']],
+                            how='outer', on=['imaging_run_number','camera_serial'])
+        
+    # check if there are missing videos. If yes, raise a warning.
+    # (we expect to have videos from every camera of a given instrument)
+    if out_metadata['imgstore_name'].isna().sum()>0:
+        not_found = out_metadata.loc[out_metadata['imgstore_name'].isna(),
+                                     ['imaging_run_number', 'camera_serial']]
+        for i,row in not_found.iterrows():
+            warnings.warn('\n\nNo video found for day ' + 
+                          '{}, run {}, camera {}.\n\n'.format(raw_day_dir.stem, *row.values))
+
+    return out_metadata
+
 def process_metadata(aux_dir, 
                      imaging_dates=None, 
                      add_well_annotations=True,
                      update_day_meta=False,
-                     update_colnames=False):
+                     update_colnames=False, 
+                     n_wells=96):
     """ Compile metadata from individual day metadata CSV files
     
         Parameters
@@ -109,6 +206,9 @@ def process_metadata(aux_dir,
             Add annotations from WellAnnotator GUI
         update_colnames : bool
             Rename columns names for compatibility with 'tierpsytools' functions
+        n_wells : int
+            Choose from either 96 or 6. NB: 'camera_serial' information is required 
+            in metadata if n_wells is not 96
 
         Returns
         -------
@@ -116,11 +216,11 @@ def process_metadata(aux_dir,
         compiled metadata path
     """
     
-    from tierpsytools.hydra.hydra_helper import add_imgstore_name
+    # TODO: Update tierpsytools for compatibility with 6-well plates (see custom 'add_imgstore_name' function above)    
+    # from tierpsytools.hydra.hydra_helper import add_imgstore_name    
     from tierpsytools.hydra.match_wells_annotations import update_metadata_with_wells_annotations
     # from tierpsytools.hydra.match_wells_annotations import (import_wells_annotations_in_folder,
-    #                                                         match_rawvids_annotations,
-    #                                                         update_metadata)
+    #                                                         match_rawvids_annotations, update_metadata)
     
     compiled_metadata_path = Path(aux_dir) / "metadata.csv"
     
@@ -168,19 +268,25 @@ def process_metadata(aux_dir,
             # Get imgstore name
             if 'imgstore_name' not in day_meta.columns:
 
-                # Delete camera_serial column as it will be recreated
-                if 'camera_serial' in day_meta.columns:
-                     day_meta = day_meta.drop(columns='camera_serial')
-                     
                 day_meta_col_order = list(day_meta.columns)
 
-                # Add imgstore_name (+ camera_serial)
-                day_meta = add_imgstore_name(day_meta, rawDir)
+                # Delete camera_serial column as it will be recreated
+                if 'camera_serial' in day_meta_col_order and n_wells == 96:
+                     day_meta = day_meta.drop(columns='camera_serial')
+                     
+                     # update column order
+                     day_meta_col_order.extend(['imgstore_name','camera_serial'])
+                     
+                elif n_wells == 6:
+                     # update column order
+                     day_meta_col_order.extend(['imgstore_name'])
+                     
+                # add imgstore_name (+ camera_serial if n_wells=96)
+                day_meta = add_imgstore_name(day_meta, rawDir, n_wells=n_wells)
                 
-                day_meta_col_order.extend(['imgstore_name','camera_serial'])
-                
-                # Restore column order
+                # restore column order
                 day_meta = day_meta[day_meta_col_order]
+
             else:
                 assert not day_meta['imgstore_name'].isna().any()
                 day_meta_col_order = list(day_meta.columns)
@@ -227,7 +333,7 @@ def process_metadata(aux_dir,
         print("Metadata saved to: %s" % compiled_metadata_path)
     
     # Add annotations to metadata
-    if add_well_annotations:        
+    if add_well_annotations and n_wells == 96:        
         annotated_metadata_path = Path(str(compiled_metadata_path).replace('.csv', 
                                                                            '_annotated.csv'))
         if not annotated_metadata_path.exists():
@@ -314,9 +420,12 @@ def process_feature_summaries(metadata_path,
 
     from tierpsytools.read_data.compile_features_summaries import compile_tierpsy_summaries
     from tierpsytools.read_data.hydra_metadata import read_hydra_metadata, align_bluelight_conditions
+    from preprocessing.compile_window_summaries import find_window_summaries, compile_window_summaries
     
-    combined_feats_path = Path(results_dir) / "full_features.csv"
-    combined_fnames_path = Path(results_dir) / "full_filenames.csv"
+    combined_feats_path = Path(results_dir) / ("full_features.csv" if not window_summaries else
+                                               "full_window_features.csv")
+    combined_fnames_path = Path(results_dir) / ("full_filenames.csv" if not window_summaries else
+                                                "full_window_filenames.csv")
  
     if np.logical_and(combined_feats_path.is_file(), combined_fnames_path.is_file()):
         print("Found existing full feature summaries")
@@ -324,7 +433,7 @@ def process_feature_summaries(metadata_path,
         print("Compiling feature summary results")    
         if compile_day_summaries:
             
-            if imaging_dates:
+            if imaging_dates is not None:
                 assert type(imaging_dates) == list
                 feat_files = []
                 fname_files = []
@@ -344,18 +453,27 @@ def process_feature_summaries(metadata_path,
         fname_files = [fn for fn in np.unique(fname_files) if fn is not None]           
                 
         if window_summaries:
-            # TODO: use compile_tierpsy_summaries to compile from windowed features summaries files
-            # see preprocessing.compile_window_suummaries
-            raise Exception("ERROR: Compiling from window summaries is not yet supported")
+            print("\nFinding window summaries files..")
+            fname_files, feat_files = find_window_summaries(results_dir=Path(results_dir), 
+                                                            dates=imaging_dates)
+    
+            # compile window summaries files
+            print("\nCompiling window summaries..")
+            compiled_filenames, compiled_features = compile_window_summaries(fname_files=fname_files, 
+                                                                             feat_files=feat_files,
+                                                                             compiled_feat_file=combined_feats_path,
+                                                                             compiled_fname_file=combined_fnames_path,
+                                                                             results_dir=Path(results_dir), 
+                                                                             window_list=None)
         else:
             feat_files = [ft for ft in feat_files if not 'window' in str(ft)]
             fname_files = [fn for fn in fname_files if not 'window' in str(fn)]
                     
-        # Compile feature summaries for matched features/filename summaries
-        compile_tierpsy_summaries(feat_files=feat_files, 
-                                  fname_files=fname_files,
-                                  compiled_feat_file=combined_feats_path,
-                                  compiled_fname_file=combined_fnames_path)
+            # Compile feature summaries for matched features/filename summaries
+            compile_tierpsy_summaries(feat_files=feat_files, 
+                                      fname_files=fname_files,
+                                      compiled_feat_file=combined_feats_path,
+                                      compiled_fname_file=combined_fnames_path)
 
     # Read metadata + record column order
     metadata = pd.read_csv(metadata_path, dtype={"comments":str, "source_plate_id":str})
@@ -417,7 +535,8 @@ if __name__ == "__main__":
     # Compile metadata
     metadata = process_metadata(aux_dir=Path(args.project_dir) / 'AuxiliaryFiles',
                                 imaging_dates=args.dates,
-                                add_well_annotations=args.add_well_annotations)
+                                add_well_annotations=args.add_well_annotations,
+                                n_wells=96)
                 
     # Process feature summary results
     features, metadata = process_feature_summaries(metadata, 

@@ -3,166 +3,155 @@
 """
 Compile wiindow summaries
 
-@author: lferiani (modified by sm5911)
-@date: 14/10/2021
+@author: sm5911
+@date: 25/11/2021
+
 """
+
+#%% Imports
+
+import argparse
+import pandas as pd
+from pathlib import Path
+from time import time
+from tqdm import tqdm
+
+from tierpsytools.read_data.get_feat_summaries_helper import read_tierpsy_feat_summaries
+
+#%% Globals
+
+RESULTS_DIR = '/Volumes/hermes$/Keio_Fast_Effect/Results'
+IMAGING_DATES = ['20211109']
+
+#%% Functions
 
 def parse_window_number(fname):
     """
     Parse the filename to find the number between 'window_' and '.csv'
     (with .csv being at the end of the name)
     """
-    # using re.findall and not match because I'm lazy
+    import re    
+    
     regex = r'(?<=window_)\d+(?=\.csv)'
     window_str = re.findall(regex, fname.name)[0]
+    
     return int(window_str)
 
-
-def concatenate_filenames_and_feats(fnames_df_list, featsums_df_list):
-    """Concatenate lists of dataframes into one dataframe,
-    create unique file id by just making sure file_id keeps growing.
-    Unique id is created just by adding to each file the highest cumulative id
-    seen so far.
-    Example:
-        df1 contains ids 0,1,2, df2 contains ids 0,1, and df3 ids 0,1,2.
-        df2's ids in the concatenated df will become 3,4,
-        df3's ids in the concatenated df will become 5,6,7
-        """
-    # concatenate a list of dataframes into a larger dataframe
-    offset_id = 0
-    for fnames_df, featsums_df in zip(fnames_df_list, featsums_df_list):
-        fnames_df['file_id'] = fnames_df['file_id'] + offset_id
-        featsums_df['file_id'] = featsums_df['file_id'] + offset_id
-        offset_id = max(fnames_df['file_id'].max(),
-                        featsums_df['file_id'].max()) + 1
-
-    fnames_df = pd.concat(fnames_df_list, ignore_index=True,
-                          axis=0, sort=False)
-    featsums_df = pd.concat(featsums_df_list, ignore_index=True,
-                            axis=0, sort=False)
-
-    return fnames_df, featsums_df
-
-
-def concatenate_day_summaries(sum_root_dir, list_days,
-                              window='whole',
-                              include=None, exclude=None):
-    """concatenate_day_summaries_nowindow
-    Loop through the subfolders of `sum_root_dir` listed in `list_days`.
-    Find ``filenames_summary`` and ``features_summary`` files
-    that span whole videos
-    (i.e. filter out if there's any that was obtained with time windows).
-    Safely concatenate the ``filenames_summary``s and ``features_summary``s.
-    Filter summaries according to keywords in `include` and `exclude`.
-    If only `include` is provided:
-        all files without ``included`` keywords are dropped.
-    If only `exclude` is provided:
-        any file with ``excluded`` keywords is dropped.
-    If both `include` and `exclude` are provided:
-        only files containing any of the ``included`` keywords AND NONE of the
-        ``excluded`` keywords are kept.
-
-    Parameters
-    ----------
-    sum_root_dir : pathlib Path
-        Path to the folder containing the features summaries.
-        The feature sumaries are expected to be placed in day subfolders
-        (specified by list_days).
-    list_days : list of strings
-        Day folders to load features summaries from.
-        Usually in the format YYYYMMDD. Dictates the order the days sufolders
-        will be looped through.
-    window : str or int
-        Out of the summary files, select only the ones calculated on this
-        window. If "whole", only find the summary files done on
-        the entire videos.
-    include : list of strings, optional
-        Words that have to be present in an imgstore name for it to be kept.
-        The default is None.
-    exclude : list of strings, optional
-        If an imgstore contains any of these words, it will be discarded.
-        Takes precedence over `include` (i.e. if an imgstore contains an
-        ``included`` keyword but also an ``excluded`` one
-        it will be discarded).
-        The default is None.
-
-
-    Returns
-    -------
-    filenames_df, features_df.
-
+def find_window_summaries(results_dir, dates=None):
+    """ 
+    Search project root directory for windows summary files 
     """
+    
+    results_dir = Path(results_dir)
+    assert results_dir.exists()
 
-    filenames_summaries = []
-    features_summaries = []
-    for day in list_days:
-        # find non window summaries
-        daydir = sum_root_dir / day
-        fnames_raw = daydir.rglob('filenames_summary*.csv')
-        featsums_raw = daydir.rglob('features_summary*.csv')
-        # filter based on `window`
-        if window == 'whole':
-            fnames = [f for f in fnames_raw if 'window' not in f.name]
-            featsums = [f for f in featsums_raw if 'window' not in f.name]
-        else:
-            fnames = [f for f in fnames_raw
-                      if 'window_{}.csv'.format(window) in f.name]
-            featsums = [f for f in featsums_raw
-                        if 'window_{}.csv'.format(window) in f.name]
-
-        # check only one of each
-        if len(fnames) > 1 or len(featsums) > 1:
-            print(fnames)
-            print(featsums)
-        assert len(fnames) == 1 and len(featsums) == 1, \
-            ('Multiple whole-video summaries (or none) in '
-             '{}, not supported'.format(daydir))
-        # grow lists
-        filenames_summaries.extend(fnames)
-        features_summaries.extend(featsums)
-
-    # check
-    for fnames, featsums in zip(filenames_summaries, features_summaries):
-        assert fnames.name.replace('filenames', 'features') == featsums.name, \
-            'mismatch!'
-
-    # load
-    fnames_df_list = []
-    featsums_df_list = []
-    for fnames, featsums in tqdm(zip(filenames_summaries, features_summaries)):
-        fn_df, fs_df = read_tierpsy_feat_summaries(featsums, fnames,
-                                                   asfloat32=True)
-        fnames_df_list.append(fn_df)
-        featsums_df_list.append(fs_df)
-    for i, fs_df in enumerate(featsums_df_list[1:]):
-        if len(fs_df.columns.difference(featsums_df_list[i-1].columns)) > 0:
-            print(fs_df.columns.difference(featsums_df_list[i-1].columns))
-
-    try:
-        filenames_df, features_df = concatenate_filenames_and_feats(
-            fnames_df_list, featsums_df_list)
-    except:
-        import pdb; pdb.set_trace()
-
-    # filter indices according to include/exclude
-    if include is None:
-        idx_inc = pd.Series(True, index=filenames_df.index)
+    # find windows summary files
+    windows_file_list = []
+    if dates is not None and type(dates) == list:
+        for date in dates:
+            windows_files = list((results_dir / date).glob('*summary*window*csv'))
+            windows_file_list.extend(windows_files)
     else:
-        include = [include] if isinstance(include, str) else include
-        idx_inc = filenames_df['filename'].str.contains('|'.join(include),
-                                                         regex=True)
-    if exclude is None:
-        idx_exc = pd.Series(False, index=filenames_df.index)
-    else:
-        exclude = [exclude] if isinstance(exclude, str) else exclude
-        idx_exc = filenames_df['filename'].str.contains('|'.join(exclude),
-                                                         regex=True)
-    idx_keep = idx_inc & ~idx_exc
-    # apply filtering
-    filenames_df = filenames_df[idx_keep]
-    features_df = pd.merge(filenames_df['file_id'],
-                           features_df,
-                           how='left',
-                           on='file_id')
+        windows_files = list(results_dir.rglob('*summary*window*csv'))
+        windows_file_list.append()
+    
+    filenames_summary_files = [f for f in windows_file_list if str(f.name).startswith('filenames')]  
+    features_summary_files = [f for f in windows_file_list if str(f.name).startswith('features')]
+    
+    # match filenames and features summaries with their respective windows
+    matched = []
+    for fname_file in filenames_summary_files:
+        window = parse_window_number(fname_file) # get window number
+        
+        # find matching feature summary file for window
+        feat_file_list = [f for f in features_summary_files if parse_window_number(f)==window]
+        
+        if len(feat_file_list) == 0:
+            print('\nERROR: Cannot match filenames summary file: %s' % fname_file)
+            raise OSError('No features summary file found for window %d' % window)
+        elif len(feat_file_list) > 1:
+            print('\nERROR: Multiple matched found for filenames summary file: %s' % fname_file)
+            raise OSError('Multiple features summary files found for window %s' % window)   
+            
+        feat_file = feat_file_list[0]
+        
+        matched.append((fname_file, feat_file))
+    
+    # extract filenames and features windows summary files from matched
+    filenames_summary_files = []
+    features_summary_files = []
+    for (fname_file, feat_file) in sorted(matched):
+        filenames_summary_files.append(fname_file)
+        features_summary_files.append(feat_file)
+    
+    return filenames_summary_files, features_summary_files
 
-    return filenames_df, features_df
+def compile_window_summaries(fname_files, feat_files, results_dir, window_list=None):
+    """ Compile window summaries files from matching lists of filenames and features windows 
+        summary files 
+    """
+    if window_list is not None:
+        assert type(window_list) == list
+    else:
+        window_list = sorted([parse_window_number(f) for f in fname_files])
+    
+    window_dict = {parse_window_number(fname):(fname,feat) for fname,feat in zip(fname_files,feat_files)}
+    
+    filenames_summaries_list = []
+    features_summaries_list = []
+    for window in tqdm(window_list):
+        fname_file, feat_file = window_dict[window]
+        
+        # read filenames/features summary for window and append to list of dataframes
+        filenames_df, features_df = read_tierpsy_feat_summaries(feat_file, fname_file)
+        filenames_df = filenames_df[['file_id','filename','is_good']]
+        
+        assert all(results_dir in f for f in filenames_df['filename'])
+        assert all(i == j for i, j in zip(filenames_df['file_id'], features_df['file_id']))
+
+        # store window number (unique identifier = file_id + window)
+        filenames_df['window'] = window
+        features_df['window'] = window
+        
+        # append to list of dataframes
+        filenames_summaries_list.append(filenames_df)
+        features_summaries_list.append(features_df)
+       
+    # compile full filenames/features summaries from list of dataframes
+    compiled_filenames_summaries = pd.concat(filenames_summaries_list, axis=0, sort=False)
+    compiled_features_summaries = pd.concat(features_summaries_list, axis=0, sort=False)
+    
+    return compiled_filenames_summaries, compiled_features_summaries
+
+#%% Main
+
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser(description='Compile window summaries for project results \
+    directory and imaging dates provided')
+    parser.add_argument('-r','--results_dir', help="Path to project results directory, containing \
+    'YYYYMMDD' imaging date folders with windows summary files to be compiled", default=RESULTS_DIR)
+    parser.add_argument('-d','--imaging_dates', help="Selected imaging dates to compile window summaries",
+                        default=IMAGING_DATES)
+    parser.add_argument('-s','--save_dir', help="Path to save directory for saving compiled \
+    filenames and features window summaries", default=RESULTS_DIR)
+    args = parser.parse_args()
+    
+    tic = time()
+    
+    # find window summaries files
+    print("\nFinding window summaries files..")
+    fname_files, feat_files = find_window_summaries(results_dir=args.results_dir, dates=args.imaging_dates)
+    
+    # compile window summaries files
+    print("\nCompiling window summaries..")
+    compiled_filenames, compiled_features = compile_window_summaries(fname_files, feat_files, 
+                                                                     results_dir=args.results_dir, 
+                                                                     window_list=None)
+    
+    # save compiled window summaries to csv
+    print("\nSaving summaries to file..")
+    Path(args.save_dir).mkdir(parents=True, exist_ok=True)
+    compiled_filenames.to_csv(Path(args.save_dir) / 'compiled_filenames_summaries.csv', index=False)
+    compiled_features.to_csv(Path(args.save_dir) / 'compiled_features_summaries.csv', index=False)
+    
+    print("\nDone! (%.1f seconds)" % (time()-tic))

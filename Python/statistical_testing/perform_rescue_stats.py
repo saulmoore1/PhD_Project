@@ -23,12 +23,13 @@ from time import time
 from pathlib import Path
 
 from read_data.paths import get_save_dir
-from read_data.read import load_json, load_topfeats
-from write_data.write import write_list_to_file
+from read_data.read import load_json #load_topfeats
+#from write_data.write import write_list_to_file
 from visualisation.plotting_helper import sig_asterix
 from statistical_testing.perform_keio_stats import df_summary_stats
 
 from tierpsytools.analysis.statistical_tests import univariate_tests, get_effect_sizes, _multitest_correct
+from tierpsytools.preprocessing.filter_data import select_feat_set
 
 #%% GLOBALS
 
@@ -409,14 +410,22 @@ if __name__ == "__main__":
     # load feature summaries and metadata
     features = pd.read_csv(FEATURES_PATH)[FEATURE]
     metadata = pd.read_csv(METADATA_PATH, dtype={'comments':str, 'source_plate_id':str})
-    
+
     # subset for desired imaging dates
     if args.dates is not None:
         assert type(args.dates) == list
         metadata = metadata.loc[metadata['date_yyyymmdd'].astype(str).isin(args.dates)]
         features = features.reindex(metadata.index)
-
+    
+    # Single feature only, or tierpsy feature set?
+    if FEATURE is not None:
+        features = features[[FEATURE]]
+    else:
+        # Load Tierpsy feature set + subset (columns) for selected features only
+        features = select_feat_set(features, 'tierpsy_{}'.format(args.n_top_feats), append_bluelight=True)
+        features = features[[f for f in features.columns if 'path_curvature' not in f]]
+    
     antioxidant_stats(features, metadata, args)
     
     toc = time()
-    print("\nDone in %.1f seconds (%.1f minutes)" % (toc - tic, (toc - tic) / 60))
+    print("\nDone in %.1f seconds" % (toc - tic))
