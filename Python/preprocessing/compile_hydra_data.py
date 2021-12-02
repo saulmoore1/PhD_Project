@@ -48,13 +48,10 @@ def compile_day_metadata(aux_dir, day, from_source_plate=False, from_robot_runlo
     # Expand wormsorter metadata to have separate row for each well
     plate_metadata = populate_96WPs(wormsorter_meta)
     
-    # Create dataframe with metadata row for each well
 # =============================================================================
 #     if from_source_plate:
 #         sourceplates_file = get_source_plate_metadata()
-# =============================================================================
-        
-# =============================================================================
+#
 #     if from_robot_runlog:
 #         from tierpsytools.hydra.compile_metadata import merge_robot_metadata, merge_robot_wormsorter
 #         drug_metadata = merge_robot_metadata(sourceplates_file,
@@ -108,10 +105,11 @@ def add_imgstore_name(metadata, raw_day_dir, n_wells=96, run_number_regex=r'run\
         out_metadata = metadata dataframe with imgstore_name added
 
     """
+    # TODO: Remove once re-integrated into tierpsytools
 
     import warnings
     from tierpsytools.hydra.hydra_helper import run_number_from_regex
-    from tierpsytools.hydra.hydra_helper import get_camera_serial # TODO: Remove once re-integrated into tierpsytools
+    from tierpsytools.hydra.hydra_helper import get_camera_serial 
     from tierpsytools.hydra import CAM2CH_df
 
     # check if raw_day_dir exists
@@ -392,7 +390,8 @@ def process_feature_summaries(metadata_path,
                               compile_day_summaries=True,
                               imaging_dates=None, 
                               align_bluelight=True,
-                              window_summaries=False):
+                              window_summaries=False,
+                              n_wells=96):
     """ Compile feature summary results and join with metadata to produce
         combined full feature summary results
         
@@ -461,10 +460,11 @@ def process_feature_summaries(metadata_path,
             print("\nCompiling window summaries..")
             compiled_filenames, compiled_features = compile_window_summaries(fname_files=fname_files, 
                                                                              feat_files=feat_files,
-                                                                             compiled_feat_file=combined_feats_path,
-                                                                             compiled_fname_file=combined_fnames_path,
+                                                                             compiled_fnames_path=combined_fnames_path,
+                                                                             compiled_feats_path=combined_feats_path,
                                                                              results_dir=Path(results_dir), 
-                                                                             window_list=None)
+                                                                             window_list=None,
+                                                                             n_wells=n_wells)
         else:
             feat_files = [ft for ft in feat_files if not 'window' in str(ft)]
             fname_files = [fn for fn in fname_files if not 'window' in str(fn)]
@@ -479,13 +479,20 @@ def process_feature_summaries(metadata_path,
     metadata = pd.read_csv(metadata_path, dtype={"comments":str, "source_plate_id":str})
     meta_col_order = metadata.columns.tolist()
 
+    feat_id_cols = ['file_id', 'n_skeletons', 'well_name', 'is_good_well']
+
+    # if there are no well annotations in metadata, omit 'is_good_well' from feat_id_cols
+    if 'is_good_well' not in meta_col_order: 
+        feat_id_cols = [f for f in feat_id_cols if f != 'is_good_well']
+    if window_summaries:
+        feat_id_cols.append('window')
+        
     # Read features summaries + metadata and add bluelight column if aligning bluelight video results
     features, metadata = read_hydra_metadata(combined_feats_path, 
                                              combined_fnames_path,
                                              metadata_path, 
+                                             feat_id_cols=feat_id_cols,
                                              add_bluelight=align_bluelight)
-    # record new columns
-    meta_col_order.extend(['bluelight','featuresN_filename','file_id','is_good_well','n_skeletons'])
 
     if align_bluelight:
         features, metadata = align_bluelight_conditions(feat=features, 
@@ -495,20 +502,14 @@ def process_feature_summaries(metadata_path,
                                                                        'imaging_run_number',
                                                                        'imaging_plate_id',
                                                                        'well_name'])
-        # Update metadata column order 
-        for col in ['bluelight','file_id','imgstore_name','n_skeletons']:
-            meta_col_order.remove(col)
+        meta_col_order.remove('imgstore_name')
             
-        meta_col_order.extend(['bluelight_prestim','bluelight_bluelight','bluelight_poststim',
-                               'file_id_bluelight','file_id_poststim','file_id_prestim',
-                               'imgstore_name_bluelight','imgstore_name_poststim','imgstore_name_prestim',
-                               'n_skeletons_bluelight','n_skeletons_poststim','n_skeletons_prestim'])
-
-        # TODO: Use set(meta_col_order)-set(metadata.columns) to avoid hard coding new column names
-        # added_cols = list(set(meta_col_order) - set(metadata.columns))
-        # meta_col_order.extend(added_cols)
-        
-    assert set(features.index) == set(metadata.index)
+    assert set(features.index) == set(metadata.index)    
+    
+    # record new columns
+    assert len(set(meta_col_order) - set(metadata.columns)) == 0 # ensure no old columns were dropped
+    new_cols = list(set(metadata.columns) - set(meta_col_order))
+    meta_col_order.extend(new_cols)
     
     return features, metadata[meta_col_order]
 
@@ -516,7 +517,7 @@ def process_feature_summaries(metadata_path,
 if __name__ == "__main__":
     # Accept command-line inputs
     parser = argparse.ArgumentParser(description='Compile metadata and feature summary results \
-                                     (Hydra 96-well)')
+                                     (Hydra 96-well or 6-well)')
     parser.add_argument('--project_dir', help="Project root directory, containing 'AuxiliaryFiles',\
                         'RawVideos', 'MaskedVideos' and 'Results' folders", type=str)
     parser.add_argument('--compile_day_summaries', help="Compile feature summaries from \
@@ -530,13 +531,15 @@ if __name__ == "__main__":
                         GUI", type=bool, action='store_false', default=True)
     parser.add_argument('--window_summaries', help="If True, compile window summaries files", 
                         type=bool, action='store_true', default=False)
+    parser.add_argument('--n_wells', help="Number of wells imaged by Hydra rig (96-well or 6-well)",
+                        default=96)
     args = parser.parse_args()
     
     # Compile metadata
     metadata = process_metadata(aux_dir=Path(args.project_dir) / 'AuxiliaryFiles',
                                 imaging_dates=args.dates,
                                 add_well_annotations=args.add_well_annotations,
-                                n_wells=96)
+                                n_wells=args.n_wells)
                 
     # Process feature summary results
     features, metadata = process_feature_summaries(metadata, 
@@ -544,7 +547,8 @@ if __name__ == "__main__":
                                                    compile_day_summaries=args.compile_day_summaries,
                                                    imaging_dates=args.dates,
                                                    align_bluelight=args.align_bluelight,
-                                                   window_summaries=args.window_summaries)   
+                                                   window_summaries=args.window_summaries,
+                                                   n_wells=args.n_wells)   
     print("\nMetadata:\n", metadata.head())
     print("\nFeatures:\n", features.head())
     

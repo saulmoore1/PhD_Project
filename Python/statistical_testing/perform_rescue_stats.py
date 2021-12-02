@@ -17,7 +17,6 @@ and also each strain with/without antioxidant treatment
 #%% IMPORTS
 
 import argparse
-import numpy as np
 import pandas as pd
 from time import time
 from pathlib import Path
@@ -27,6 +26,7 @@ from read_data.read import load_json #load_topfeats
 #from write_data.write import write_list_to_file
 from visualisation.plotting_helper import sig_asterix
 from statistical_testing.perform_keio_stats import df_summary_stats
+from statistical_testing.stats_helper import pairwise_ttest
 
 from tierpsytools.analysis.statistical_tests import univariate_tests, get_effect_sizes, _multitest_correct
 from tierpsytools.preprocessing.filter_data import select_feat_set
@@ -44,42 +44,6 @@ FEATURE = 'motion_mode_paused_fraction_bluelight'
 
 #%% FUNCTIONS
 
-def pairwise_ttest(control_df, strain_df, feature_list, group_by='antioxidant', 
-                   fdr_method='fdr_by', fdr=0.05):
-    """ """
-    from scipy.stats import ttest_ind
-
-    groups = control_df[group_by].unique()
-
-    strain_pvals_list = []
-    strain_stats_list = []
-    for group in groups:
-        test_control = control_df[control_df[group_by]==group]
-        test_strain = strain_df[strain_df[group_by]==group]
-        
-        pvals = []
-        stats = []
-        for feature in feature_list:
-            _stat, _pval = ttest_ind(test_control[feature], test_strain[feature], axis=0)
-            pvals.append(_pval)
-            stats.append(_stat)
-        
-        pvals = pd.DataFrame(np.array(pvals).T, index=feature_list, columns=[group])
-        stats = pd.DataFrame(np.array(stats).T, index=feature_list, columns=[group])
-            
-        strain_pvals_list.append(pvals)
-        strain_stats_list.append(stats)
-        
-    strain_pvals = pd.concat(strain_pvals_list, axis=1)
-    strain_stats = pd.concat(strain_stats_list, axis=1)
-
-    # correct for multiple feature/antioxidant comparisons
-    if fdr_method is not None:
-        strain_reject, strain_pvals = _multitest_correct(strain_pvals, fdr_method, fdr)
-
-    return strain_stats, strain_pvals, strain_reject
-
-#%% 
 def antioxidant_stats(features, metadata, args):
     """ Perform statistical analyses on Keio antioxidant rescue experiment results:
         - ANOVA tests for significant feature variation between strains (for each antioxidant treatment in turn)

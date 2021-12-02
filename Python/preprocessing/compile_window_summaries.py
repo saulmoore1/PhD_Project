@@ -22,6 +22,7 @@ from tierpsytools.read_data.get_feat_summaries_helper import read_tierpsy_feat_s
 
 RESULTS_DIR = '/Volumes/hermes$/Keio_Fast_Effect/Results'
 IMAGING_DATES = ['20211109']
+N_WELLS = 6
 
 #%% Functions
 
@@ -86,10 +87,41 @@ def find_window_summaries(results_dir, dates=None):
     
     return filenames_summary_files, features_summary_files
 
-def compile_window_summaries(fname_files, feat_files, results_dir, window_list=None):
+def get_channels_from_filenames(filenames):
+    """ Extract camera serial number from each file in filenames pd.Series object
+    
+        Inputs
+        ------
+        filenames : pd.Series
+            filenames column from tierpsy filenames summaries file, containing list of filenames
+            
+        Returns
+        -------
+        camera_serials : pd.Series
+            list of extracted camera serial number for each file in filenames
+    """
+    from tierpsytools.hydra import CAM2CH_df
+
+    CAM2CH_DICT = {s:(c.split('Ch')[-1],r) for (s,c,r) in zip(CAM2CH_df['camera_serial'], 
+                                                              CAM2CH_df['channel'], 
+                                                              CAM2CH_df['rig'])}
+    
+    camera_serials = [Path(file).parent.name.split('.')[-1] for file in filenames]
+    channels = [CAM2CH_DICT[s][0] for s in camera_serials]
+
+    return pd.Series(channels)
+
+def compile_window_summaries(fname_files, 
+                             feat_files, 
+                             compiled_fnames_path, 
+                             compiled_feats_path, 
+                             results_dir, 
+                             window_list=None,
+                             n_wells=96):
     """ Compile window summaries files from matching lists of filenames and features windows 
         summary files 
     """
+
     if window_list is not None:
         assert type(window_list) == list
     else:
@@ -106,13 +138,19 @@ def compile_window_summaries(fname_files, feat_files, results_dir, window_list=N
         filenames_df, features_df = read_tierpsy_feat_summaries(feat_file, fname_file)
         filenames_df = filenames_df[['file_id','filename','is_good']]
         
-        assert all(results_dir in f for f in filenames_df['filename'])
+        assert all(str(results_dir) in str(f) for f in filenames_df['filename'])
         assert all(i == j for i, j in zip(filenames_df['file_id'], features_df['file_id']))
 
         # store window number (unique identifier = file_id + window)
         filenames_df['window'] = window
         features_df['window'] = window
         
+        # add well name as channel number if n_wells == 6
+        if n_wells == 6:
+            channels = get_channels_from_filenames(filenames_df['filename'])
+            filenames_df['well_name'] = channels
+            features_df['well_name'] = channels
+       
         # append to list of dataframes
         filenames_summaries_list.append(filenames_df)
         features_summaries_list.append(features_df)
@@ -120,6 +158,14 @@ def compile_window_summaries(fname_files, feat_files, results_dir, window_list=N
     # compile full filenames/features summaries from list of dataframes
     compiled_filenames_summaries = pd.concat(filenames_summaries_list, axis=0, sort=False)
     compiled_features_summaries = pd.concat(features_summaries_list, axis=0, sort=False)
+    
+    # save compiled window summaries to csv
+    print("\nSaving window summaries to file..")
+    Path(compiled_fnames_path).parent.mkdir(parents=True, exist_ok=True)
+    compiled_filenames_summaries.to_csv(compiled_fnames_path, index=False)
+    
+    Path(compiled_feats_path).parent.mkdir(parents=True, exist_ok=True)
+    compiled_features_summaries.to_csv(compiled_feats_path, index=False)
     
     return compiled_filenames_summaries, compiled_features_summaries
 
@@ -132,8 +178,10 @@ if __name__ == '__main__':
     'YYYYMMDD' imaging date folders with windows summary files to be compiled", default=RESULTS_DIR)
     parser.add_argument('-d','--imaging_dates', help="Selected imaging dates to compile window summaries",
                         default=IMAGING_DATES)
-    parser.add_argument('-s','--save_dir', help="Path to save directory for saving compiled \
-    filenames and features window summaries", default=RESULTS_DIR)
+    parser.add_argument('--window_numbers', help="List of window numbers to compile results for",
+                        nargs='+', default=None)
+    parser.add_argument('--n_wells', help="Number of wells imaged under each Hydra rig \
+    (choose between 96 or 6 wells)", default=N_WELLS)
     args = parser.parse_args()
     
     tic = time()
@@ -144,14 +192,15 @@ if __name__ == '__main__':
     
     # compile window summaries files
     print("\nCompiling window summaries..")
-    compiled_filenames, compiled_features = compile_window_summaries(fname_files, feat_files, 
-                                                                     results_dir=args.results_dir, 
-                                                                     window_list=None)
+    compiled_fnames_path = Path(args.results_dir) / 'full_window_filenames.csv'
+    compiled_feats_path = Path(args.results_dir) / 'full_window_features.csv'
     
-    # save compiled window summaries to csv
-    print("\nSaving summaries to file..")
-    Path(args.save_dir).mkdir(parents=True, exist_ok=True)
-    compiled_filenames.to_csv(Path(args.save_dir) / 'compiled_filenames_summaries.csv', index=False)
-    compiled_features.to_csv(Path(args.save_dir) / 'compiled_features_summaries.csv', index=False)
+    compiled_filenames, compiled_features = compile_window_summaries(fname_files, 
+                                                                     feat_files,
+                                                                     compiled_fnames_path=compiled_fnames_path,
+                                                                     compiled_feats_path=compiled_feats_path,
+                                                                     results_dir=args.results_dir, 
+                                                                     window_list=args.window_numbers,
+                                                                     n_wells=args.n_wells)
     
     print("\nDone! (%.1f seconds)" % (time()-tic))

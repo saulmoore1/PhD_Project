@@ -204,6 +204,65 @@ def ranksumtest(test_data, control_data):
         
     return statistics, pvalues
 
+def pairwise_ttest(control_df, strain_df, feature_list, group_by='antioxidant', 
+                   fdr_method='fdr_by', fdr=0.05):
+    """ Perform pairwise t-tests between each strain and control, for each treatment group in 
+        'group_by' column
+        
+        Inputs
+        ------
+        control_df : pd.Dataframe
+            Combined metadata + features dataframe for control strain only
+        strain_df : pd.Dataframe
+            Combined metadata + features dataframe for strains to be tested against control
+        feature_list : list
+            List of features (column names) to test
+        group_by : str
+            Column name of variable to group by for t-tests (eg. 'antioxidant' or 'window')
+        fdr_method : str
+            Specify method for multiple tests correction
+        fdr : float
+            Significance threshold for controlling the false discovery rate
+            
+        Returns
+        -------
+        strain_stats, strain_pvals, strain_reject
+    """
+    import numpy as np
+    import pandas as pd
+    from scipy.stats import ttest_ind
+    from tierpsytools.analysis.statistical_tests import _multitest_correct
+
+    groups = control_df[group_by].unique()
+
+    strain_pvals_list = []
+    strain_stats_list = []
+    for group in groups:
+        test_control = control_df[control_df[group_by]==group]
+        test_strain = strain_df[strain_df[group_by]==group]
+        
+        pvals = []
+        stats = []
+        for feature in feature_list:
+            _stat, _pval = ttest_ind(test_control[feature], test_strain[feature], axis=0)
+            pvals.append(_pval)
+            stats.append(_stat)
+        
+        pvals = pd.DataFrame(np.array(pvals).T, index=feature_list, columns=[group])
+        stats = pd.DataFrame(np.array(stats).T, index=feature_list, columns=[group])
+            
+        strain_pvals_list.append(pvals)
+        strain_stats_list.append(stats)
+        
+    strain_pvals = pd.concat(strain_pvals_list, axis=1)
+    strain_stats = pd.concat(strain_stats_list, axis=1)
+
+    # correct for multiple feature/antioxidant comparisons
+    if fdr_method is not None:
+        strain_reject, strain_pvals = _multitest_correct(strain_pvals, fdr_method, fdr)
+
+    return strain_stats, strain_pvals, strain_reject
+
 def ttest_by_feature(feat_df, 
                      meta_df, 
                      group_by, 
