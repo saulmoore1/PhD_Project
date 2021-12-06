@@ -128,9 +128,9 @@ def get_channels_from_filenames(filenames):
     """
     from tierpsytools.hydra import CAM2CH_df
 
-    CAM2CH_DICT = {s:(c.split('Ch')[-1],r) for (s,c,r) in zip(CAM2CH_df['camera_serial'], 
-                                                              CAM2CH_df['channel'], 
-                                                              CAM2CH_df['rig'])}
+    CAM2CH_DICT = {s:(c,r) for (s,c,r) in zip(CAM2CH_df['camera_serial'], 
+                                              CAM2CH_df['channel'], 
+                                              CAM2CH_df['rig'])}
     
     camera_serials = [Path(file).parent.name.split('.')[-1] for file in filenames]
     channels = [CAM2CH_DICT[s][0] for s in camera_serials]
@@ -147,12 +147,12 @@ def compile_window_summaries(fname_files,
     """ Compile window summaries files from matching lists of filenames and features windows 
         summary files 
     """
-
+        
     if window_list is not None:
         assert type(window_list) == list
     else:
         window_list = sorted(np.unique([parse_window_number(f) for f in fname_files]))
-        
+                
     date_list = sorted(np.unique([parse_date(f) for f in fname_files]))
     
     window_dict = {(parse_date(fname), parse_window_number(fname)) : (fname, feat) for fname, feat 
@@ -176,12 +176,15 @@ def compile_window_summaries(fname_files,
             filenames_df['window'] = window
             features_df['window'] = window
             
-            # add well name as channel number if n_wells == 6
+            # add well name as channel number                
             if n_wells == 6:
+                from tierpsytools.hydra import UPRIGHT_6WP
+
                 channels = get_channels_from_filenames(filenames_df['filename'])
-                filenames_df['well_name'] = channels
-                features_df['well_name'] = channels
-           
+                
+                filenames_df['well_name'] = [UPRIGHT_6WP.loc[0,(c,0)] for c in channels]
+                features_df['well_name'] = [UPRIGHT_6WP.loc[0,(c,0)] for c in channels]
+
             # append to list of dataframes
             filenames_summaries_list.append(filenames_df)
             features_summaries_list.append(features_df)
