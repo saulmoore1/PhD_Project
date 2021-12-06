@@ -11,6 +11,7 @@ Compile wiindow summaries
 #%% Imports
 
 import argparse
+import numpy as np
 import pandas as pd
 from pathlib import Path
 from time import time
@@ -38,6 +39,28 @@ def parse_window_number(fname):
     
     return int(window_str)
 
+def parse_date(fname):
+    """
+    Parse thee filename to find the date (in parent folder name)
+
+    Parameters
+    ----------
+    fname : str
+
+    Returns
+    -------
+    date_str : str
+
+    """
+    import re    
+    from pathlib import Path
+
+    fstem = Path(fname).parent
+    regex = r'(?<=/)\d{8}'
+    date_str = re.findall(regex, str(fstem))[0]
+    
+    return date_str
+
 def find_window_summaries(results_dir, dates=None):
     """ 
     Search project root directory for windows summary files 
@@ -63,14 +86,17 @@ def find_window_summaries(results_dir, dates=None):
     matched = []
     for fname_file in filenames_summary_files:
         window = parse_window_number(fname_file) # get window number
+        date = parse_date(fname_file)
         
         # find matching feature summary file for window
-        feat_file_list = [f for f in features_summary_files if parse_window_number(f)==window]
+        feat_file_list = [f for f in features_summary_files if parse_window_number(f) == window 
+                          and parse_date(f)==date]
         
         if len(feat_file_list) == 0:
             print('\nERROR: Cannot match filenames summary file: %s' % fname_file)
             raise OSError('No features summary file found for window %d' % window)
         elif len(feat_file_list) > 1:
+            # multiple 
             print('\nERROR: Multiple matched found for filenames summary file: %s' % fname_file)
             raise OSError('Multiple features summary files found for window %s' % window)   
             
@@ -125,40 +151,49 @@ def compile_window_summaries(fname_files,
     if window_list is not None:
         assert type(window_list) == list
     else:
-        window_list = sorted([parse_window_number(f) for f in fname_files])
+        window_list = sorted(np.unique([parse_window_number(f) for f in fname_files]))
+        
+    date_list = sorted(np.unique([parse_date(f) for f in fname_files]))
     
-    window_dict = {parse_window_number(fname):(fname,feat) for fname,feat in zip(fname_files,feat_files)}
-    
+    window_dict = {(parse_date(fname), parse_window_number(fname)) : (fname, feat) for fname, feat 
+                   in zip(fname_files,feat_files)}
+
     filenames_summaries_list = []
     features_summaries_list = []
-    for window in tqdm(window_list):
-        fname_file, feat_file = window_dict[window]
-        
-        # read filenames/features summary for window and append to list of dataframes
-        filenames_df, features_df = read_tierpsy_feat_summaries(feat_file, fname_file)
-        filenames_df = filenames_df[['file_id','filename','is_good']]
-        
-        assert all(str(results_dir) in str(f) for f in filenames_df['filename'])
-        assert all(i == j for i, j in zip(filenames_df['file_id'], features_df['file_id']))
-
-        # store window number (unique identifier = file_id + window)
-        filenames_df['window'] = window
-        features_df['window'] = window
-        
-        # add well name as channel number if n_wells == 6
-        if n_wells == 6:
-            channels = get_channels_from_filenames(filenames_df['filename'])
-            filenames_df['well_name'] = channels
-            features_df['well_name'] = channels
-       
-        # append to list of dataframes
-        filenames_summaries_list.append(filenames_df)
-        features_summaries_list.append(features_df)
-       
-    # compile full filenames/features summaries from list of dataframes
-    compiled_filenames_summaries = pd.concat(filenames_summaries_list, axis=0, sort=False)
-    compiled_features_summaries = pd.concat(features_summaries_list, axis=0, sort=False)
+    for date in date_list:
+        print("\nCompiling summaries for '%s'" % date)
+        for window in tqdm(window_list):
+            fname_file, feat_file = window_dict[(date, window)]
+            
+            # read filenames/features summary for window and append to list of dataframes
+            filenames_df, features_df = read_tierpsy_feat_summaries(feat_file, fname_file)
+            filenames_df = filenames_df[['file_id','filename','is_good']]
+            
+            assert all(str(results_dir) in str(f) for f in filenames_df['filename'])
+            assert all(i == j for i, j in zip(filenames_df['file_id'], features_df['file_id']))
     
+            # store window number (unique identifier = file_id + window)
+            filenames_df['window'] = window
+            features_df['window'] = window
+            
+            # add well name as channel number if n_wells == 6
+            if n_wells == 6:
+                channels = get_channels_from_filenames(filenames_df['filename'])
+                filenames_df['well_name'] = channels
+                features_df['well_name'] = channels
+           
+            # append to list of dataframes
+            filenames_summaries_list.append(filenames_df)
+            features_summaries_list.append(features_df)
+       
+    # compile full filenames/features summaries from list of dataframes + reset index across windows
+    compiled_filenames_summaries = pd.concat(filenames_summaries_list, axis=0, sort=False).reset_index(drop=True)
+    compiled_features_summaries = pd.concat(features_summaries_list, axis=0, sort=False).reset_index(drop=True)
+    
+    # reset 'file_id' column (separate file ids for each window)
+    compiled_filenames_summaries['file_id'] = range(compiled_filenames_summaries.shape[0])
+    compiled_features_summaries['file_id'] = compiled_filenames_summaries['file_id']
+        
     # save compiled window summaries to csv
     print("\nSaving window summaries to file..")
     Path(compiled_fnames_path).parent.mkdir(parents=True, exist_ok=True)

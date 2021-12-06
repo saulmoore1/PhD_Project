@@ -37,19 +37,23 @@ FEATURE = 'motion_mode_paused_fraction'
 
 scale_outliers_box = True
 
+WINDOW_LIST = [3,6,9,12,15,18,21,24]
+
 # windows summary window number to corresponding frame number mapping dictionary
-WINDOW_FRAME_DICT = {2:(1805,1815),
-                     5:(3605,3615),
-                     8:(5405,5415),
-                     11:(7205,7215),
-                     14:(9005,9015),
-                     17:(10805,10815),
-                     20:(12605,12615),
-                     23:(14405,14415)} #26:(16205,16215)
+WINDOW_FRAME_DICT = {0:(300,310), 1:(1790,1800), 2:(1805,1815),
+                     3:(1815,1825), 4:(3590,3600), 5:(3605,3615),
+                     6:(3615,3625), 7:(5390,5400), 8:(5405,5415),
+                     9:(5415,5425), 10:(7190,7200), 11:(7205,7215),
+                     12:(7215,7225), 13:(8990,9000), 14:(9005,9015),
+                     15:(9015,9025), 16:(10790,10800), 17:(10805,10815),
+                     18:(10815,10825), 19:(12590,12600), 20:(12605,12615),
+                     21:(12615,12625), 22:(14390,14400), 23:(14405,14415),
+                     24:(14415,14425), 25:(16190,16200), 26:(16205,16215),
+                     27:(16215,16225), 28:(17700,17710)}
 
 #%% Functions
 
-def perform_fast_effect_stats(features, metadata, args):
+def perform_fast_effect_stats(features, metadata, window_list, args):
     """ Pairwise t-tests for each window comparing worm 'motion mode paused fraction' on 
         Keio mutants vs BW control 
     """
@@ -62,7 +66,6 @@ def perform_fast_effect_stats(features, metadata, args):
     assert len(metadata['gene_name'].unique()) == len(metadata['gene_name'].str.upper().unique())
         
     # subset for windows in window_frame_dict
-    window_list = list(WINDOW_FRAME_DICT.keys())
     assert all(w in metadata['window'] for w in window_list)
     metadata = metadata[metadata['window'].isin(window_list)]
     features = features.reindex(metadata.index)
@@ -93,7 +96,7 @@ def perform_fast_effect_stats(features, metadata, args):
                                               strain_df, 
                                               feature_list=[FEATURE], 
                                               group_by='window', 
-                                              fdr_method='fdr_by',
+                                              fdr_method=args.fdr_method,
                                               fdr=0.05)
  
         # compile table of results
@@ -110,12 +113,12 @@ def perform_fast_effect_stats(features, metadata, args):
         for window in window_list:
             print("%s difference in '%s' between %s vs %s in window %s (paired t-test, P=%.3f, %s)" %\
                   (("SIGNIFICANT" if reject.loc[FEATURE, 'reject_{}'.format(window)] else "No"), 
-                  FEATURE, strain, control_strain, window, pvals.loc[FEATURE, 'pvals_{}'.format(window)], 
+                  FEATURE, strain, control_strain, window, pvals.loc[FEATURE, 'pvals_{}'.format(window)],
                   args.fdr_method))
                 
     return
 
-def analyse_fast_effect(features, metadata, args):
+def analyse_fast_effect(features, metadata, window_list, args):
     
     # categorical variables to investigate: 'gene_name' and 'window'
     print("\nInvestigating variation in fraction of worms paused between hit strains and control " +
@@ -125,7 +128,6 @@ def analyse_fast_effect(features, metadata, args):
     assert len(metadata['gene_name'].unique()) == len(metadata['gene_name'].str.upper().unique())
     
     # subset for windows in window_frame_dict
-    window_list = list(WINDOW_FRAME_DICT.keys())
     assert all(w in metadata['window'] for w in window_list)
     metadata = metadata[metadata['window'].isin(window_list)]
     features = features.reindex(metadata.index)
@@ -160,7 +162,7 @@ def analyse_fast_effect(features, metadata, args):
                          data=plot_df, palette='Set3', dodge=True, ax=ax)
         for date in date_lut.keys():
             date_df = plot_df[plot_df['date_yyyymmdd']==date]
-            ax = sns.swarmplot(x='window', y=FEATURE, hue='gene_name', hue_order=[control_strain, strain], 
+            ax = sns.swarmplot(x='window', y=FEATURE, hue='gene_name', hue_order=[control_strain, strain],
                                data=date_df, color=date_lut[date], alpha=0.7, size=4, dodge=True, ax=ax)
         n_labs = len(plot_df['gene_name'].unique())
         handles, labels = ax.get_legend_handles_labels()
@@ -176,7 +178,7 @@ def analyse_fast_effect(features, metadata, args):
             Q1 = grouped_strain[FEATURE].quantile(0.25)
             Q3 = grouped_strain[FEATURE].quantile(0.75)
             IQR = Q3 - Q1
-            plt.ylim(min(y_bar) - 2.5 * max(IQR), max(y_bar) + 2.5 * max(IQR))
+            plt.ylim(-0.02, max(y_bar) + 2.5 * max(IQR))
             
         # load t-test results + annotate p-values on plot
         for ii, window in enumerate(window_list):
@@ -214,15 +216,6 @@ if __name__ == '__main__':
     aux_dir = Path(args.project_dir) / 'AuxiliaryFiles'
     results_dir =  Path(args.project_dir) / 'Results'
     
-    # load compiled window summaries results
-    compiled_filenames = pd.read_csv(results_dir / 'full_window_filenames.csv', index_col=False)
-    compiled_features = pd.read_csv(results_dir / 'full_window_features.csv', index_col=False)
-
-    # subset summaries for specific windows
-    windows_list = list(WINDOW_FRAME_DICT.keys())
-    compiled_filenames = compiled_filenames[compiled_filenames['window'].isin(windows_list)]
-    compiled_features = compiled_features[compiled_features['window'].isin(windows_list)]
-    
     # load metadata    
     metadata, metadata_path = process_metadata(aux_dir, 
                                                imaging_dates=args.dates, 
@@ -231,7 +224,7 @@ if __name__ == '__main__':
     
     features, metadata = process_feature_summaries(metadata_path, 
                                                    results_dir, 
-                                                   compile_day_summaries=True, 
+                                                   compile_day_summaries=False, 
                                                    imaging_dates=args.dates, 
                                                    align_bluelight=False, 
                                                    window_summaries=True,
@@ -251,7 +244,8 @@ if __name__ == '__main__':
     # Create is_bad_well column - refer to manual metadata for bad 35mm petri plates
     metadata['is_bad_well'] = False
 
-    # Clean results - Remove bad well data + features with too many NaNs/zero std + impute remaining NaNs
+    # Clean results - Remove bad well data + features with too many NaNs/zero std 
+    #                                      + impute remaining NaNs
     features, metadata = clean_summary_results(features, 
                                                metadata,
                                                feature_columns=None,
@@ -268,9 +262,11 @@ if __name__ == '__main__':
     assert not features.isna().sum(axis=1).any()
     assert not (features.std(axis=1) == 0).any()
     
-    perform_fast_effect_stats(features, metadata, args)
+    #WINDOW_LIST = list(WINDOW_FRAME_DICT.keys())
     
-    analyse_fast_effect(features, metadata, args)
+    perform_fast_effect_stats(features, metadata, WINDOW_LIST, args)
+    
+    analyse_fast_effect(features, metadata, WINDOW_LIST, args)
     
     
     

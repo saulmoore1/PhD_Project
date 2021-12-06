@@ -9,6 +9,12 @@ Clean feature summary and associated metadata to remove:
 
 """
 
+#%% Imports
+
+import numpy as np
+
+#%% Functions
+
 def clean_summary_results(features, 
                           metadata, 
                           feature_columns=None, 
@@ -75,7 +81,18 @@ def clean_summary_results(features,
                                         metadata, 
                                         bad_well_cols=['is_bad_well'], 
                                         verbose=False)
-    assert not any(features.sum(axis=1) == 0) # ensure no missing row data
+    
+    # raise warning if missing row data
+    if any(features.sum(axis=1) == 0):
+        n_missing, idxs = sum(features.sum(axis=1)==0), list(np.where(features.sum(axis=1)==0)[0])
+        
+        print("\n\tWARNING: There are {} rows with missing data in features!".format(n_missing) +
+              "\n\tThese samples will be dropped from the analysis\n")
+        # NB: if using window summaries, esp for long videos, this could be due to condensation 
+        #     build up affecting tracking in later windows
+        
+        features = features[~features.index.isin(idxs)]
+        metadata = metadata.reindex(features.index)
 
     # Drop rows based on percentage of NaN values across features for each row
     # NB: axis=1 will sum the NaNs across all the columns for each row

@@ -87,7 +87,75 @@ def compile_day_metadata(aux_dir, day, from_source_plate=False, from_robot_runlo
     
     return day_metadata
 
-def add_imgstore_name(metadata, raw_day_dir, n_wells=96, run_number_regex=r'run\d+_'):
+def get_camera_serial(
+        metadata, n_wells=96
+        ):
+    """
+    @author: em812
+    Get the camera serial number from the well_name and instrument_name.
+
+    param:
+        metadata: pandas dataframe
+            Dataframe with day metadata
+
+    return:
+        out_metadata: pandas dataframe
+            Day metadata dataframe including camera serial
+
+    """
+    from tierpsytools.hydra import CAM2CH_df, UPRIGHT_96WP
+
+    if not n_wells == 6 or n_wells == 96:
+        raise ValueError('Only 96-well or 6-well plates are supported at the moment.')
+        
+    channels = ['Ch{}'.format(i) for i in range(1,7,1)]
+
+    if n_wells == 96:
+        WELL2CH = []
+        for ch in channels:
+            chdf = pd.DataFrame(UPRIGHT_96WP[ch].values.reshape(-1,1),
+                                columns=['well_name'])
+            chdf['channel'] = ch
+            WELL2CH.append(chdf)
+        WELL2CH = pd.concat(WELL2CH, axis=0)
+    
+    elif n_wells == 6:
+        assert 'channel' in metadata.columns
+        if not 'well_name' in metadata.columns or metadata['well_name'].isna().any():
+            metadata['well_name'] = metadata['channel'].astype(str)
+            
+        WELL2CH = pd.DataFrame(zip([str(i) for i in range(1,7,1)], channels), 
+                               columns=['well_name', 'channel'])
+        
+    WELL2CAM = pd.merge(
+            CAM2CH_df,WELL2CH,
+            how='outer',on='channel'
+            ).sort_values(by=['rig','channel','well_name'])
+    
+    # keep only the instruments that exist in the metadata
+    WELL2CAM = WELL2CAM[WELL2CAM['rig'].isin(metadata['instrument_name'])]
+
+    # Rename 'rig' to 'instrument_name'
+    WELL2CAM = WELL2CAM.rename(columns={'rig':'instrument_name'})
+
+    # Add camera number to metadata
+    out_metadata = pd.merge(
+            metadata,WELL2CAM[['instrument_name','well_name','camera_serial']],
+            how='outer',left_on=['instrument_name','well_name'],
+            right_on=['instrument_name','well_name']
+            )
+        
+    if not out_metadata.shape[0] == metadata.shape[0]:
+        raise Exception('Wells missing from plate metadata.')
+
+    if not all(~out_metadata['camera_serial'].isna()):
+        raise Exception('Camera serial not found for some wells.')
+
+    return out_metadata
+
+
+def add_imgstore_name(metadata, raw_day_dir, n_wells=96, 
+                      run_number_regex=r'run\d+_'):
     """
     Add the imgstore name of the hydra videos to the day metadata dataframe
     Inputs:
@@ -95,22 +163,18 @@ def add_imgstore_name(metadata, raw_day_dir, n_wells=96, run_number_regex=r'run\
             Dataframe with metadata for a given day of experiments. 
             See README.md for details on fields.
         raw_day_dir = path to directory
-            RawVideos root directory of the specific day, where the imgstore names can be found.
+            RawVideos root directory of the specific day, 
+            where the imgstore names can be found.
         n_wells = integer
-            Number of wells in imaging plate (only 96 and 6 are supported at the moment)
-            NB: if n_wells != 96, 'camera_serial' information must exist in metadata 
-                (with no missing entries)
+            Number of wells in imaging plate 
+            (only 96 and 6 are supported at the moment)
+            NB: if n_wells != 96, 'camera_serial' information 
+                must exist in metadata (with no missing entries)
 
     Returns:
         out_metadata = metadata dataframe with imgstore_name added
 
     """
-    # TODO: Remove once re-integrated into tierpsytools
-
-    import warnings
-    from tierpsytools.hydra.hydra_helper import run_number_from_regex
-    from tierpsytools.hydra.hydra_helper import get_camera_serial 
-    from tierpsytools.hydra import CAM2CH_df
 
     # check if raw_day_dir exists
     if not raw_day_dir.exists:
@@ -119,8 +183,8 @@ def add_imgstore_name(metadata, raw_day_dir, n_wells=96, run_number_regex=r'run\
                       "Path {} not found.".format(raw_day_dir))
         return metadata
 
-    # if the raw_day_dir contains a date in yyyymmdd format, check if the date in raw_day_dir 
-    # matches the date of runs stored in the metadata dataframe
+    # if the raw_day_dir contains a date in yyyymmdd format, check if the date 
+    # in raw_day_dir matches the date of runs stored in the metadata dataframe
     date_of_runs = metadata['date_yyyymmdd'].astype(str).values[0]
     date_in_dir = re.findall(r'(\d{8})',raw_day_dir.stem)
     if len(date_in_dir)==1 and date_of_runs != date_in_dir[0]:
@@ -132,25 +196,8 @@ def add_imgstore_name(metadata, raw_day_dir, n_wells=96, run_number_regex=r'run\
         return metadata
 
     # add camera serial number to metadata
-    if n_wells == 96:
+    if n_wells == 6 or n_wells == 96:
         metadata = get_camera_serial(metadata, n_wells=n_wells)
-    elif n_wells == 6:
-        # check that camera serial/channel/rig information are present in metadata
-        assert 'camera_serial' in metadata.columns and not any(metadata['camera_serial'].isna())
-        assert 'channel' in metadata.columns and not any(metadata['channel'].isna())
-        assert 'instrument_name' in metadata.columns and not any(metadata['instrument_name'].isna())
-        
-        # convert to str
-        metadata['camera_serial'] = metadata['camera_serial'].astype(str)
-        metadata['channel'] = metadata['channel'].astype(str)
-        
-        # check that camera serial/channel/rig information are correct
-        CAM2CH_DICT = {s:(c.split('Ch')[-1],r) for (s,c,r) in zip(CAM2CH_df['camera_serial'], 
-                                                                  CAM2CH_df['channel'], 
-                                                                  CAM2CH_df['rig'])}
-        assert all((CAM2CH_DICT[s][0]==c and CAM2CH_DICT[s][1]==r) for s,c,r in 
-                   zip(metadata['camera_serial'], metadata['channel'], metadata['instrument_name']))
-
     else:
         raise IOError("n_wells not supported! Only 96 and 6 wells are supported")
 
@@ -166,12 +213,17 @@ def add_imgstore_name(metadata, raw_day_dir, n_wells=96, run_number_regex=r'run\
                               'imaging_run_number': imaging_run_number})
 
     # keep only short imgstore_name (experiment_day_dir/imgstore_name_dir)
-    file_meta['imgstore_name'] = file_meta['file_name'].apply(lambda x: "/".join(x.parts[-3:-1]))
+    file_meta['imgstore_name'] = file_meta['file_name'].apply(
+        lambda x: "/".join(x.parts[-3:-1]))
 
     # merge dataframes to store imgstore_name for each metadata row
     out_metadata = pd.merge(metadata, 
-                            file_meta[['imaging_run_number','camera_serial','imgstore_name']],
-                            how='outer', on=['imaging_run_number','camera_serial'])
+                            file_meta[['imaging_run_number',
+                                       'camera_serial',
+                                       'imgstore_name']],
+                            how='outer', 
+                            on=['imaging_run_number',
+                                'camera_serial'])
         
     # check if there are missing videos. If yes, raise a warning.
     # (we expect to have videos from every camera of a given instrument)
@@ -180,7 +232,8 @@ def add_imgstore_name(metadata, raw_day_dir, n_wells=96, run_number_regex=r'run\
                                      ['imaging_run_number', 'camera_serial']]
         for i,row in not_found.iterrows():
             warnings.warn('\n\nNo video found for day ' + 
-                          '{}, run {}, camera {}.\n\n'.format(raw_day_dir.stem, *row.values))
+                          '{}, run {}, camera {}.\n\n'.format(raw_day_dir.stem, 
+                                                              *row.values))
 
     return out_metadata
 
@@ -214,8 +267,7 @@ def process_metadata(aux_dir,
         compiled metadata path
     """
     
-    # TODO: Update tierpsytools for compatibility with 6-well plates (see custom 'add_imgstore_name' function above)    
-    # from tierpsytools.hydra.hydra_helper import add_imgstore_name    
+    from tierpsytools.hydra.hydra_helper import add_imgstore_name  
     from tierpsytools.hydra.match_wells_annotations import update_metadata_with_wells_annotations
     # from tierpsytools.hydra.match_wells_annotations import (import_wells_annotations_in_folder,
     #                                                         match_rawvids_annotations, update_metadata)
@@ -269,20 +321,14 @@ def process_metadata(aux_dir,
                 day_meta_col_order = list(day_meta.columns)
 
                 # Delete camera_serial column as it will be recreated
-                if 'camera_serial' in day_meta_col_order and n_wells == 96:
+                if 'camera_serial' in day_meta_col_order:
                      day_meta = day_meta.drop(columns='camera_serial')
-                     
-                     # update column order
-                     day_meta_col_order.extend(['imgstore_name','camera_serial'])
-                     
-                elif n_wells == 6:
-                     # update column order
-                     day_meta_col_order.extend(['imgstore_name'])
-                     
-                # add imgstore_name (+ camera_serial if n_wells=96)
+                                          
+                # add imgstore_name (camera_serial added if n_wells=96)
                 day_meta = add_imgstore_name(day_meta, rawDir, n_wells=n_wells)
                 
                 # restore column order
+                day_meta_col_order.extend(['imgstore_name','camera_serial'])
                 day_meta = day_meta[day_meta_col_order]
 
             else:
@@ -298,7 +344,6 @@ def process_metadata(aux_dir,
             day_meta = day_meta.drop(columns='row_order')
             
             if update_day_meta:
-                #day_meta_out_path = str(day_meta_path).replace(".csv", "_updated.csv")
                 day_meta.to_csv(day_meta_path, index=False)
             
             # Append to compiled metadata list
@@ -429,31 +474,10 @@ def process_feature_summaries(metadata_path,
     if np.logical_and(combined_feats_path.is_file(), combined_fnames_path.is_file()):
         print("Found existing full feature summaries")
     else:
-        print("Compiling feature summary results")    
-        if compile_day_summaries:
-            
-            if imaging_dates is not None:
-                assert type(imaging_dates) == list
-                feat_files = []
-                fname_files = []
-                for date in imaging_dates:
-                    date_dir = Path(results_dir) / date
-                    feat_files.extend(list(Path(date_dir).rglob('features_summary*.csv')))
-                    fname_files.extend(list(Path(date_dir).rglob('filenames_summary*.csv')))
-            else:
-                feat_files = list(Path(results_dir).rglob('features_summary*.csv'))
-                fname_files = [Path(str(f).replace("/features_", "/filenames_")) for f in feat_files]
-        else:
-            feat_files = list(Path(results_dir).glob('features_summary*.csv'))
-            fname_files = list(Path(results_dir).glob('filenames_summary*.csv'))
-
-        # Keep only features files for which matching filenames_summaries exist
-        feat_files = [ft for ft, fn in zip(np.unique(feat_files), np.unique(fname_files)) if fn is not None]
-        fname_files = [fn for fn in np.unique(fname_files) if fn is not None]           
-                
+        print("Compiling feature summary results")   
         if window_summaries:
             print("\nFinding window summaries files..")
-            fname_files, feat_files = find_window_summaries(results_dir=Path(results_dir), 
+            fname_files, feat_files = find_window_summaries(results_dir=results_dir, 
                                                             dates=imaging_dates)
     
             # compile window summaries files
@@ -465,7 +489,28 @@ def process_feature_summaries(metadata_path,
                                                                              results_dir=Path(results_dir), 
                                                                              window_list=None,
                                                                              n_wells=n_wells)
+
         else:
+            if compile_day_summaries:
+                if imaging_dates is not None:
+                    assert type(imaging_dates) == list
+                    feat_files = []
+                    fname_files = []
+                    for date in imaging_dates:
+                        date_dir = Path(results_dir) / date
+                        feat_files.extend(list(Path(date_dir).rglob('features_summary*.csv')))
+                        fname_files.extend(list(Path(date_dir).rglob('filenames_summary*.csv')))
+                else:
+                    feat_files = list(Path(results_dir).rglob('features_summary*.csv'))
+                    fname_files = [Path(str(f).replace("/features_", "/filenames_")) for f in feat_files]
+            else:
+                feat_files = list(Path(results_dir).glob('features_summary*.csv'))
+                fname_files = list(Path(results_dir).glob('filenames_summary*.csv'))
+
+            # Keep only features files for which matching filenames_summaries exist
+            feat_files = [ft for ft, fn in zip(np.unique(feat_files), np.unique(fname_files)) if fn is not None]
+            fname_files = [fn for fn in np.unique(fname_files) if fn is not None]           
+                
             feat_files = [ft for ft in feat_files if not 'window' in str(ft)]
             fname_files = [fn for fn in fname_files if not 'window' in str(fn)]
                     
