@@ -79,7 +79,7 @@ def antioxidant_stats(features, metadata, args):
     assert len(metadata[STRAIN_COLNAME].unique()) == len(metadata[STRAIN_COLNAME].str.upper().unique())
     assert len(metadata[TREATMENT_COLNAME].unique()) == len(metadata[TREATMENT_COLNAME].str.upper().unique())
     
-    assert not features.isna().any()
+    assert not features.isna().any().any()
     
     strain_list = list(metadata[STRAIN_COLNAME].unique())
     antioxidant_list = list(metadata[TREATMENT_COLNAME].unique())
@@ -372,7 +372,7 @@ if __name__ == "__main__":
         METADATA_PATH = Path(args.save_dir) / 'metadata.csv'
         
     # load feature summaries and metadata
-    features = pd.read_csv(FEATURES_PATH)[FEATURE]
+    features = pd.read_csv(FEATURES_PATH)
     metadata = pd.read_csv(METADATA_PATH, dtype={'comments':str, 'source_plate_id':str})
 
     # subset for desired imaging dates
@@ -386,7 +386,8 @@ if __name__ == "__main__":
         features = features[[FEATURE]]
     else:
         # Load Tierpsy feature set + subset (columns) for selected features only
-        features = select_feat_set(features, 'tierpsy_{}'.format(args.n_top_feats), append_bluelight=True)
+        features = select_feat_set(features, 'tierpsy_{}'.format(args.n_top_feats), 
+                                   append_bluelight=True)
         features = features[[f for f in features.columns if 'path_curvature' not in f]]
     
     antioxidant_stats(features, metadata, args)

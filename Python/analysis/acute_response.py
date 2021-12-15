@@ -28,6 +28,7 @@ from preprocessing.compile_hydra_data import process_metadata, process_feature_s
 from filter_data.clean_feature_summaries import clean_summary_results
 from statistical_testing.stats_helper import pairwise_ttest
 from statistical_testing.perform_keio_stats import df_summary_stats
+#from time_series.plot_timeseries import add_bluelight_to_plot
 
 #%% Globals
 
@@ -37,19 +38,18 @@ FEATURE = 'motion_mode_paused_fraction'
 
 scale_outliers_box = True
 
-WINDOW_LIST = [3,6,9,12,15,18,21,24]
+ALL_WINDOWS = False
+WINDOW_LIST = [3,6,9,12,15,18,21,24] # if ALL_WINDOWS is False
 
-# windows summary window number to corresponding frame number mapping dictionary
-WINDOW_FRAME_DICT = {0:(300,310), 1:(1790,1800), 2:(1805,1815),
-                     3:(1815,1825), 4:(3590,3600), 5:(3605,3615),
-                     6:(3615,3625), 7:(5390,5400), 8:(5405,5415),
-                     9:(5415,5425), 10:(7190,7200), 11:(7205,7215),
-                     12:(7215,7225), 13:(8990,9000), 14:(9005,9015),
-                     15:(9015,9025), 16:(10790,10800), 17:(10805,10815),
-                     18:(10815,10825), 19:(12590,12600), 20:(12605,12615),
-                     21:(12615,12625), 22:(14390,14400), 23:(14405,14415),
-                     24:(14415,14425), 25:(16190,16200), 26:(16205,16215),
-                     27:(16215,16225), 28:(17700,17710)}
+# mapping dictionary - windows summary window number to corresponding timestamp (seconds)
+WINDOW_FRAME_DICT = {0:(300,310), 1:(1790,1800), 2:(1805,1815), 3:(1815,1825),
+                     4:(3590,3600), 5:(3605,3615), 6:(3615,3625), 7:(5390,5400),
+                     8:(5405,5415), 9:(5415,5425), 10:(7190,7200), 11:(7205,7215),
+                     12:(7215,7225), 13:(8990,9000), 14:(9005,9015), 15:(9015,9025),
+                     16:(10790,10800), 17:(10805,10815), 18:(10815,10825), 19:(12590,12600),
+                     20:(12605,12615), 21:(12615,12625), 22:(14390,14400), 23:(14405,14415),
+                     24:(14415,14425), 25:(16190,16200), 26:(16205,16215), 27:(16215,16225),
+                     28:(17700,17710)}
 
 #%% Functions
 
@@ -144,32 +144,33 @@ def analyse_fast_effect(features, metadata, window_list, args):
     stats_dir =  save_dir / "Stats" / args.fdr_method
     plot_dir = save_dir / "Plots" / args.fdr_method
         
-    # plotting
+    # plot dates as different colours (in loop)
     date_lut = dict(zip(list(metadata['date_yyyymmdd'].unique()), 
                         sns.color_palette('Set1', n_colors=len(metadata['date_yyyymmdd'].unique()))))
+    
     for strain in strain_list:
         print("Plotting windows for %s vs control" % strain)
         
         plot_meta = metadata[np.logical_or(metadata['gene_name']==strain, 
-                                         metadata['gene_name']==control_strain)]
+                                           metadata['gene_name']==control_strain)]
         plot_feat = features.reindex(plot_meta.index)
         plot_df = plot_meta.join(plot_feat[[FEATURE]])
         
         # plot control/strain for all windows
         plt.close('all')
-        fig, ax = plt.subplots(figsize=(12,6))
+        fig, ax = plt.subplots(figsize=((len(window_list) if len(window_list) >= 20 else 12),8))
         ax = sns.boxplot(x='window', y=FEATURE, hue='gene_name', hue_order=[control_strain, strain],
                          data=plot_df, palette='Set3', dodge=True, ax=ax)
         for date in date_lut.keys():
-            date_df = plot_df[plot_df['date_yyyymmdd']==date]
-            ax = sns.swarmplot(x='window', y=FEATURE, hue='gene_name', hue_order=[control_strain, strain],
-                               data=date_df, color=date_lut[date], alpha=0.7, size=4, dodge=True, ax=ax)
+            date_df = plot_df[plot_df['date_yyyymmdd']==date]   
+            ax = sns.stripplot(x='window', y=FEATURE, hue='gene_name', 
+                               hue_order=[control_strain, strain], data=date_df, 
+                               palette={control_strain:date_lut[date], strain:date_lut[date]}, 
+                               alpha=0.7, size=4, dodge=True, ax=ax)
         n_labs = len(plot_df['gene_name'].unique())
         handles, labels = ax.get_legend_handles_labels()
         ax.legend(handles[:n_labs], labels[:n_labs], fontsize=15, frameon=False, loc='upper right')
-        ax.set_xlabel('Window number', fontsize=15, labelpad=10)
-        ax.set_ylabel(FEATURE.replace('_',' '), fontsize=15, labelpad=10)
-        
+                
         # scale plot to omit outliers (>2.5*IQR from mean)
         if scale_outliers_box:
             grouped_strain = plot_df.groupby('window')
@@ -178,7 +179,14 @@ def analyse_fast_effect(features, metadata, window_list, args):
             Q1 = grouped_strain[FEATURE].quantile(0.25)
             Q3 = grouped_strain[FEATURE].quantile(0.75)
             IQR = Q3 - Q1
-            plt.ylim(-0.02, max(y_bar) + 2.5 * max(IQR))
+            plt.ylim(-0.02, max(y_bar) + 3 * max(IQR))
+
+        # # add bluelight windows to plot
+        # if ALL_WINDOWS:
+        #     bluelight_times = [WINDOW_FRAME_DICT[w] for w in WINDOW_LIST]
+        #     # rescale window times to box plot positions: (xi – min(x)) / (max(x) – min(x)) * n_boxes
+        #     n_boxes = len(WINDOW_FRAME_DICT.keys())
+        #     ax = add_bluelight_to_plot(ax, bluelight_times, alpha=0.5)
             
         # load t-test results + annotate p-values on plot
         for ii, window in enumerate(window_list):
@@ -189,15 +197,23 @@ def analyse_fast_effect(features, metadata, window_list, args):
             p = strain_pvals_t.loc[FEATURE, str(window)]
             text = ax.get_xticklabels()[ii]
             assert text.get_text() == str(window)
-            p_text = 'P < 0.001' if p < 0.001 else 'P = %.3f' % p
+            p_text = 'P<0.001' if p < 0.001 else 'P=%.3f' % p
             #y = (y_bar[antiox] + 2 * IQR[antiox]) if scale_outliers_box else plot_df[feature].max()
             #h = (max(IQR) / 10) if scale_outliers_box else (y - plot_df[feature].min()) / 50
             trans = transforms.blended_transform_factory(ax.transData, ax.transAxes)
-            plt.plot([ii-.2, ii-.2, ii+.2, ii+.2], 
-                     [0.8, 0.81, 0.81, 0.8], #[y+h, y+2*h, y+2*h, y+h], 
+            plt.plot([ii-.3, ii-.3, ii+.3, ii+.3], 
+                     [0.98, 0.99, 0.99, 0.98], #[y+h, y+2*h, y+2*h, y+h], 
                      lw=1.5, c='k', transform=trans)
-            ax.text(ii, 0.82, p_text, fontsize=9, ha='center', va='bottom', transform=trans)
-                
+            ax.text(ii, 1.01, p_text, fontsize=9, ha='center', va='bottom', transform=trans,
+                    rotation=(0 if len(window_list) <= 20 else 90))
+            
+        ax.set_xticks(range(len(window_list)+1))
+        xlabels = [str(int(WINDOW_FRAME_DICT[w][0]/60)) for w in window_list]
+        ax.set_xticklabels(xlabels)
+        x_text = 'Time (minutes)' if ALL_WINDOWS else 'Time of bluelight 10-second burst (minutes)'
+        ax.set_xlabel(x_text, fontsize=15, labelpad=10)
+        ax.set_ylabel(FEATURE.replace('_',' '), fontsize=15, labelpad=10)
+        
         fig_savepath = plot_dir / 'window_boxplots' / strain / (FEATURE + '.png')
         fig_savepath.parent.mkdir(parents=True, exist_ok=True)
         plt.savefig(fig_savepath)
@@ -262,7 +278,9 @@ if __name__ == '__main__':
     assert not features.isna().sum(axis=1).any()
     assert not (features.std(axis=1) == 0).any()
     
-    #WINDOW_LIST = list(WINDOW_FRAME_DICT.keys())
+    if ALL_WINDOWS:
+        WINDOW_LIST = list(WINDOW_FRAME_DICT.keys())
+        args.save_dir = Path(args.save_dir) / 'all_windows'
     
     perform_fast_effect_stats(features, metadata, WINDOW_LIST, args)
     

@@ -7,6 +7,8 @@ Please run the following scripts beforehand:
 1. preprocessing/compile_keio_results.py
 2. statistical_testing/perform_keio_stats.py
 
+THRESHOLD MAX DISTANCE FOR CLUSTERING: 8 (Tierpsy16, fdr_bh, all strains)
+
 @author: sm5911
 @date: 19/04/2021
 """
@@ -17,7 +19,7 @@ import argparse
 import numpy as np
 import pandas as pd
 from time import time
-from tqdm import tqdm
+#from tqdm import tqdm
 from pathlib import Path
 from matplotlib import pyplot as plt
 from scipy.stats import zscore # levene, ttest_ind, f_oneway, kruskal
@@ -32,14 +34,14 @@ from clustering.hierarchical_clustering import plot_clustermap, plot_barcode_hea
 from feature_extraction.decomposition.pca import plot_pca, remove_outliers_pca
 from feature_extraction.decomposition.tsne import plot_tSNE
 from feature_extraction.decomposition.umap import plot_umap
-from visualisation.super_plots import superplot
+#from visualisation.super_plots import superplot
 from visualisation.plotting_helper import errorbar_sigfeats, boxplots_sigfeats # boxplots_grouped, 
                                         # barplot_sigfeats, plot_day_variation
 
 #%% GLOBALS
 
-JSON_PARAMETERS_PATH = "analysis/20210914_parameters_keio_screen.json"
-# JSON_PARAMETERS_PATH = "analysis/20210406_parameters_keio_screen.json"
+JSON_PARAMETERS_PATH = "analysis/20210406_parameters_keio_screen.json"
+#JSON_PARAMETERS_PATH = "analysis/20210914_parameters_keio_screen.json"
 
 N_LOWEST_PVAL = 100
 SUBSET_HIT_STRAINS = False
@@ -47,6 +49,8 @@ TOP_N_HITS = 10
 
 METHOD = 'complete' # 'complete','linkage','average','weighted','centroid'
 METRIC = 'euclidean' # 'euclidean','cosine','correlation'
+
+# TODO: dendrogram cut-off dict: 1800 vs 4000 strains, settle on complete or euclidean
 
 COG_category_dict = {'J' : 'Translation, ribosomal structure, and biogenesis',
                      'K' : 'Transcription',

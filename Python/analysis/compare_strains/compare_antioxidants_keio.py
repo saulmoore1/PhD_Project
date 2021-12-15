@@ -27,7 +27,7 @@ from matplotlib import transforms
 from scipy.stats import zscore # levene, ttest_ind, f_oneway, kruskal
 
 from read_data.paths import get_save_dir
-from read_data.read import load_json, load_topfeats
+from read_data.read import load_json #load_topfeats
 #from analysis.control_variation import control_variation
 #from filter_data.clean_feature_summaries import clean_summary_results, subset_results
 from clustering.hierarchical_clustering import plot_clustermap, plot_barcode_heatmap

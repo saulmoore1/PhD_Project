@@ -3,6 +3,8 @@
 """
 Hierarchical clustering of Keio (hit) strains for GO enrichment analysis
 
+THRESHOLD MAX DISTANCE FOR CLUSTERING: 8 (Tierpsy16, fdr_bh, all strains)
+
 @author: sm5911
 @date: 12/07/2021
 

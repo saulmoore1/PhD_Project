@@ -22,7 +22,7 @@ from time import time
 from pathlib import Path
 
 from read_data.paths import get_save_dir
-from read_data.read import load_json, load_topfeats
+from read_data.read import load_json #load_topfeats
 from write_data.write import write_list_to_file
 from visualisation.plotting_helper import sig_asterix
 from statistical_testing.perform_keio_stats import df_summary_stats

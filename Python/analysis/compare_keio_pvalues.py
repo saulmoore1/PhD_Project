@@ -44,8 +44,6 @@ KEIO_CONF_FEATURES_PATH = '/Users/sm5911/Documents/Keio_Conf_Screen/features.csv
 
 SAVE_DIR = '/Users/sm5911/Documents/Keio_Conf_Screen/Top{}'.format(N_TOP_FEATS)
 
-#TODO: tierpsy_16 
-
 #%% Functions
 
 def strain_pval_pairplot(pvals, pvals2, strain_list=None, saveAs=None):
