@@ -22,6 +22,7 @@ import seaborn as sns
 from tqdm import tqdm
 from pathlib import Path
 from matplotlib import pyplot as plt
+from matplotlib import transforms
 from scipy.stats import zscore
 
 from tierpsytools.hydra.compile_metadata import populate_96WPs, get_day_metadata
@@ -264,12 +265,26 @@ if __name__ == "__main__":
     for feature in tqdm(feature_list):
         plt.close('all')
         fig, ax = plt.subplots(figsize=(15,6) if len(strain_list) > 15 else (8,6)) #
-        sns.boxplot(x=args.strain_colname, y=feature, data=plot_df, ax=ax, showfliers=False)
+        sns.boxplot(x=args.strain_colname, y=feature, data=plot_df, ax=ax, 
+                    showfliers=False, order=strain_list)
         sns.stripplot(x=args.strain_colname, y=feature, data=plot_df, ax=ax, 
                       color='k', alpha=0.5, size=3)
         if len(strain_list) > 15:
             plt.xticks(rotation=90)
             plt.tight_layout()
+            
+        # annotate p-values
+        trans = transforms.blended_transform_factory(ax.transData, ax.transAxes)
+
+        # for ii, strain in enumerate(strain_list):
+        #     p = pvals_t.loc[feature, 'pvals_{}'.format(strain)]
+        #     text = ax.get_xticklabels()[ii]
+        #     assert text.get_text() == strain
+        #     p_text = 'P < 0.001' if p < 0.001 else 'P = %.3f' % p
+        #     plt.plot([ii-.2, ii-.2, ii+.2, ii+.2], 
+        #              [0.8, 0.81, 0.81, 0.8], #[y+h, y+2*h, y+2*h, y+h], 
+        #              lw=1.5, c='k', transform=trans)
+        #     ax.text(ii, 0.82, p_text, fontsize=9, ha='center', va='bottom', transform=trans)
 
         # save boxplot
         box_save_path = save_dir / 'boxplots' / (feature + '.png')

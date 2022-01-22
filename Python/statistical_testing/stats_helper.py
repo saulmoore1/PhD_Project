@@ -256,6 +256,7 @@ def pairwise_ttest(control_df, strain_df, feature_list, group_by='antioxidant',
         
     strain_pvals = pd.concat(strain_pvals_list, axis=1)
     strain_stats = pd.concat(strain_stats_list, axis=1)
+    strain_reject = strain_pvals < fdr
 
     # correct for multiple feature/antioxidant comparisons
     if fdr_method is not None:

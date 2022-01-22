@@ -179,7 +179,7 @@ def compile_window_summaries(fname_files,
     date_list = sorted(np.unique([parse_date(f) for f in fname_files]))
     
     window_dict = {(parse_date(fname), parse_window_number(fname)) : (fname, feat) for 
-                   fname, feat in zip(fname_files,feat_files)}
+                   fname, feat in zip(fname_files, feat_files)}
 
     filenames_summaries_list = []
     features_summaries_list = []
@@ -193,7 +193,13 @@ def compile_window_summaries(fname_files,
             filenames_df = filenames_df[['file_id','filename','is_good']]
             
             assert all(str(results_dir) in str(f) for f in filenames_df['filename'])
-            assert all(i == j for i, j in zip(filenames_df['file_id'], features_df['file_id']))
+            
+            if not all(i == j for i, j in zip(filenames_df['file_id'], features_df['file_id'])):
+                print("WARNING: %d files in filenames summaries are missing from feature summaries!"\
+                      % (len(filenames_df['file_id']) - len(features_df['file_id'])))
+                    
+                # reindex filenames summaries to drop entry that is missing from features summaries 
+                filenames_df = filenames_df.reindex(features_df['file_id'])
     
             # store window number (unique identifier = file_id + window)
             filenames_df['window'] = window
@@ -238,14 +244,18 @@ if __name__ == '__main__':
     parser.add_argument('-r','--results_dir', help="Path to project results directory, containing \
     'YYYYMMDD' imaging date folders with windows summary files to be compiled", default=RESULTS_DIR)
     parser.add_argument('-d','--imaging_dates', help="Selected imaging dates to compile window summaries",
-                        default=IMAGING_DATES)
+                        nargs='+', default=IMAGING_DATES, type=str)
     parser.add_argument('--window_numbers', help="List of window numbers to compile results for",
-                        nargs='+', default=None)
+                        nargs='+', default=None, type=int)
     parser.add_argument('--n_wells', help="Number of wells imaged under each Hydra rig \
     (choose between 96 or 6 wells)", default=N_WELLS)
     args = parser.parse_args()
     
     tic = time()
+    
+    # imaging dates
+    if args.imaging_dates is None:
+        args.imaging_dates = [d.name for d in list(Path(args.results_dir).glob(r'20[0-9]*/'))]
     
     # find window summaries files
     print("\nFinding window summaries files..")
@@ -260,8 +270,8 @@ if __name__ == '__main__':
     (compiled_filenames, 
      compiled_features) = compile_window_summaries(fname_files, 
                                                    feat_files,
-                                                   compiled_fnames_path=compiled_fnames_path,
-                                                   compiled_feats_path=compiled_feats_path,
+                                                   compiled_fnames_path,
+                                                   compiled_feats_path,
                                                    results_dir=args.results_dir, 
                                                    window_list=args.window_numbers,
                                                    n_wells=args.n_wells)
