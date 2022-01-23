@@ -33,7 +33,8 @@ def plot_clustermap(featZ,
                     sns_colour_palette="Pastel1",
                     sub_adj={'bottom':0,'left':0,'top':1,'right':1},
                     label_size=5,
-                    show_xlabels=True):
+                    show_xlabels=True,
+                    bluelight_col_colours=True):
     """ Seaborn clustermap (hierarchical clustering heatmap)
     
         Inputs
@@ -83,9 +84,10 @@ def plot_clustermap(featZ,
             row_colours.append(row_cols_date)  
 
     # Column colors
-    bluelight_colour_dict = dict(zip(['prestim','bluelight','poststim'], 
-                                     sns.color_palette(sns_colour_palette, 3)))
-    feat_colour_dict = {f:bluelight_colour_dict[f.split('_')[-1]] for f in fset}
+    if bluelight_col_colours:
+        bluelight_colour_dict = dict(zip(['prestim','bluelight','poststim'], 
+                                         sns.color_palette(sns_colour_palette, 3)))
+        feat_colour_dict = {f:bluelight_colour_dict[f.split('_')[-1]] for f in fset}
     
     if type(label_size) == tuple:
         x_label_size, y_label_size = label_size
@@ -98,7 +100,7 @@ def plot_clustermap(featZ,
     sns.set(font_scale=0.8)
     cg = sns.clustermap(data=featZ_grouped[fset], 
                         row_colors=row_colours,
-                        col_colors=fset.map(feat_colour_dict),
+                        col_colors=fset.map(feat_colour_dict) if bluelight_col_colours else None,
                         #standard_scale=1, z_score=1,
                         col_linkage=col_linkage,
                         metric=metric, 
@@ -122,19 +124,20 @@ def plot_clustermap(featZ,
     cg.ax_heatmap.set_yticklabels(cg.ax_heatmap.get_yticklabels(), rotation=0, fontsize=y_label_size, 
                                   ha='left', va='center')    
     
-    patch_list = []
-    for l, key in enumerate(bluelight_colour_dict.keys()):
-        patch = patches.Patch(color=bluelight_colour_dict[key], label=key)
-        patch_list.append(patch)
-    lg = plt.legend(handles=patch_list, 
-                    labels=bluelight_colour_dict.keys(), 
-                    title="Stimulus",
-                    frameon=True,
-                    loc='upper right',
-                    bbox_to_anchor=(0.99, 0.99), 
-                    bbox_transform=plt.gcf().transFigure,
-                    fontsize=12, handletextpad=0.2)
-    lg.get_title().set_fontsize(15)
+    if bluelight_col_colours:
+        patch_list = []
+        for l, key in enumerate(bluelight_colour_dict.keys()):
+            patch = patches.Patch(color=bluelight_colour_dict[key], label=key)
+            patch_list.append(patch)
+        lg = plt.legend(handles=patch_list, 
+                        labels=bluelight_colour_dict.keys(), 
+                        title="Stimulus",
+                        frameon=True,
+                        loc='upper right',
+                        bbox_to_anchor=(0.99, 0.99), 
+                        bbox_transform=plt.gcf().transFigure,
+                        fontsize=12, handletextpad=0.2)
+        lg.get_title().set_fontsize(15)
     
     plt.subplots_adjust(top=sub_adj['top'], bottom=sub_adj['bottom'], 
                         left=sub_adj['left'], right=sub_adj['right'], 

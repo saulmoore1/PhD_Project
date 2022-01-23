@@ -204,7 +204,7 @@ def ranksumtest(test_data, control_data):
         
     return statistics, pvalues
 
-def pairwise_ttest(control_df, strain_df, feature_list, group_by='antioxidant', 
+def pairwise_ttest(control_df, strain_df, feature_list, test_name='t-test', group_by='antioxidant', 
                    fdr_method='fdr_by', fdr=0.05):
     """ Perform pairwise t-tests between each strain and control, for each treatment group in 
         'group_by' column
@@ -230,10 +230,17 @@ def pairwise_ttest(control_df, strain_df, feature_list, group_by='antioxidant',
     """
     import numpy as np
     import pandas as pd
-    from scipy.stats import ttest_ind
+    from scipy.stats import ttest_ind, chi2
     from tierpsytools.analysis.statistical_tests import _multitest_correct
 
     groups = control_df[group_by].unique()
+    
+    if test_name == 't-test' or test_name.startswith('ttest'):
+        test = ttest_ind
+    elif test_name == 'chi2' or test_name.startswith('chi'):
+        test = chi2
+    else:
+        raise IOError("Please choose from: ['ttest', 'chi2']")
 
     strain_pvals_list = []
     strain_stats_list = []
@@ -244,7 +251,7 @@ def pairwise_ttest(control_df, strain_df, feature_list, group_by='antioxidant',
         pvals = []
         stats = []
         for feature in feature_list:
-            _stat, _pval = ttest_ind(test_control[feature], test_strain[feature], axis=0)
+            _stat, _pval = test(test_control[feature], test_strain[feature], axis=0)
             pvals.append(_pval)
             stats.append(_stat)
         

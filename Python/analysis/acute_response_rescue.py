@@ -31,8 +31,12 @@ from filter_data.clean_feature_summaries import clean_summary_results
 from statistical_testing.stats_helper import pairwise_ttest
 from statistical_testing.perform_keio_stats import df_summary_stats
 from visualisation.plotting_helper import sig_asterix
+from clustering.hierarchical_clustering import plot_clustermap, plot_barcode_heatmap
+from feature_extraction.decomposition.pca import plot_pca, plot_pca_2var, remove_outliers_pca
+from feature_extraction.decomposition.tsne import plot_tSNE
+from feature_extraction.decomposition.umap import plot_umap
 
-# from tierpsytools.preprocessing.filter_data import select_feat_set
+from tierpsytools.preprocessing.filter_data import select_feat_set
 from tierpsytools.analysis.statistical_tests import univariate_tests, get_effect_sizes
 
 #%% Globals
@@ -358,7 +362,8 @@ def analyse_acute_rescue(features,
                          control_antioxidant, 
                          control_window,
                          fdr_method='fdr_by',
-                         pval_threshold=0.05):
+                         pval_threshold=0.05,
+                         remove_outliers=False):
  
     stats_dir =  Path(save_dir) / "Stats" / fdr_method
     plot_dir = Path(save_dir) / "Plots" / fdr_method
@@ -540,202 +545,180 @@ def analyse_acute_rescue(features,
         plt.savefig(fig_savepath)
         
         
-        # Hierarchical Clustering Analysis
-        #   - Clustermap of features by strain, to see if data cluster into groups
-        #   - Control data is clustered first, feature order is stored and ordering applied to 
-        #     full data for comparison
-        
-        heatmap_saveFormat = 'pdf'
-        
-        # Extract data for control
-        control_feat_df = features[metadata['gene_name']==control_strain]
-        control_meta_df = metadata.reindex(control_feat_df.index)
-        
-        control_feat_df, control_meta_df = clean_summary_results(features=control_feat_df,
-                                                                 metadata=control_meta_df,
-                                                                 imputeNaN=False)
-        
-        # Ensure no NaNs or features with zero standard deviation before normalisation
-        assert not control_feat_df.isna().sum(axis=0).any()
-        assert not (control_feat_df.std(axis=0) == 0).any()
-
-        #zscores = (df-df.mean())/df.std() # minus mean, divide by std
-        controlZ_feat_df = control_feat_df.apply(zscore, axis=0)
-
-        # Drop features with NaN values after normalising
-        n_cols = len(controlZ_feat_df.columns)
-        controlZ_feat_df.dropna(axis=1, inplace=True)
-        n_dropped = n_cols - len(controlZ_feat_df.columns)
-        if n_dropped > 0:
-            print("Dropped %d features after normalisation (NaN)" % n_dropped)
-
-        # plot clustermap for control        
-        if len(control_meta_df[args.lmm_random_effect].unique()) > 1:
-            control_clustermap_path = plot_dir / 'HCA' / ('{}_clustermap'.format(CONTROL) + 
-                                                          '.{}'.format(heatmap_saveFormat))
-            cg = plot_clustermap(featZ=controlZ_feat_df,
-                                 meta=control_meta_df,
-                                 group_by=[GROUPING_VAR,'date_yyyymmdd'],
-                                 col_linkage=None,
-                                 method='complete',#[linkage, complete, average, weighted, centroid]
-                                 figsize=[18,6],
-                                 saveto=control_clustermap_path)
+    # Hierarchical Clustering Analysis
+    #   - Clustermap of features by strain, to see if data cluster into groups
+    #   - Control data is clustered first, feature order is stored and ordering applied to 
+    #     full data for comparison
     
-            # Extract linkage + clustered features
-            col_linkage = cg.dendrogram_col.calculated_linkage
-            clustered_features = np.array(controlZ_feat_df.columns)[cg.dendrogram_col.reordered_ind]
-        else:
-            clustered_features = None
-        
-        assert not feat_df.isna().sum(axis=0).any()
-        assert not (feat_df.std(axis=0) == 0).any()
-        
-        featZ_df = feat_df.apply(zscore, axis=0)
-        
-        # Drop features with NaN values after normalising
-        # TODO: Do we need these checks?
-        #assert not any(featZ_df.isna(axis=1))
-        n_cols = len(featZ_df.columns)
-        featZ_df.dropna(axis=1, inplace=True)
-        n_dropped = n_cols - len(featZ_df.columns)
-        if n_dropped > 0:
-            print("Dropped %d features after normalisation (NaN)" % n_dropped)
-
-        # Save stats table to CSV
-        stats_table_path = stats_dir / 'stats_summary_table.csv'
-        if not stats_path.exists():
-            # Add z-normalised values
-            z_stats = featZ_df.join(meta_df[GROUPING_VAR]).groupby(by=GROUPING_VAR).mean().T
-            z_mean_cols = ['z-mean ' + v for v in z_stats.columns.to_list()]
-            z_stats.columns = z_mean_cols
-            stats_table = stats_table.join(z_stats)
-            first_cols = [m for m in stats_table.columns if 'mean' in m]
-            last_cols = [c for c in stats_table.columns if c not in first_cols]
-            first_cols.extend(last_cols)
-            stats_table = stats_table[first_cols].reset_index()
-            first_cols.insert(0, 'feature')
-            stats_table.columns = first_cols
-            stats_table['feature'] = [' '.join(f.split('_')) for f in stats_table['feature']]
-            stats_table = stats_table.sort_values(by='{} p-value'.format((T_TEST_NAME if 
-                                         len(run_strain_list) == 2 else TEST_NAME)), ascending=True)
-            stats_table.to_csv(stats_table_path, header=True, index=None)
-        
-        # Clustermap of full data       
-        full_clustermap_path = plot_dir / 'HCA' / ('{}_full_clustermap'.format(GROUPING_VAR) + 
-                                                   '.{}'.format(heatmap_saveFormat))
-        fg = plot_clustermap(featZ=featZ_df, 
-                             meta=meta_df, 
-                             group_by=GROUPING_VAR,
-                             col_linkage=None,
-                             method='complete',
-                             figsize=[20, (len(run_strain_list) / 4 if 
-                                           len(run_strain_list) > 10 else 6)],
-                             saveto=full_clustermap_path)
-        if not clustered_features:
-            # If no control clustering (due to no day variation) then use clustered features for 
-            # all strains to order barcode heatmaps
-            clustered_features = np.array(featZ_df.columns)[fg.dendrogram_col.reordered_ind]
-        
-        if len(run_strain_list) > 2:
-            pvalues_heatmap = pvals.loc[clustered_features, TEST_NAME]
-        elif len(run_strain_list) == 2:
-            pvalues_heatmap = pvals_t.loc[pvals_t.index[0], clustered_features]
-        pvalues_heatmap.name = 'P < {}'.format(args.pval_threshold)
-
-        assert all(f in featZ_df.columns for f in pvalues_heatmap.index)
-
-        # Heatmap barcode with selected features, ordered by control clustered feature order
-        #   - Read in selected features list  
-        if args.selected_features_path is not None and run == 3 and GROUPING_VAR == 'worm_strain':
-            fset = pd.read_csv(Path(args.selected_features_path), index_col=None)
-            fset = [s for s in fset['feature'] if s in featZ_df.columns] 
-            # TODO: assert all(s in featZ_df.columns for s in fset['feature'])
-            
-        # Plot barcode heatmap (grouping by date)
-        if len(control_meta_df[args.lmm_random_effect].unique()) > 1:
-            heatmap_date_path = plot_dir / 'HCA' / ('{}_date_heatmap'.format(GROUPING_VAR) + 
-                                                    '.{}'.format(heatmap_saveFormat))
-            plot_barcode_heatmap(featZ=featZ_df[clustered_features], 
-                                 meta=meta_df, 
-                                 group_by=['date_yyyymmdd',GROUPING_VAR], 
-                                 pvalues_series=pvalues_heatmap,
-                                 p_value_threshold=args.pval_threshold,
-                                 selected_feats=fset if len(fset) > 0 else None,
-                                 saveto=heatmap_date_path,
-                                 figsize=[20, (len(run_strain_list) / 4 if 
-                                               len(run_strain_list) > 10 else 6)],
-                                 sns_colour_palette="Pastel1")
-        
-        # Plot group-mean heatmap (averaged across days)
-        heatmap_path = plot_dir / 'HCA' / ('{}_heatmap'.format(GROUPING_VAR) + 
-                                           '.{}'.format(heatmap_saveFormat))
-        plot_barcode_heatmap(featZ=featZ_df[clustered_features], 
-                             meta=meta_df, 
-                             group_by=[GROUPING_VAR], 
-                             pvalues_series=pvalues_heatmap,
-                             p_value_threshold=args.pval_threshold,
-                             selected_feats=fset if len(fset) > 0 else None,
-                             saveto=heatmap_path,
-                             figsize=[20, (len(run_strain_list) / 4 if 
-                                           len(run_strain_list) > 10 else 6)],
-                             sns_colour_palette="Pastel1")        
-                        
-        #%% Principal Components Analysis (PCA)
-
-        if args.remove_outliers:
-            outlier_path = plot_dir / 'mahalanobis_outliers.pdf'
-            feat_df, inds = remove_outliers_pca(df=feat_df, 
-                                                features_to_analyse=None, 
-                                                saveto=outlier_path)
-            meta_df = meta_df.reindex(feat_df.index)
-            featZ_df = feat_df.apply(zscore, axis=0)
-  
-        # plot PCA
-        #from tierpsytools.analysis.decomposition import plot_pca
-        pca_dir = plot_dir / 'PCA'
-        projected_df = plot_pca(featZ=featZ_df, 
-                                meta=meta_df, 
-                                group_by=GROUPING_VAR, 
-                                n_dims=2,
-                                control=CONTROL,
-                                var_subset=None, 
-                                saveDir=pca_dir,
-                                PCs_to_keep=10,
-                                n_feats2print=10,
-                                sns_colour_palette="tab10",
-                                hypercolor=False) 
-        # TODO: Ensure sns colour palette doees not plot white points
-         
-        #%%     t-distributed Stochastic Neighbour Embedding (tSNE)
-
-        tsne_dir = plot_dir / 'tSNE'
-        perplexities = [5,15,30]
-        
-        tSNE_df = plot_tSNE(featZ=featZ_df,
-                            meta=meta_df,
-                            group_by=GROUPING_VAR,
-                            var_subset=None,
-                            saveDir=tsne_dir,
-                            perplexities=perplexities,
-                             # NB: perplexity parameter should be roughly equal to group size
-                            sns_colour_palette="plasma")
+    # subset for Tierpsy top16 features only
+    features = select_feat_set(features, tierpsy_set_name='tierpsy_16', append_bluelight=False)
+    
+    # Ensure no NaNs or features with zero standard deviation before normalisation
+    assert not features.isna().sum(axis=0).any()
+    assert not (features.std(axis=0) == 0).any()
        
-        #%%     Uniform Manifold Projection (UMAP)
+    # Extract data for control
+    control_feat_df = features[metadata['gene_name']==control_strain]
+    control_meta_df = metadata.reindex(control_feat_df.index)
+    
+    control_feat_df, control_meta_df = clean_summary_results(features=control_feat_df,
+                                                             metadata=control_meta_df,
+                                                             imputeNaN=False)
+    
 
-        umap_dir = plot_dir / 'UMAP'
-        n_neighbours = [5,15,30]
-        min_dist = 0.1 # Minimum distance parameter
-        
-        umap_df = plot_umap(featZ=featZ_df,
-                            meta=meta_df,
-                            group_by=GROUPING_VAR,
-                            var_subset=None,
-                            saveDir=umap_dir,
-                            n_neighbours=n_neighbours,
-                            # NB: n_neighbours parameter should be roughly equal to group size
-                            min_dist=min_dist,
-                            sns_colour_palette="tab10")
+    #zscores = (df-df.mean())/df.std() # minus mean, divide by std
+    controlZ_feat_df = control_feat_df.apply(zscore, axis=0)
 
+    # plot clustermap for control        
+    control_clustermap_path = plot_dir / 'heatmaps' / '{}_clustermap.pdf'.format(control_strain)
+    cg = plot_clustermap(featZ=controlZ_feat_df,
+                         meta=control_meta_df,
+                         row_colours=True,
+                         group_by=['gene_name','antioxidant'],
+                         col_linkage=None,
+                         method='complete',#[linkage, complete, average, weighted, centroid]
+                         figsize=(20,10),
+                         show_xlabels=True,
+                         label_size=15,
+                         sub_adj={'bottom':0.6,'left':0,'top':1,'right':0.85},
+                         saveto=control_clustermap_path,
+                         bluelight_col_colours=False)
+
+    # extract clustered feature order
+    clustered_features = np.array(controlZ_feat_df.columns)[cg.dendrogram_col.reordered_ind]
+     
+    featZ_df = features.apply(zscore, axis=0)
+    
+    # Save stats table to CSV   
+    # if not stats_path.exists():
+    #     # Add z-normalised values
+    #     z_stats = featZ_df.join(meta_df[GROUPING_VAR]).groupby(by=GROUPING_VAR).mean().T
+    #     z_mean_cols = ['z-mean ' + v for v in z_stats.columns.to_list()]
+    #     z_stats.columns = z_mean_cols
+    #     stats_table = stats_table.join(z_stats)
+    #     first_cols = [m for m in stats_table.columns if 'mean' in m]
+    #     last_cols = [c for c in stats_table.columns if c not in first_cols]
+    #     first_cols.extend(last_cols)
+    #     stats_table = stats_table[first_cols].reset_index()
+    #     first_cols.insert(0, 'feature')
+    #     stats_table.columns = first_cols
+    #     stats_table['feature'] = [' '.join(f.split('_')) for f in stats_table['feature']]
+    #     stats_table = stats_table.sort_values(by='{} p-value'.format((T_TEST_NAME if 
+    #                                  len(run_strain_list) == 2 else TEST_NAME)), ascending=True)
+    #     stats_table_path = stats_dir / 'stats_summary_table.csv'
+    #     stats_table.to_csv(stats_table_path, header=True, index=None)
+    
+    # Clustermap of full data - antioxidants  
+    full_clustermap_path = plot_dir / 'heatmaps' / '{}_clustermap.pdf'.format('gene_antioxidant')
+    _ = plot_clustermap(featZ=featZ_df,
+                        meta=metadata, 
+                        group_by=['gene_name','antioxidant'],
+                        col_linkage=None,
+                        method='complete',
+                        figsize=(20,10),
+                        show_xlabels=True,
+                        label_size=15,
+                        sub_adj={'bottom':0.6,'left':0,'top':1,'right':0.85},
+                        saveto=full_clustermap_path,
+                        bluelight_col_colours=False)
+
+    # Heatmap of strain/antioxidant treatment, ordered by control clustered feature order
+    heatmap_date_path = plot_dir / 'heatmaps' / 'gene_antioxidant_heatmap.pdf'
+    plot_barcode_heatmap(featZ=featZ_df[clustered_features], 
+                         meta=metadata, 
+                         group_by=['gene_name','antioxidant'], 
+                         pvalues_series=None,
+                         saveto=heatmap_date_path,
+                         figsize=(20,6),
+                         sns_colour_palette="Pastel1")    
+      
+    # Clustermap of full data - windows  
+    full_clustermap_path = plot_dir / 'heatmaps' / '{}_clustermap.pdf'.format('gene_window')
+    _ = plot_clustermap(featZ=featZ_df,
+                        meta=metadata, 
+                        group_by=['gene_name','window'],
+                        col_linkage=None,
+                        method='complete',
+                        figsize=(20,10),
+                        show_xlabels=True,
+                        label_size=15,
+                        sub_adj={'bottom':0.6,'left':0,'top':1,'right':0.85},
+                        saveto=full_clustermap_path,
+                        bluelight_col_colours=False)
+                  
+    # Principal Components Analysis (PCA)
+
+    if remove_outliers:
+        outlier_path = plot_dir / 'mahalanobis_outliers.pdf'
+        features, inds = remove_outliers_pca(df=features, 
+                                            features_to_analyse=None, 
+                                            saveto=outlier_path)
+        metadata = metadata.reindex(features.index)
+        featZ_df = features.apply(zscore, axis=0)
+  
+    # project data + plot PCA
+    #from tierpsytools.analysis.decomposition import plot_pca
+    pca_dir = plot_dir / 'PCA'
+    _ = plot_pca(featZ=featZ_df, 
+                 meta=metadata, 
+                 group_by='gene_name', 
+                 n_dims=2,
+                 control=control_strain,
+                 var_subset=None, 
+                 saveDir=pca_dir,
+                 PCs_to_keep=10,
+                 n_feats2print=10,
+                 sns_colour_palette="Set1",
+                 figsize=(12,8),
+                 sub_adj={'bottom':0.1,'left':0.1,'top':0.95,'right':0.7},
+                 legend_loc=[1.02,0.6],
+                 hypercolor=False) 
+         
+    # t-distributed Stochastic Neighbour Embedding (tSNE)
+
+    tsne_dir = plot_dir / 'tSNE'
+    perplexities = [5,15,30] # NB: perplexity parameter should be roughly equal to group size
+    
+    _ = plot_tSNE(featZ=featZ_df,
+                  meta=metadata,
+                  group_by='gene_name',
+                  var_subset=None,
+                  saveDir=tsne_dir,
+                  perplexities=perplexities,
+                  figsize=(8,8),
+                  label_size=15,
+                  size=20,
+                  sns_colour_palette="Set1")
+   
+    # Uniform Manifold Projection (UMAP)
+
+    umap_dir = plot_dir / 'UMAP'
+    n_neighbours = [5,15,30] # NB: n_neighbours parameter should be roughly equal to group size
+    min_dist = 0.1 # Minimum distance parameter
+    
+    _ = plot_umap(featZ=featZ_df,
+                  meta=metadata,
+                  group_by='gene_name',
+                  var_subset=None,
+                  saveDir=umap_dir,
+                  n_neighbours=n_neighbours,
+                  min_dist=min_dist,
+                  figsize=(8,8),
+                  label_size=15,
+                  size=20,
+                  sns_colour_palette="Set1")
+    
+    _ = plot_pca_2var(featZ=featZ_df, 
+                      meta=metadata, 
+                      var1='gene_name',
+                      var2='antioxidant',
+                      saveDir=pca_dir,
+                      PCs_to_keep=10,
+                      n_feats2print=10,
+                      sns_colour_palette="Set1",
+                      label_size=15,
+                      figsize=[9,8],
+                      sub_adj={'bottom':0,'left':0,'top':1,'right':1})
 
     return
     
@@ -809,12 +792,6 @@ if __name__ == '__main__':
     metadata = metadata[metadata['window'].isin(WINDOW_LIST)]
     features = features.reindex(metadata.index)
 
-    # # subset for Tierpsy features only
-    # if args.n_top_feats is not None:
-    #     features = select_feat_set(features, 
-    #                                tierpsy_set_name='tierpsy_{}'.format(args.n_top_feats),
-    #                                append_bluelight=True)
-
     # statistics save path
     save_dir = get_save_dir(args)
     
@@ -834,7 +811,8 @@ if __name__ == '__main__':
                          control_antioxidant=args.control_dict['antioxidant'],
                          control_window=args.control_dict['window'],
                          fdr_method='fdr_by',
-                         pval_threshold=args.pval_threshold)
+                         pval_threshold=args.pval_threshold,
+                         remove_outliers=args.remove_outliers)
     
     
     

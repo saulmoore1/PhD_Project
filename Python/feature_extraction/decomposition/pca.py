@@ -75,7 +75,7 @@ def plot_pca(featZ,
              kde=False,
              PCs_to_keep=10,
              n_feats2print=10,
-             sns_colour_palette="tab10",
+             sns_colour_palette="Set1",
              hypercolor=False,
              label_size=15,
              figsize=[9,8],
@@ -277,6 +277,152 @@ def plot_pca(featZ,
             plt.show()
     
     return projected_df
+
+
+def plot_pca_2var(featZ, 
+                  meta, 
+                  var1='gene_name',
+                  var2='antioxidant',
+                  control=None,
+                  saveDir=None,
+                  PCs_to_keep=10,
+                  n_feats2print=10,
+                  sns_colour_palette="Set1",
+                  label_size=15,
+                  figsize=[9,8],
+                  sub_adj={'bottom':0,'left':0,'top':1,'right':1},
+                  legend_loc='upper right',
+                  **kwargs):
+    """ Perform principal components analysis 
+        - group_by : column in metadata to group by for plotting (colours) 
+        - n_dims : number of principal component dimensions to plot (2 or 3)
+        - var_subset : subset list of categorical names in featZ[group_by]
+        - saveDir : directory to save PCA results
+        - PCs_to_keep : number of PCs to project
+        - n_feats2print : number of top features influencing PCs to store 
+    """
+    
+    import numpy as np
+    import pandas as pd
+    import seaborn as sns
+    from pathlib import Path
+    from sklearn.decomposition import PCA
+    from matplotlib import pyplot as plt
+    from matplotlib import lines #patches
+    
+    assert (featZ.index == meta.index).all()
+              
+    # Perform PCA on extracted features
+    print("\nPerforming Principal Components Analysis (PCA)...")
+
+    # Fit the PCA model with the normalised data
+    pca = PCA() # OPTIONAL: pca = PCA(n_components=n_dims) 
+    pca.fit(featZ)
+
+    # Plot summary data from PCA: explained variance (most important features)
+    plt.ioff() if saveDir else plt.ion()
+    important_feats, fig = pcainfo(pca=pca, 
+                                   zscores=featZ, 
+                                   PC=0, 
+                                   n_feats2print=n_feats2print)
+    if saveDir:
+        # Save plot of PCA explained variance
+        pca_path = Path(saveDir) / 'PCA_explained.eps'
+        pca_path.parent.mkdir(exist_ok=True, parents=True)
+        plt.tight_layout()
+        plt.savefig(pca_path, format='eps', dpi=300)
+
+        # Save PCA important features list
+        pca_feat_path = Path(saveDir) / 'PC_top{}_features.csv'.format(str(n_feats2print))
+        important_feats.to_csv(pca_feat_path, index=False)        
+    else:
+        plt.show(); plt.pause(2)
+
+    # Project data (zscores) onto PCs
+    projected = pca.transform(featZ) # A matrix is produced
+    # NB: Could also have used pca.fit_transform() OR decomposition.TruncatedSVD().fit_transform()
+
+    # Compute explained variance ratio of component axes
+    ex_variance=np.var(projected, axis=0) # PCA(n_components=n_dims).fit_transform(featZ)
+    ex_variance_ratio = ex_variance / np.sum(ex_variance)
+    
+    # Store the results for first few PCs in dataframe
+    projected_df = pd.DataFrame(data=projected[:,:PCs_to_keep],
+                                columns=['PC' + str(n+1) for n in range(PCs_to_keep)],
+                                index=featZ.index)
+    
+    var1_list = list(meta[var1].unique())
+    var2_list = list(meta[var2].unique())
+    
+    # create colour palette for var1
+    assert len(var1_list) < 10
+    colour_labels = sns.color_palette(sns_colour_palette, len(var1_list))
+    var1_palette = dict(zip(var1_list, colour_labels))
+    
+    # create 'pch' dictionary lut for var2
+    pch_list = ['.','+','x','*','v','^','<','>',',','o','1','2',
+                '3','4','8','s','p','h','H','X','D','d','|','_']
+    assert len(var2_list) < len(pch_list)
+    var2_palette = dict(zip(var2_list, pch_list[:len(var2_list)]))
+            
+    plt.close('all')
+    plt.style.use(CUSTOM_STYLE) 
+    plt.rcParams['legend.handletextpad'] = 0.5
+    sns.set_style('ticks')
+    fig, ax = plt.subplots(figsize=figsize)
+    
+    grouped_var1 = meta.join(projected_df).groupby(var1)
+    #for key, group in grouped:
+    for key1 in list(var1_palette.keys())[::-1]:
+        if pd.isna(key1):
+            continue
+        var1_group = grouped_var1.get_group(key1)
+        
+        grouped_var2 = var1_group.groupby(var2)
+        for key2 in list(var2_palette.keys())[::-1]:
+            if pd.isna(key2):
+                continue
+            var2_group = grouped_var2.get_group(key2)
+            
+            var2_group.plot(ax=ax, 
+                            kind='scatter',
+                            x='PC1', 
+                            y='PC2', 
+                            label=(key1 + '-' + key2), 
+                            color=var1_palette[key1],
+                            marker=var2_palette[key2],
+                            **kwargs)
+                
+    ax.set_xlabel('Principal Component 1 (%.1f%%)' % (ex_variance_ratio[0]*100), 
+                  fontsize=20, labelpad=12)
+    ax.set_ylabel('Principal Component 2 (%.1f%%)' % (ex_variance_ratio[1]*100), 
+                  fontsize=20, labelpad=12)
+    #ax.set_title("PCA by '{}'".format(group_by), fontsize=20)
+
+    # Construct legend from custom handles
+    plt.tight_layout() # rect=[0, 0, 1, 1]
+    handles = []
+        
+    for key1 in var1_list:
+        for key2 in var2_list:
+            handle = lines.Line2D([], [], color=var1_palette[key1], marker=var2_palette[key2],
+                                  markersize=15, label=key1 + '-' + key2)
+            handles.append(handle)
+            #handles.append(patches.Patch(color=palette[key], label=key))
+    ax.legend(handles=handles, frameon=True, loc=legend_loc, fontsize=label_size, handletextpad=0.2)
+    ax.grid(False)
+    
+    # adjust subplots for figure legend
+    plt.subplots_adjust(top=sub_adj['top'], bottom=sub_adj['bottom'], 
+                        left=sub_adj['left'], right=sub_adj['right'])
+
+    # Save PCA plot
+    if saveDir:
+        pca_path = Path(saveDir) / ('pca_by_{}'.format(var1) + '_and_{}.pdf'.format(var2))
+        plt.savefig(pca_path, dpi=300)
+    
+    return projected_df
+
 
 def find_outliers_mahalanobis(featMatProjected, 
                               extremeness=2., 
