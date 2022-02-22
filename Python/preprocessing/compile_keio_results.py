@@ -23,8 +23,8 @@ from filter_data.clean_feature_summaries import clean_summary_results
 #%% GLOBALS
 
 #JSON_PARAMETERS_PATH = "analysis/20210914_parameters_keio_screen.json"
-#JSON_PARAMETERS_PATH = "analysis/20211102_parameters_keio_rescue.json"
-JSON_PARAMETERS_PATH = "analysis/20211109_parameters_keio_dead.json"
+JSON_PARAMETERS_PATH = "analysis/20211102_parameters_keio_rescue.json"
+#JSON_PARAMETERS_PATH = "analysis/20211109_parameters_keio_dead.json"
 
 RENAME_DICT = {"BW" : "wild_type",
                "FECE" : "fecE",
@@ -65,7 +65,7 @@ def compile_keio_results(args):
         
     # Process metadata 
     metadata, metadata_path = process_metadata(aux_dir=aux_dir,
-                                               imaging_dates=args.dates, # 20210420, 20210504
+                                               imaging_dates=args.dates,
                                                add_well_annotations=args.add_well_annotations,
                                                update_day_meta=False)
             
