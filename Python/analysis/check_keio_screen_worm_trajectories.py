@@ -191,5 +191,10 @@ if __name__ == "__main__":
     
     toc = time()      
     print("Done in %.2f seconds" % (toc - tic))
+    
+    
+    #TODO: Look across all Keio strains (even non-sig) for any with lawn-leaving phenotypes
+    # ie. the strains with the highest fraction of time with n=0 worms tracked, or the lowest 
+    # fraction of time with 3 worms tracked + save list of aversive strains 
         
     
