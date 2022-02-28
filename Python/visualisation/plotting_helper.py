@@ -266,18 +266,23 @@ def barplot_sigfeats(test_pvalues_df=None, saveDir=None, p_value_threshold=0.05,
         else:
             plt.show()
 
-def errorbar_sigfeats(features, metadata, group_by, fset, control=None, rank_by='median',
-                      max_feats2plt=10, figsize=[130,6], fontsize=4, tight_layout=None,
-                      saveDir=None, **kwargs):
+def errorbar_sigfeats(features, metadata, group_by, fset, control=None, rank_by='median', 
+                      highlight_subset=None, max_feats2plt=10, figsize=[130,6], fontsize=4, 
+                      tight_layout=None, saveDir=None, **kwargs):
     """ Plot mean feature value with errorbars (+/- 1.98 * std) for all groups in 
         metadata['group_by'] for each feature in feature set provided 
     """
+    
+    import numpy as np
     from pathlib import Path
     from tqdm import tqdm
     from matplotlib import pyplot as plt
     from scipy.stats import sem
     
     plt.ioff() if saveDir is not None else plt.ion()
+    
+    if highlight_subset is not None:
+        assert all(s in metadata['gene_name'].unique() for s in highlight_subset)
     
     # Boxplots of significant features by ANOVA/LMM (all groups)
     grouped = metadata[[group_by]].join(features).groupby(group_by)
@@ -305,13 +310,22 @@ def errorbar_sigfeats(features, metadata, group_by, fset, control=None, rank_by=
         else:
             colour = ['grey' for s in mean_ordered[group_by]]
             
+        if highlight_subset is not None:
+            highlight_idxs = np.where(mean_ordered[group_by].isin(highlight_subset))[0]
+            _arr = np.array(colour)
+            _arr[highlight_idxs] = 'red'
+            colour = list(_arr)
+         
+        plt.close('all')
         fig, ax = plt.subplots(figsize=figsize)
-        plt.errorbar(x=group_by,
-                     y=feat, 
-                     yerr=error,
-                     data=mean_ordered, 
-                     ecolor=colour, c='dimgray', **kwargs)
-        _ = plt.xticks(rotation=90, fontsize=fontsize)
+        ax.errorbar(x=group_by,
+                    y=feat, 
+                    yerr=error,
+                    data=mean_ordered, 
+                    ecolor=colour, c='dimgray', **kwargs)
+        _ = plt.xticks(rotation=90, fontsize=fontsize, color=colour)
+        _ = [t.set_color(i) for (i,t) in zip(colour, ax.xaxis.get_ticklabels())]
+        #ax.tick_params(axis="x", color=colour)
         
         if rank_by == 'median':
             plt.axhline(median_strain.loc[control, feat], c='dimgray', ls='--')
@@ -332,9 +346,6 @@ def errorbar_sigfeats(features, metadata, group_by, fset, control=None, rank_by=
         if saveDir is not None:
             Path(saveDir).mkdir(exist_ok=True, parents=True)
             plt.savefig(saveDir / (str(f + 1) + '_' + feat + '_errorbar.pdf'))
-        else:
-            plt.show(); plt.pause(5)
-        plt.close()
         
     return
     

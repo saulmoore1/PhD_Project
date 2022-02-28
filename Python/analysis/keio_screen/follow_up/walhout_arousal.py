@@ -13,7 +13,10 @@ arousal phenotypes in any of these strains, which have been shown to slow worm d
 #%% Imports
 
 import pandas as pd
+from tqdm import tqdm
 from pathlib import Path
+
+from visualisation.plotting_helper import errorbar_sigfeats
 
 #%% Globals
 
@@ -21,7 +24,9 @@ PROJECT_DIR = "/Users/sm5911/Documents/Keio_Screen"
 
 WALHOUT_SI_PATH = "/Users/sm5911/Documents/Keio_Screen/Walhout_2019_arousal_crossref/Walhout_2019_SI_Table1.xlsx"
 
-FEATURE = 'motion_mode_paused_fraction'
+FEATURE_LIST = ['motion_mode_paused_fraction', 'motion_mode_paused_frequency']
+
+STIMULUS_LIST = ['prestim', 'bluelight', 'poststim']
 
 #%% Functions
 
@@ -38,18 +43,72 @@ def load_walhout_244(supplementary_path=WALHOUT_SI_PATH):
 def main():
     
     # load Walhout 2019 gene list
-    walhout_244 = load_walhout_244(WALHOUT_SI_PATH)
+    walhout_244 = load_walhout_244()
+    walhout_244.insert(0, 'wild_type')
     
+    save_dir = Path(WALHOUT_SI_PATH).parent
+
     # load my Keio screen results
     metadata = pd.read_csv(Path(PROJECT_DIR) / "metadata.csv", dtype={"comments":str})
     features = pd.read_csv(Path(PROJECT_DIR) / "features.csv")
+        
+    fset = [f + '_' + s for f in FEATURE_LIST for s in STIMULUS_LIST]
+    assert all(f in features for f in fset)
     
     # filter my results for Walhout low-iron (slow development) genes
     meta_walhout = metadata[metadata['gene_name'].isin(walhout_244)]
     feat_walhout = features.reindex(meta_walhout.index)
-    
-    return
 
+    # errorbar plots for Walhout genes only
+    print("\nMaking errorbar plots")
+    errorbar_sigfeats(feat_walhout, meta_walhout, 
+                      group_by='gene_name', 
+                      fset=fset, 
+                      control='wild_type', 
+                      rank_by='mean',
+                      max_feats2plt=None, 
+                      figsize=(30,6), 
+                      fontsize=5,
+                      ms=8,
+                      elinewidth=1.5,
+                      fmt='.',
+                      tight_layout=[0.01,0.01,0.99,0.99],
+                      saveDir=save_dir / 'errorbar' / 'walhout_only')
+    
+    # errorbar plots for all genes (highlighting Walhout genes)
+    errorbar_sigfeats(features, metadata, 
+                      group_by='gene_name',
+                      fset=fset,
+                      control='wild_type',
+                      highlight_subset=[s for s in walhout_244 if s != 'wild_type'],
+                      rank_by='mean',
+                      figsize=(150,6),
+                      fontsize=3,
+                      ms=6,
+                      elinewidth=1.2,
+                      fmt='.',
+                      tight_layout=[0.01,0.01,0.99,0.99],
+                      saveDir=save_dir / 'errorbar' / 'walhout_labelled')
+    
+    # save Walhout ranking
+    grouped = metadata[['gene_name']].join(features).groupby('gene_name')
+    
+    median_strain = grouped[fset].median()
+                
+    # save ranking
+    for f, feat in enumerate(tqdm(fset)):
+        order = median_strain[feat].sort_values(ascending=True).reset_index(drop=False)
+        walhout_ranking = order[order['gene_name'].isin(walhout_244)].reset_index(drop=False)
+        walhout_ranking = walhout_ranking.rename({'index':'rank'}, axis='columns')
+        save_path = save_dir / 'ranking' / '{}.csv'.format(feat)
+        save_path.parent.mkdir(parents=True, exist_ok=True)
+        walhout_ranking.to_csv(save_path, header=True, index=False)
+        
+        # save full Keio ranking
+        order = order.reset_index(drop=False).rename({'index':'rank'}, axis='columns')
+        order.to_csv(str(save_path).replace('.csv','_full.csv'), header=True, index=False)
+        
+        
 #%% Main
 
 if __name__ == "__main__":

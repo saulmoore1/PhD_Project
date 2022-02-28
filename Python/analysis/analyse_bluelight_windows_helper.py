@@ -10,8 +10,8 @@ Tierpsy window summaries helper
 
 import argparse
 
-BLUELIGHT_TIMEPOINTS = [30,60,90,120,150,180,210,240,270]
-# [5,10,15,20,25,30,35,40,]
+BLUELIGHT_TIMEPOINTS = [5,10,15,20,25,30] #[30,60,90,120,150,180,210,240,270]
+
 
 def optimal_window_ziwei_seconds(x):
     """ x (in minutes) converted to window (in seconds) """
