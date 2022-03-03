@@ -36,6 +36,7 @@ THRESHOLD_N_SECONDS = 10
 
 # 5:35, 290:300, 305:315, 315:325, 590:600, 605:615, 615:625, 890:900, 905:915, 915:925, 1190:1200, 
 # 1205:1215, 1215:1225, 1490:1500, 1505:1515, 1515:1525, 1790:1800, 1805:1815, 1815:1825
+
 WINDOW_DICT_SECONDS = {0:(5,35), 1:(290,300), 2:(305,315), 
                        3:(315,325), 4:(590,600), 5:(605,615), 
                        6:(615,625), 7:(890,900), 8:(905,915), 
@@ -104,6 +105,10 @@ if __name__ == '__main__':
         print('{0}: n={1}'.format(s, sample_sizes.loc[s]))
         
     mean_delay_frames = int(metadata['first_food_frame'].mean())
-        
-    process_feature_summaries
+      
+    # Timeseries plots for worms that took <10 seconds to reach food
+    # (then try with inculding 'hump' <75 seconds, see if it makes a difference?)
+    
+    
+    # TODO: process_feature_summaries
         

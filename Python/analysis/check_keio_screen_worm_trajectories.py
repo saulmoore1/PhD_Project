@@ -30,6 +30,8 @@ from matplotlib import pyplot as plt
 
 from tierpsytools.analysis.count_worms import n_worms_per_frame, _fraction_of_time_with_n_worms
 from tierpsytools.read_data.get_timeseries import get_timeseries
+# from tierpsytools.hydra.hydra_filenames_helper import find_imgstore_videos
+# from tierpsytools.hydra.match_bluelight_videos import match_bluelight_videos_in_folder, get_imgstore_root, get_triplet
 
 #%% Globals
 PROJECT_DIR = "/Volumes/hermes$/KeioScreen_96WP"
@@ -45,6 +47,7 @@ SAVE_DIR = "/Users/sm5911/Documents/Keio_Screen"
 # SAVE_DIR = "/Users/sm5911/Documents/Keio_Rescue"
 
 STRAIN_LIST = None #['wild_type', 'fepD']
+STIM_TYPE = 'poststim'
 
 MAX_N_VIDEOS = 10 # cap at first 10 videos (for speed, especially for control data)
 FPS = 25 # video frame rate (frames per second)
@@ -94,6 +97,26 @@ if __name__ == "__main__":
 
     assert 'featuresN_filename' in metadata.columns # filename is for 'prestim' only by default (when BL aligned)
     
+    rawvideo_dir = Path(args.project_dir) / "RawVideos"
+    
+    # imgstore_path = Path(args.save_dir) / 'worm_tracking_checks' / 'imgstore_df.csv'
+    # if not imgstore_path.exists():
+    #     imgstore_df = find_imgstore_videos(rawvideo_dir)
+    #     imgstore_df.to_csv(imgstore_path, header=True, index=False)
+    # else:
+    #     imgstore_df = pd.read_csv(imgstore_path, header=0, index_col=None)
+        
+    # match_bluelight_videos_path = Path(args.save_dir) / 'worm_tracking_checks' /\
+    #                                    'matched_bluelight_videos_df.csv'
+    # if not match_bluelight_videos_path.exists():
+    #     matched_bluelight_videos_df = match_bluelight_videos_in_folder(rawvideo_dir)
+    #     matched_bluelight_videos_df.to_csv(match_bluelight_videos_path, header=True, index=False)
+    # else:
+    #     matched_bluelight_videos_df = pd.read_csv(match_bluelight_videos_path, header=0, index_col=None)
+    
+    # # append bluelight/poststim filepaths to metadata
+    # metadata.imgstore_name_bluelight
+    
     if args.strain_list is None:
         args.strain_list = list(sorted(metadata['gene_name'].unique()))
     
@@ -102,22 +125,33 @@ if __name__ == "__main__":
     # get metadata info for each strain in turn
     for strain in tqdm(args.strain_list):
         
-        strain_save_dir = Path(args.save_dir) / 'worm_tracking_checks' / strain
-        n_worms_frac_save_path = strain_save_dir / '{}_n_worms_frac_time_tracked.csv'.format(strain)
+        strain_save_dir = Path(args.save_dir) / 'worm_tracking_checks' / STIM_TYPE / strain
+        n_worms_frac_save_path = strain_save_dir /\
+            '{0}_n_worms_frac_time_tracked_{1}.csv'.format(strain, STIM_TYPE)
             
         # if already processed...
         if not n_worms_frac_save_path.exists():
         
             strain_meta = grouped.get_group(strain)
-            print("\nN=%d prestim featuresN files found for %s" % (strain_meta.shape[0], strain))
             
+            # drop NaN filenames
+            strain_meta = strain_meta.dropna(axis=0, 
+                                             how='any', 
+                                             subset=['imgstore_name_{}'.format(STIM_TYPE)])
+            print("\nN=%d %s featuresN files found for %s" % (strain_meta.shape[0], STIM_TYPE, strain))
+
             # compile timeseries data for strain
             n_worms_list = []
             frac_time_list = []
             traj_duration_list = []
             error_files = []
             for i, idx in enumerate(strain_meta.index[:MAX_N_VIDEOS]):
-                featfile = strain_meta.loc[idx, 'featuresN_filename']
+                # change featuresN filepath to find poststim or bluelight file for this video
+                
+                featfile = Path(args.project_dir) / 'Results' /\
+                    strain_meta.loc[idx, 'imgstore_name_{}'.format(STIM_TYPE)] /\
+                        'metadata_featuresN.hdf5'
+
                 well_name = strain_meta.loc[idx, 'well_name']
                 
                 try:
@@ -163,7 +197,10 @@ if __name__ == "__main__":
                         y=traj_freq['timestamp'], alpha=0.8)        
             ax.set_xticks([x - 0.5 for x in ax.get_xticks()])
             ax.set_xticklabels([str(int(b / FPS)) for b in bins], rotation=45)
-            ax.set_xlim(0, np.where(bins > traj_duration['timestamp'].max())[0][0])
+            
+            if max(bins) > traj_duration['timestamp'].max():
+                ax.set_xlim(0, np.where(bins > traj_duration['timestamp'].max())[0][0])
+                
             ax.set_xlabel("Trajectory duration (seconds)", fontsize=15, labelpad=10)
             ax.set_ylabel("Number of worm trajectories", fontsize=15, labelpad=10)
             title = strain + (" (N videos=%d)" % min(strain_meta.shape[0], MAX_N_VIDEOS))
@@ -229,24 +266,26 @@ if __name__ == "__main__":
                 with (strain_save_dir / 'error_file_log.txt').open(mode='w') as f:
                     f.write('\n'.join(error_files) + '\n')
                 
-                
-    # save aversive foods list
-    # frac_zero_worms = pd.DataFrame(data=aversive_foods, columns=['gene_name', 'frac_zero_worms'])
-    # save_path = Path(args.save_dir) / 'worm_tracking_checks' / 'aversive_foods.csv'
-    # frac_zero_worms.to_csv(save_path, header=True, index=False)
-    
+                    
+    # TODO: Look across all Keio strains (even non-sig) for any with lawn-leaving phenotypes
+    # ie. the strains with the highest fraction of time with n=0 worms tracked, or the lowest 
+    # fraction of time with 3 worms tracked + save list of aversive strains 
+
     frac_n_worms_tracked = compile_n_worms_frac(dirpath=Path(args.save_dir) / 'worm_tracking_checks', 
                                                 strain_list=args.strain_list)
     
     # filter strains to find those with highest ranked fraction of time with zero worms tracked
     frac_zero_worms = frac_n_worms_tracked[frac_n_worms_tracked['n_worms']==0]
     frac_zero_worms = frac_zero_worms.sort_values(by='frac_time_tracked')
+
+    # TODO: check to see if the 5 avoidance genes show up in keio tracking data for zero worms tracked
+
+    # save aversive foods list
+    # frac_zero_worms = pd.DataFrame(data=aversive_foods, columns=['gene_name', 'frac_zero_worms'])
+    # save_path = Path(args.save_dir) / 'worm_tracking_checks' / 'aversive_foods.csv'
+    # frac_zero_worms.to_csv(save_path, header=True, index=False)
     
     toc = time()      
     print("Done in %.2f seconds" % (toc - tic))
-    
-    # TODO: Look across all Keio strains (even non-sig) for any with lawn-leaving phenotypes
-    # ie. the strains with the highest fraction of time with n=0 worms tracked, or the lowest 
-    # fraction of time with 3 worms tracked + save list of aversive strains 
-        
+            
     

@@ -29,14 +29,14 @@ from tierpsy.analysis.split_fov.helper import CAM2CH_df, serial2channel, parse_c
 #%% Globals
 
 VIDEO_NAME = 'timelapse'
-
-FPS_TIMELAPSE = 25 # frames per second for timelapse video
+FPS_TIMELAPSE = 10 # frames per second for timelapse video
 
 #%% Functions
                     
 def get_video_list(RAWVIDEO_DIR, EXP_DATES=None, video_list_save_path=None):
     """ Search directory for 'metadata.yaml' video files and return as a list """
     
+    print("\nGetting video list...")
     if not EXP_DATES:
         video_list = list(RAWVIDEO_DIR.rglob("*metadata.yaml"))
     else:
@@ -66,7 +66,7 @@ def save_avg_frames_for_timelapse(video_list, SAVE_DIR):
     
     video2frame_dict = {}
 
-    print('\nSaving average frame in %d videos' % len(video_list))
+    print('\nSaving average frame in %d videos...' % len(video_list))
     for i, metadata_yaml_path in tqdm(enumerate(video_list)):
         
         metadata_yaml_path = Path(metadata_yaml_path)
@@ -94,28 +94,38 @@ def parse_frame_serial(filepath):
     
     return frame_idx
 
-def match_plate_frame_filenames(raw_video_path_list):
+def match_plate_frame_filenames(raw_video_path_list, join_across_days=False):
     """ For each video frame timestamp, pair the video filenames for that 
-        frame and return dictionary of filenames for each plate/frame"""
-        
-    video_list_no_camera_serial = []
-    for rawvideopath in raw_video_path_list:   
-        # get camera serial from filename
-        camera_serial = parse_camera_serial(rawvideopath)
+        frame and return dictionary of filenames for each plate/frame """
+
+    video_list_no_camera_serial = []    
+    for rawvideopath in raw_video_path_list:
+        camera_serial = parse_camera_serial(str(rawvideopath)) # get camera serial from filename
         
         # append filestem to video list (no serial)
         fstem = str(rawvideopath).replace(('.' + camera_serial + '/metadata.yaml'),'')
         video_list_no_camera_serial.append(Path(fstem).name)
         
     video_list_no_camera_serial = list(np.unique(video_list_no_camera_serial))
+ 
+    plate_frame_filename_dict = {}           
+    if join_across_days:      
+        dates = np.unique([list(filter(re.compile('\d{8}').match, v.split('_'))) for v in video_list_no_camera_serial])      
+        counter = 1
+        for date in dates:
+            date_list = sorted([v for v in video_list_no_camera_serial if '_{}_'.format(date) in v])
+            for fname in date_list:
+                rig_video_set = [f for f in raw_video_path_list if fname in str(f)]
+                frame_idx = parse_frame_serial(fname)
+                plate_frame_filename_dict[str(counter).zfill(4)] = rig_video_set
+                counter += 1
+    else:  
+        for fname in video_list_no_camera_serial:
+            rig_video_set = [f for f in raw_video_path_list if fname in str(f)]
+            frame_idx = parse_frame_serial(fname)
+            plate_frame_filename_dict[frame_idx] = rig_video_set
     
-    plate_frame_filename_dict = {}
-    for fname in video_list_no_camera_serial:
-        rig_video_set = [f for f in raw_video_path_list if fname in f]
-        
-        frame_idx = parse_frame_serial(fname)
-        plate_frame_filename_dict[frame_idx] = rig_video_set
-    print("Matched rig camera filenames for %d 96-well plate frame view\n" % len(video_list_no_camera_serial))   
+    print("Matched rig-camera filenames for %d frames in 96-well plate format\n" % len(video_list_no_camera_serial))   
          
     return plate_frame_filename_dict
 
@@ -169,6 +179,7 @@ def plate_frames_from_camera_frames(plate_frame_filename_dict, video2frame_dict,
         and merging into a single plot of the entire 96-well plate, correcting 
         for camera orientation. """
     
+    print("Saving timelapse frames (96-well)...")
     for (frame_idx, rig_video_set) in tqdm(plate_frame_filename_dict.items()):
         
         file_dict = get_rig_video_set(rig_video_set[0]) # gives channels as well 
@@ -231,33 +242,48 @@ def plate_frames_from_camera_frames(plate_frame_filename_dict, video2frame_dict,
                             dpi=300,
                             pad_inches=0,
                             transparent=True)
-
-def make_video_from_frames(IMAGES_DIR, video_name, fps=25):
+        # close figure               
+        plt.close(fig)
+        
+def make_video_from_frames(images_dir, video_name, plate_frame_filename_dict, fps=25):
     """ Create a video from the images (frames) in a given directory """
     
-    image_path_list = sorted(list(IMAGES_DIR.rglob("*.png")))
+    frame_path_dict = {k : Path(v[0]).parent.stem for k, v in plate_frame_filename_dict.items()}    
+    order = sorted(frame_path_dict.keys())
+    
+    image_path_list = [Path(images_dir) / (frame_path_dict[i] + '.png') for i in order]
+    saved_image_path_list = sorted(list(Path(images_dir).rglob("*.png")))
+    assert all(i in saved_image_path_list for i in image_path_list)
     
     image0 = cv2.imread(str(image_path_list[0]))
     height, width, layers = image0.shape
     
-    outpath_video = IMAGES_DIR / "{}.mp4".format(video_name)
-
-    # video = moviepy.video.io.ImageSequenceClip.ImageSequenceClip(image_list, fps=fps)
-    # video.write_videofile(outpath_video)
+    outpath_video = Path(images_dir) / "{}.mp4".format(video_name)
     
+    print('Creating timelapse video...')
     video = cv2.VideoWriter(str(outpath_video), cv2.VideoWriter_fourcc(*'XVID'), fps, (width, height))   
     for imPath in tqdm(image_path_list):
         video.write(cv2.imread(str(imPath))) 
     cv2.destroyAllWindows()
     video.release()
     
+    # video = moviepy.video.io.ImageSequenceClip.ImageSequenceClip(image_list, fps=fps)
+    # video.write_videofile(outpath_video)    
     
 #%% Main
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Create timelapse video from a series of RawVideos')
-    parser.add_argument('--rawvideo_dir', help='Path to RawVideo directory', default=None)    
-    parser.add_argument('--dates', help='List of experiment dates to analyse', default=None)
+    parser.add_argument('--rawvideo_dir', help='Path to RawVideo directory', default=None)   
+    parser.add_argument('--video_list_path', help='Optional path to text file containing list of \
+    RawVideo filepaths to create timelapse from', default=None, type=str)
+    parser.add_argument('--dates', help='List of experiment dates to analyse', default=None, 
+                        nargs='+', type=str)
+    parser.add_argument('--join_days', help='Is the timelapse recorded across several day folders? \
+                        (If True, will compile frames from videos across multiple day folders)',
+                        type=bool, default=False)
+    parser.add_argument('--fps', help='Frames per second for timelapse video (default=25fps)',
+                        type=int, default=FPS_TIMELAPSE)
     parser.add_argument('--save_dir', help='Path to save directory', default=None)
     args = parser.parse_args()
     
@@ -269,23 +295,34 @@ if __name__ == "__main__":
         args.save_dir = Path(args.rawvideo_dir) / "timelapse_results"
     else:
         args.save_dir = Path(args.save_dir)
-                    
-    video_list_save_path = args.save_dir / "cembio_lawn_video_list.txt"
+                  
+    if args.video_list_path is None:
+        args.video_list_path = args.save_dir / "video_list.txt"
 
-    if not Path(video_list_save_path).exists():
+    if not Path(args.video_list_path).exists():
         # get video list
-        video_list = get_video_list(args.rawvideo_dir, args.dates, video_list_save_path)
+        video_list = get_video_list(args.rawvideo_dir, args.dates, args.video_list_path)
     else: 
         # read video list
-        video_list = read_list_from_file(filepath=video_list_save_path)    
+        video_list = read_list_from_file(filepath=args.video_list_path)    
     print("%d videos found." % len(video_list))
     
+    # import pdb
+    # pdb.set_trace()
+   
     # save average frames for timelapse
     video2frame_dict = save_avg_frames_for_timelapse(video_list, args.save_dir)
         
-    plate_frame_filename_dict = match_plate_frame_filenames(video_list)
+    plate_frame_filename_dict = match_plate_frame_filenames(video_list, join_across_days=args.join_days)
     
+    # create frames for timelapse (96-well)
     plate_frames_from_camera_frames(plate_frame_filename_dict, video2frame_dict, args.save_dir)
 
+    # create timelapse video
     timelapse_dir = args.save_dir / "plate_frame_timelapse"
-    make_video_from_frames(timelapse_dir, video_name=VIDEO_NAME, fps=FPS_TIMELAPSE)
+    make_video_from_frames(images_dir=timelapse_dir, 
+                           video_name=VIDEO_NAME, 
+                           plate_frame_filename_dict=plate_frame_filename_dict, 
+                           fps=args.fps)
+    
+    
