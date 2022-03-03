@@ -20,8 +20,9 @@ import pandas as pd
 import seaborn as sns
 from pathlib import Path
 from matplotlib import pyplot as plt
-
-from preprocessing.compile_hydra_data import process_metadata, process_feature_summaries
+from tierpsytools.read_data.get_timeseries import read_timeseries
+from preprocessing.compile_hydra_data import process_metadata #process_feature_summaries
+from time_series.plot_timeseries import plot_timeseries_motion_mode
 
 #%% Globals
 
@@ -31,8 +32,9 @@ IMAGING_DATES = ['20220206', '20220209', '20220212']
 FPS = 25
 VIDEO_LENGTH_SECONDS = 30*60
 BIN_SIZE_SECONDS = 5
-
+SMOOTH_WINDOW_SECONDS = 5
 THRESHOLD_N_SECONDS = 10
+BLUELIGHT_TIMEPOINTS_MINUTES = [5,10,15,20,25]
 
 # 5:35, 290:300, 305:315, 315:325, 590:600, 605:615, 615:625, 890:900, 905:915, 915:925, 1190:1200, 
 # 1205:1215, 1215:1225, 1490:1500, 1505:1515, 1515:1525, 1790:1800, 1805:1815, 1815:1825
@@ -45,10 +47,6 @@ WINDOW_DICT_SECONDS = {0:(5,35), 1:(290,300), 2:(305,315),
                        15:(1515,1525), 16:(1790,1800), 17:(1805,1815), 18:(1815,1825)}
 
 #%% Functions
-
-def generate_feature_summaries():
-    """ Get features summaries using Tierpsy Tracker functions to run a """
-    return
     
 #%% Main
 
@@ -104,11 +102,67 @@ if __name__ == '__main__':
     for s in sample_sizes.index:
         print('{0}: n={1}'.format(s, sample_sizes.loc[s]))
         
-    mean_delay_frames = int(metadata['first_food_frame'].mean())
-      
+    mean_delay_seconds = int(metadata['first_food_frame'].mean()) / 25
+    print("Worms took %.1f seconds on average to reach food" % mean_delay_seconds)
+    
     # Timeseries plots for worms that took <10 seconds to reach food
     # (then try with inculding 'hump' <75 seconds, see if it makes a difference?)
     
+    grouped_strain = metadata.groupby('gene_name')
+
+    colours = sns.color_palette(palette="tab10", n_colors=len(metadata['gene_name'].unique()))
+    bluelight_frames = [(i*60*FPS, i*60*FPS+10*FPS) for i in BLUELIGHT_TIMEPOINTS_MINUTES]
+
+    # both strains together, for each motion mode
+    for mode in ['forwards','backwards','stationary']:
+    
+        plt.close('all')
+        fig, ax = plt.subplots(figsize=(15,5))
+        save_path = Path(args.save_dir) / 'timeseries_plots' / 'motion_mode_{}.pdf'.format(mode)
+        
+        for s, strain in enumerate(metadata['gene_name'].unique()):
+            print("Plotting motion mode %s timeseries for %s..." % (mode, strain))
+            
+            strain_meta = grouped_strain.get_group(strain)
+            
+            strain_timeseries_list = []
+            for i in strain_meta.index:
+                imgstore = strain_meta.loc[i, 'imgstore_name']
+                
+                df = read_timeseries(Path(args.project_dir) / "Results" / imgstore /\
+                                     'metadata_featuresN.hdf5',
+                                     names=['worm_index','timestamp','motion_mode'],
+                                     only_wells=None)
+                strain_timeseries_list.append(df)
+                
+            # compile timeseries data for strain 
+            strain_timeseries = pd.concat(strain_timeseries_list, axis=0)
+                    
+            ax = plot_timeseries_motion_mode(df=strain_timeseries,
+                                             window=SMOOTH_WINDOW_SECONDS*FPS,
+                                             error=True,
+                                             mode=mode,
+                                             max_n_frames=VIDEO_LENGTH_SECONDS*FPS,
+                                             title="Timeseries motion mode %s (total n=%d worms)" %\
+                                                 (mode, metadata.shape[0]),
+                                             #figsize=(15,5), saveAs=save_path,
+                                             ax=ax, #ax=None
+                                             bluelight_frames=bluelight_frames,
+                                             cols=['timestamp', 'motion_mode'],
+                                             colour=colours[s],
+                                             alpha=0.75)
+            
+        ax.axvspan(mean_delay_seconds*FPS-FPS, mean_delay_seconds*FPS+FPS, facecolor='red', alpha=1)
+        xticks = np.linspace(0,VIDEO_LENGTH_SECONDS*FPS, 31)
+        ax.set_xticks(xticks)
+        ax.set_xticklabels([str(int(x/FPS/60)) for x in xticks])   
+        ax.set_xlabel('Time (minutes)', fontsize=15, labelpad=10)
+        ax.set_ylabel('Motion mode {}'.format(mode), fontsize=15, labelpad=10)
+        ax.legend(metadata['gene_name'].unique(), fontsize=12, frameon=False, loc='best')
+        
+        plt.savefig(save_path, dpi=300)
+        plt.close('all')
+        
     
     # TODO: process_feature_summaries
         

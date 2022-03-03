@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Timelapse of lawn growth rate 
-- Make timelapse video from many small videos
+Timelapse Hydra 96-well (RawVideos)
+- Make a timelapse video from the average frames of multiple short videos
+  eg. for investiagting lawn growth rate over time
 
 @author: sm5911
 @date: 23/10/2020
@@ -11,30 +12,18 @@ Timelapse of lawn growth rate
 
 #%% Imports 
 
+import re
 import cv2
 import argparse
-import re
 import numpy as np
 from tqdm import tqdm
 from pathlib import Path
 from matplotlib import pyplot as plt
-
-from read_data.read import read_list_from_file
-from write_data.write import write_list_to_file
-from visualisation.plate_trajectories import CH2PLATE_dict
-
-from tierpsy.analysis.compress.selectVideoReader import selectVideoReader
 from tierpsy.analysis.split_fov.helper import serial2channel
+from tierpsy.analysis.compress.selectVideoReader import selectVideoReader
 from tierpsytools.hydra import CAM2CH_df
 from tierpsytools.hydra.hydra_filenames_helper import parse_camera_serial
-
-import sys
-sys.path.insert(0, '/Users/sm5911/Tierpsy_Versions/tierpsy-tracker/tierpsy')
-
-#%% Globals
-
-VIDEO_NAME = 'timelapse'
-FPS_TIMELAPSE = 10 # frames per second for timelapse video
+from tierpsytools.plot.plot_plate_trajectories_with_raw_video_background import CH2PLATE_dict
 
 #%% Functions
                     
@@ -51,8 +40,12 @@ def get_video_list(RAWVIDEO_DIR, EXP_DATES=None, video_list_save_path=None):
             vids = list(vid_date_dir.rglob("*metadata.yaml"))
             video_list.extend(vids)
     
+    # save video list
     if video_list_save_path:
-        write_list_to_file(list_to_save=video_list, save_path=video_list_save_path)
+        Path(video_list_save_path).parent.mkdir(exist_ok=True, parents=True)
+        with open(str(video_list_save_path), 'w') as fid:
+            for line in video_list:
+                fid.write("%s\n" % line)
 
     return video_list
 
@@ -286,7 +279,7 @@ def make_video_from_frames(images_dir, video_name, plate_frame_filename_dict, fp
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Create timelapse video from a series of RawVideos')
-    parser.add_argument('--rawvideo_dir', help='Path to RawVideo directory', default=None)   
+    parser.add_argument('--rawvideo_dir', help='Path to RawVideo directory', type=str, default=None)   
     parser.add_argument('--video_list_path', help='Optional path to text file containing list of \
     RawVideo filepaths to create timelapse from', default=None, type=str)
     parser.add_argument('--dates', help='List of experiment dates to analyse', default=None, 
@@ -295,8 +288,9 @@ if __name__ == "__main__":
                         (If True, will compile frames from videos across multiple day folders)',
                         type=bool, default=False)
     parser.add_argument('--fps', help='Frames per second for timelapse video (default=25fps)',
-                        type=int, default=FPS_TIMELAPSE)
-    parser.add_argument('--save_dir', help='Path to save directory', default=None)
+                        type=int, default=10)
+    parser.add_argument('--save_dir', help='Path to save directory', type=str, default=None)
+    parser.add_argument('--name', help='Timelapse video name', default='timelapse', type=str)
     args = parser.parse_args()
     
     if not args.rawvideo_dir:
@@ -316,11 +310,12 @@ if __name__ == "__main__":
         video_list = get_video_list(args.rawvideo_dir, args.dates, args.video_list_path)
     else: 
         # read video list
-        video_list = read_list_from_file(filepath=args.video_list_path)    
+        video_list = []
+        with open(args.video_list_path, 'r') as fid:
+            for line in fid:
+                video_list.append(line.strip('\n'))
+        
     print("%d videos found." % len(video_list))
-    
-    import pdb
-    pdb.set_trace()
    
     # save average frames for timelapse
     video2frame_dict = save_avg_frames_for_timelapse(video_list, args.save_dir)
@@ -334,8 +329,7 @@ if __name__ == "__main__":
     # create timelapse video
     timelapse_dir = args.save_dir / "plate_frame_timelapse"
     make_video_from_frames(images_dir=timelapse_dir, 
-                           video_name=VIDEO_NAME, 
+                           video_name=args.name, 
                            plate_frame_filename_dict=plate_frame_filename_dict, 
                            fps=args.fps)
-    
     

@@ -264,7 +264,7 @@ if __name__ == "__main__":
 
             if len(error_files) > 0:
                 with (strain_save_dir / 'error_file_log.txt').open(mode='w') as f:
-                    f.write('\n'.join(error_files) + '\n')
+                    f.write('\n'.join([str(e) for e in error_files]) + '\n')
                 
                     
     # TODO: Look across all Keio strains (even non-sig) for any with lawn-leaving phenotypes

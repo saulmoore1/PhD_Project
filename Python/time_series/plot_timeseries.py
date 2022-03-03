@@ -155,7 +155,10 @@ def _bootstrapped_ci(x, function=np.mean, n_boot=100, which_ci=95, axis=None):
 
 def plot_timeseries_motion_mode(df, window=None, error=False, mode=None, max_n_frames=None,
                                 title=None, figsize=(12,6), ax=None, saveAs=None,
-                                sns_colour_palette='pastel', colour=None):
+                                sns_colour_palette='pastel', colour=None, 
+                                bluelight_frames=None,
+                                cols = ['motion_mode','filename','well_name','timestamp'], 
+                                alpha=0.5):
     """ Plot motion mode timeseries from 'timeseries_data' for a given treatment (eg. strain) 
     
         Inputs
@@ -168,7 +171,7 @@ def plot_timeseries_motion_mode(df, window=None, error=False, mode=None, max_n_f
         error : bool
             Add error to timeseries plots
         mode : str
-            The motion mode you would like to plot
+            The motion mode you would like to plot (choose from: ['stationary','forwards','backwards'])
         max_n_frames : int
             Maximum number of frames in video (x axis limit)
         title : str
@@ -183,6 +186,10 @@ def plot_timeseries_motion_mode(df, window=None, error=False, mode=None, max_n_f
             Name of seaborn colour palette
         colour : str, None
             Plot single colour for plot (if plotting a single strain or a single motion mode)
+        bluelight_frames : list
+            List of tuples for (start, end) frame numbers of each bluelight stimulus (optional)
+        cols : list
+            List of cols to group_by
             
         Returns
         -------
@@ -203,7 +210,6 @@ def plot_timeseries_motion_mode(df, window=None, error=False, mode=None, max_n_f
         else:
             assert type(mode) == str and mode in motion_modes
     
-    cols = ['filename','well_name','timestamp','motion_mode']
     assert all(c in df.columns for c in cols)
 
     # drop NaN data
@@ -214,7 +220,7 @@ def plot_timeseries_motion_mode(df, window=None, error=False, mode=None, max_n_f
     assert not df['motion_name'].isna().any()
 
     # average number of worms (wormIDs) in each motion mode for each video/well/timestamp
-    grouped_vid_frame = df.groupby(['filename','well_name','timestamp'])
+    grouped_vid_frame = df.groupby([c for c in cols if c != 'motion_mode'])
     total_count = grouped_vid_frame['motion_mode'].count()
     motion_count = grouped_vid_frame['motion_name'].value_counts()
     frac_mode = motion_count / total_count
@@ -236,7 +242,7 @@ def plot_timeseries_motion_mode(df, window=None, error=False, mode=None, max_n_f
     
     # crop timeseries data to standard video length (optional)
     if max_n_frames:
-        df = df[df['timestamp'] < max_n_frames + 1]
+        df = df[df['timestamp'] <= max_n_frames]
     
     # moving average (optional)
     if window:
@@ -252,14 +258,15 @@ def plot_timeseries_motion_mode(df, window=None, error=False, mode=None, max_n_f
                  palette=None, #palette if colour is None else None,
                  color=colour)
     if error:
-        ax.fill_between(df.index, df['lower'], df['upper'], color=colour, alpha=0.25, edgecolor=None)
+        ax.fill_between(df.index, df['lower'], df['upper'], color=colour, alpha=alpha, edgecolor=None)
     
     xmax = df['timestamp'].max()
     ax.set_xlim(0, xmax)
     #ax.set_ylim(0, 1)
 
     # add decorations
-    ax = add_bluelight_to_plot(ax, alpha=0.25)
+    if bluelight_frames is not None:
+        ax = add_bluelight_to_plot(ax, bluelight_frames=bluelight_frames, alpha=alpha)
     # ax.axhline(0, 0, xmax, ls='--', marker='o')    
     if title:
         plt.title(title, pad=10)
