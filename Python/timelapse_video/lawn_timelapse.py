@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Investigating CeMbio lawn growth rate 
+Timelapse of lawn growth rate 
 - Make timelapse video from many small videos
 
 @author: sm5911
@@ -24,7 +24,12 @@ from write_data.write import write_list_to_file
 from visualisation.plate_trajectories import CH2PLATE_dict
 
 from tierpsy.analysis.compress.selectVideoReader import selectVideoReader
-from tierpsy.analysis.split_fov.helper import CAM2CH_df, serial2channel, parse_camera_serial
+from tierpsy.analysis.split_fov.helper import serial2channel
+from tierpsytools.hydra import CAM2CH_df
+from tierpsytools.hydra.hydra_filenames_helper import parse_camera_serial
+
+import sys
+sys.path.insert(0, '/Users/sm5911/Tierpsy_Versions/tierpsy-tracker/tierpsy')
 
 #%% Globals
 
@@ -84,7 +89,7 @@ def save_avg_frames_for_timelapse(video_list, SAVE_DIR):
     
     return video2frame_dict
 
-def parse_frame_serial(filepath):
+def parse_timepoint_from_filename(filepath):
     """ Regex search of filestem for 4-digit number separated by underscores 
         denoting frame index """
 
@@ -109,23 +114,30 @@ def match_plate_frame_filenames(raw_video_path_list, join_across_days=False):
     video_list_no_camera_serial = list(np.unique(video_list_no_camera_serial))
  
     plate_frame_filename_dict = {}           
-    if join_across_days:      
-        dates = np.unique([list(filter(re.compile('\d{8}').match, v.split('_'))) for v in video_list_no_camera_serial])      
+    if join_across_days:     
+        # create new index continuous across days
+        dates = np.unique([list(filter(re.compile('\d{8}').match, v.split('_'))) for v in 
+                           video_list_no_camera_serial])      
         counter = 1
         for date in dates:
-            date_list = sorted([v for v in video_list_no_camera_serial if '_{}_'.format(date) in v])
+            date_list = [v for v in video_list_no_camera_serial if '_{}_'.format(date) in v]
+            
+            # sort date list by time from filename
+            date_list.sort(key = lambda x: x.split(date + '_')[-1])
+            
             for fname in date_list:
                 rig_video_set = [f for f in raw_video_path_list if fname in str(f)]
-                frame_idx = parse_frame_serial(fname)
                 plate_frame_filename_dict[str(counter).zfill(4)] = rig_video_set
                 counter += 1
     else:  
+        # get frame index from filename string, eg. '0001'
         for fname in video_list_no_camera_serial:
             rig_video_set = [f for f in raw_video_path_list if fname in str(f)]
-            frame_idx = parse_frame_serial(fname)
+            frame_idx = parse_timepoint_from_filename(fname)
             plate_frame_filename_dict[frame_idx] = rig_video_set
     
-    print("Matched rig-camera filenames for %d frames in 96-well plate format\n" % len(video_list_no_camera_serial))   
+    print("Matched rig-camera filenames for %d frames in 96-well plate format\n" %\
+          len(video_list_no_camera_serial))   
          
     return plate_frame_filename_dict
 
@@ -261,7 +273,7 @@ def make_video_from_frames(images_dir, video_name, plate_frame_filename_dict, fp
     outpath_video = Path(images_dir) / "{}.mp4".format(video_name)
     
     print('Creating timelapse video...')
-    video = cv2.VideoWriter(str(outpath_video), cv2.VideoWriter_fourcc(*'XVID'), fps, (width, height))   
+    video = cv2.VideoWriter(str(outpath_video), cv2.VideoWriter_fourcc(*'XVID'), fps, (width,height))
     for imPath in tqdm(image_path_list):
         video.write(cv2.imread(str(imPath))) 
     cv2.destroyAllWindows()
@@ -307,13 +319,14 @@ if __name__ == "__main__":
         video_list = read_list_from_file(filepath=args.video_list_path)    
     print("%d videos found." % len(video_list))
     
-    # import pdb
-    # pdb.set_trace()
+    import pdb
+    pdb.set_trace()
    
     # save average frames for timelapse
     video2frame_dict = save_avg_frames_for_timelapse(video_list, args.save_dir)
         
-    plate_frame_filename_dict = match_plate_frame_filenames(video_list, join_across_days=args.join_days)
+    plate_frame_filename_dict = match_plate_frame_filenames(raw_video_path_list=video_list, 
+                                                            join_across_days=args.join_days)
     
     # create frames for timelapse (96-well)
     plate_frames_from_camera_frames(plate_frame_filename_dict, video2frame_dict, args.save_dir)
