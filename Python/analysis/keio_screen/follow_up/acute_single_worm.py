@@ -35,6 +35,7 @@ BIN_SIZE_SECONDS = 5
 SMOOTH_WINDOW_SECONDS = 5
 THRESHOLD_N_SECONDS = 10
 BLUELIGHT_TIMEPOINTS_MINUTES = [5,10,15,20,25]
+N_WELLS = 6
 
 # 5:35, 290:300, 305:315, 315:325, 590:600, 605:615, 615:625, 890:900, 905:915, 915:925, 1190:1200, 
 # 1205:1215, 1215:1225, 1490:1500, 1505:1515, 1515:1525, 1790:1800, 1805:1815, 1815:1825
@@ -68,7 +69,9 @@ if __name__ == '__main__':
     metadata, metadata_path = process_metadata(aux_dir, 
                                                imaging_dates=args.imaging_dates, 
                                                add_well_annotations=False,
-                                               n_wells=6)
+                                               n_wells=N_WELLS)
+    
+    metadata = metadata[metadata['instrument_name'] == 'Hydra05']
        
     # create bins
     bins = [int(b) for b in np.linspace(0, VIDEO_LENGTH_SECONDS*FPS, 
@@ -102,7 +105,7 @@ if __name__ == '__main__':
     for s in sample_sizes.index:
         print('{0}: n={1}'.format(s, sample_sizes.loc[s]))
         
-    mean_delay_seconds = int(metadata['first_food_frame'].mean()) / 25
+    mean_delay_seconds = int(metadata['first_food_frame'].mean()) / FPS
     print("Worms took %.1f seconds on average to reach food" % mean_delay_seconds)
     
     # Timeseries plots for worms that took <10 seconds to reach food
@@ -128,27 +131,28 @@ if __name__ == '__main__':
             strain_timeseries_list = []
             for i in strain_meta.index:
                 imgstore = strain_meta.loc[i, 'imgstore_name']
+                filename = Path(args.project_dir) / "Results" / imgstore / 'metadata_featuresN.hdf5'
                 
-                df = read_timeseries(Path(args.project_dir) / "Results" / imgstore /\
-                                     'metadata_featuresN.hdf5',
-                                     names=['worm_index','timestamp','motion_mode'],
-                                     only_wells=None)
+                df = read_timeseries(filename, names=['worm_index','timestamp','motion_mode'])
+                df['filename'] = filename
+                df['well_name'] = strain_meta.loc[i, 'well_name']
+
                 strain_timeseries_list.append(df)
                 
             # compile timeseries data for strain 
-            strain_timeseries = pd.concat(strain_timeseries_list, axis=0)
+            strain_timeseries = pd.concat(strain_timeseries_list, axis=0, ignore_index=True)
                     
             ax = plot_timeseries_motion_mode(df=strain_timeseries,
                                              window=SMOOTH_WINDOW_SECONDS*FPS,
                                              error=True,
                                              mode=mode,
                                              max_n_frames=VIDEO_LENGTH_SECONDS*FPS,
-                                             title="Timeseries motion mode %s (total n=%d worms)" %\
-                                                 (mode, metadata.shape[0]),
-                                             #figsize=(15,5), saveAs=save_path,
-                                             ax=ax, #ax=None
+                                             title=None,
+                                             #figsize=(15,5), 
+                                             saveAs=None, #saveAs=save_path,
+                                             ax=ax, #ax=None,
                                              bluelight_frames=bluelight_frames,
-                                             cols=['timestamp', 'motion_mode'],
+                                             cols=['filename','timestamp','well_name','motion_mode'],
                                              colour=colours[s],
                                              alpha=0.75)
             
@@ -157,12 +161,13 @@ if __name__ == '__main__':
         ax.set_xticks(xticks)
         ax.set_xticklabels([str(int(x/FPS/60)) for x in xticks])   
         ax.set_xlabel('Time (minutes)', fontsize=15, labelpad=10)
-        ax.set_ylabel('Motion mode {}'.format(mode), fontsize=15, labelpad=10)
+        ax.set_ylabel('Fraction {}'.format(mode), fontsize=15, labelpad=10)
         ax.legend(metadata['gene_name'].unique(), fontsize=12, frameon=False, loc='best')
+        ax.set_title("motion mode fraction '%s' (total n=%d worms)" % (mode, metadata.shape[0]),
+                     fontsize=15, pad=10)
         
-        plt.savefig(save_path, dpi=300)
-        plt.close('all')
-        
+        save_path.parent.mkdir(exist_ok=True, parents=True)
+        plt.savefig(save_path, dpi=300)        
     
     # TODO: process_feature_summaries
         

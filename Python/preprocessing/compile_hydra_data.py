@@ -19,7 +19,8 @@ from pathlib import Path
 
 #%% Functions
 
-def compile_day_metadata(aux_dir, day, from_source_plate=False, from_robot_runlog=False, verbose=True):
+def compile_day_metadata(aux_dir, day, from_source_plate=False, from_robot_runlog=False, verbose=True,
+                         n_wells=96):
     """ Compile experiment day metadata from wormsorter and hydra rig metadata for a given day in 
         'AuxilliaryFiles' directory 
         
@@ -36,6 +37,7 @@ def compile_day_metadata(aux_dir, day, from_source_plate=False, from_robot_runlo
     """
 
     from tierpsytools.hydra.compile_metadata import (populate_96WPs, 
+                                                     populate_6WPs,
                                                      get_day_metadata,
                                                      #get_source_plate_metadata
                                                      number_wells_per_plate, 
@@ -45,8 +47,13 @@ def compile_day_metadata(aux_dir, day, from_source_plate=False, from_robot_runlo
     wormsorter_meta = day_dir / (str(day) + '_wormsorter.csv')
     hydra_meta = day_dir / (str(day) + '_manual_metadata.csv')
       
-    # Expand wormsorter metadata to have separate row for each well
-    plate_metadata = populate_96WPs(wormsorter_meta)
+    # Expand wormsorter metadata to have separate row for each well (96-well or 6-well plate format)
+    if n_wells == 96:    
+        plate_metadata = populate_96WPs(wormsorter_meta)
+    elif n_wells == 6:
+        plate_metadata = populate_6WPs(wormsorter_meta)
+    else:
+        raise ValueError("Please choose from n_wells == 96 or 6 wells only")
     
 # =============================================================================
 #     if from_source_plate:

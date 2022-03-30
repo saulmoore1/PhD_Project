@@ -218,49 +218,67 @@ def plot_timeseries_motion_mode(df, window=None, error=False, mode=None, max_n_f
     # map whether forwards, backwards or stationary motion in each frame
     df['motion_name'] = df['motion_mode'].map(motion_dict)
     assert not df['motion_name'].isna().any()
-
-    # average number of worms (wormIDs) in each motion mode for each video/well/timestamp
-    grouped_vid_frame = df.groupby([c for c in cols if c != 'motion_mode'])
-    total_count = grouped_vid_frame['motion_mode'].count()
-    motion_count = grouped_vid_frame['motion_name'].value_counts()
-    frac_mode = motion_count / total_count
-    frac_mode = frac_mode.reset_index(drop=None).rename(columns={0:'fraction'})
     
-    # mean and bootstrap CI error for each timestamp
-    mode_df = frac_mode[frac_mode['motion_name']==mode]
-    mode_grouped_frame = mode_df.groupby('timestamp')
-     
-    # mean mode df
-    df = mode_grouped_frame.mean().reset_index(drop=None)
+    # group by video filename and timestamp
+    grouped_vid_frame = df.groupby(['filename', 'timestamp'])
+    
+    # total number of observations for each video/timestamp
+    total_count = grouped_vid_frame['motion_name'].count()
+    
+    # total number of worms in each motion mode at each timestamp for each video
+    motion_count = grouped_vid_frame['motion_name'].value_counts()
+    
+    # average fraction of worms in each motion mode for each video/timestamp
+    frac_mode = motion_count / total_count
+    frac_mode.name = 'fraction'
+    frac_mode = frac_mode.reset_index(drop=False)
 
-    if error:           
-        conf_ints = mode_grouped_frame['fraction'].apply(_bootstrapped_ci, function=np.mean, n_boot=100)
+    # average fraction in given motion mode
+    mode_df = frac_mode[frac_mode['motion_name']==mode]
+    
+    # group by timestamp only (average across videos for each timestamp)
+    frame_mode_mean = mode_df.groupby('timestamp')['fraction'].mean()
+    frame_video_count = df.groupby('timestamp')['filename'].count()
+    mode_frac = frame_mode_mean / frame_video_count
+    mode_frac = mode_frac.reset_index(drop=None).rename(columns={0: "fraction"})
+    mode_frac = mode_frac.dropna(axis=0, how='any')
+     
+    # mean and bootstrap CI error for each timestamp
+    if error:
+        conf_ints = mode_df.groupby('timestamp')['fraction'].apply(_bootstrapped_ci, 
+                                                                   function=np.mean, 
+                                                                   n_boot=100)
         lower_ci = [x[0] for x in conf_ints]   
         upper_ci = [x[1] for x in conf_ints]
-        df['lower'] = lower_ci
-        df['upper'] = upper_ci
+        mode_frac['lower'] = lower_ci
+        mode_frac['upper'] = upper_ci
     
     # crop timeseries data to standard video length (optional)
     if max_n_frames:
-        df = df[df['timestamp'] <= max_n_frames]
+        mode_frac = mode_frac[mode_frac['timestamp'] <= max_n_frames]
     
     # moving average (optional)
     if window:
-        df = df.set_index('timestamp').rolling(window=window, center=True).mean().reset_index()
+        mode_frac = mode_frac.set_index('timestamp').rolling(window=window, 
+                                                             center=True).mean().reset_index()
 
     if ax is None:
         fig, ax = plt.subplots(figsize=figsize)
 
     # motion_ls_dict = dict(zip(motion_modes, ['-','--','-.']))                
-    sns.lineplot(data=df, x='timestamp', y='fraction', ax=ax, 
+    sns.lineplot(data=mode_frac, 
+                 x='timestamp', 
+                 y='fraction', 
+                 ax=ax, 
                  ls='-', # motion_ls_dict[mode] if len(mode_list) > 1 else '-',
                  hue=None, #'motion_name' if colour is None else None, 
                  palette=None, #palette if colour is None else None,
                  color=colour)
     if error:
-        ax.fill_between(df.index, df['lower'], df['upper'], color=colour, alpha=alpha, edgecolor=None)
+        ax.fill_between(mode_frac.index, mode_frac['lower'], mode_frac['upper'], 
+                        color=colour, alpha=alpha, edgecolor=None)
     
-    xmax = df['timestamp'].max()
+    xmax = mode_frac['timestamp'].max()
     ax.set_xlim(0, xmax)
     #ax.set_ylim(0, 1)
 
