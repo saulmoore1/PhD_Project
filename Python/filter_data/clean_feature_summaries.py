@@ -77,10 +77,11 @@ def clean_summary_results(features,
         feature_columns = features.columns
                
     # Drop bad well data
-    features, metadata = drop_bad_wells(features, 
-                                        metadata, 
-                                        bad_well_cols=['is_bad_well'], 
-                                        verbose=False)
+    if 'is_bad_well' in metadata.columns:
+        features, metadata = drop_bad_wells(features, 
+                                            metadata, 
+                                            bad_well_cols=['is_bad_well'], 
+                                            verbose=False)
     
     # raise warning if missing row data
     if any(features.sum(axis=1) == 0):

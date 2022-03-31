@@ -10,7 +10,7 @@ Tierpsy window summaries helper
 
 import argparse
 
-BLUELIGHT_TIMEPOINTS = [5,10,15,20,25,30] #[30,60,90,120,150,180,210,240,270]
+BLUELIGHT_TIMEPOINTS = [5,10,15,20,25] #[30,60,90,120,150,180,210,240,270]
 
 
 def optimal_window_ziwei_seconds(x):
@@ -19,7 +19,7 @@ def optimal_window_ziwei_seconds(x):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Generate optimal bluelight window timepoints \
-                                     (minutes) based on 'Ziwei's optimal windows'")
+                                     (seconds) based on 'Ziwei's optimal windows'")
     parser.add_argument('-l', '--bluelight_timepoints', default=BLUELIGHT_TIMEPOINTS, 
                         help='List of timepoints (minutes) when 10s bluelight stimulus was delivered', 
                         nargs='+', type=int)

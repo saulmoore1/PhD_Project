@@ -1,173 +1,162 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Analyse results of acute single worm experiments, where a single worms were picked onto 35mm plates,
-seeded with either E. coli BW25113 or BW25113ΔfepD bacteria, and tracked as soon as the worm
-approached the bacterial lawn 
-
-(30-minute videos with 10 seconds bluelight every 5 minutes)
+Compile acute single worm metadata and feature summaries
 
 @author: sm5911
-@date: 26/02/2022
+@date: 30/03/2022
 
 """
 
 #%% Imports
 
-import argparse
-import numpy as np
 import pandas as pd
-import seaborn as sns
 from pathlib import Path
-from matplotlib import pyplot as plt
-from tierpsytools.read_data.get_timeseries import read_timeseries
-from preprocessing.compile_hydra_data import process_metadata #process_feature_summaries
-from time_series.plot_timeseries import plot_timeseries_motion_mode
+from preprocessing.compile_hydra_data import compile_metadata, process_feature_summaries
+from filter_data.clean_feature_summaries import clean_summary_results
 
 #%% Globals
 
 PROJECT_DIR = "/Volumes/hermes$/Keio_Acute_Single_Worm"
-IMAGING_DATES = ['20220206', '20220209', '20220212']
+SAVE_DIR = "/Users/sm5911/Documents/Keio_Acute_Single_Worm"
 
-FPS = 25
-VIDEO_LENGTH_SECONDS = 30*60
-BIN_SIZE_SECONDS = 5
-SMOOTH_WINDOW_SECONDS = 5
-THRESHOLD_N_SECONDS = 10
-BLUELIGHT_TIMEPOINTS_MINUTES = [5,10,15,20,25]
+IMAGING_DATES = ['20220206','20220209','20220212']
 N_WELLS = 6
 
-# 5:35, 290:300, 305:315, 315:325, 590:600, 605:615, 615:625, 890:900, 905:915, 915:925, 1190:1200, 
-# 1205:1215, 1215:1225, 1490:1500, 1505:1515, 1515:1525, 1790:1800, 1805:1815, 1815:1825
+NAN_THRESHOLD_ROW = 0.8
+NAN_THRESHOLD_COL = 0.05
+MIN_NSKEL_PER_VIDEO = None
+MIN_NSKEL_SUM = 50
 
-WINDOW_DICT_SECONDS = {0:(5,35), 1:(290,300), 2:(305,315), 
-                       3:(315,325), 4:(590,600), 5:(605,615), 
-                       6:(615,625), 7:(890,900), 8:(905,915), 
-                       9:(915,925), 10:(1190,1200), 11:(1205,1215), 
-                       12:(1215,1225), 13:(1490,1500), 14:(1505.1515), 
-                       15:(1515,1525), 16:(1790,1800), 17:(1805,1815), 18:(1815,1825)}
+WINDOW_DICT_SECONDS = {0:(290,300), 1:(305,315), 2:(315,325), 
+                       3:(590,600), 4:(605,615), 5:(615,625), 
+                       6:(890,900), 7:(905,915), 8:(915,925), 
+                       9:(1190,1200), 10:(1205,1215), 11:(1215,1225), 
+                       12:(1490,1500), 13:(1505.1515), 14:(1515,1525)}
 
 #%% Functions
+
+def acute_single_worm_stats(metadata, features, project_dir=PROJECT_DIR):
+    """ Pairwise t-tests for each window comparing worm 'motion mode paused fraction' on 
+        Keio mutants vs BW control 
+    """
+
+    # # categorical variables to investigate: 'gene_name' and 'window'
+    # print("\nInvestigating variation in fraction of worms paused between hit strains and control " +
+    #       "(for each window)")    
+
+    # # assert there will be no errors due to case-sensitivity
+    # assert len(metadata['gene_name'].unique()) == len(metadata['gene_name'].str.upper().unique())
+        
+    # # subset for windows in window_frame_dict
+    # assert all(w in metadata['window'] for w in window_list)
+    # metadata = metadata[metadata['window'].isin(window_list)]
+    # features = features.reindex(metadata.index)
+
+    # control_strain = args.control_dict['gene_name']
+    # strain_list = list([s for s in metadata['gene_name'].unique() if s != control_strain])    
+
+    # # print mean sample size
+    # sample_size = df_summary_stats(metadata, columns=['gene_name', 'window'])
+    # print("Mean sample size of strain/window: %d" % (int(sample_size['n_samples'].mean())))
     
+    # # construct save paths (args.save_dir / topfeats? etc)
+    # save_dir = get_save_dir(args)
+    # stats_dir =  save_dir / "Stats" / args.fdr_method
+        
+    # control_meta = metadata[metadata['gene_name']==control_strain]
+    # control_feat = features.reindex(control_meta.index)
+    # control_df = control_meta.join(control_feat[[FEATURE]])
+    
+    # for strain in strain_list:
+    #     print("\nPairwise t-tests for each window comparing fraction of worms paused " +
+    #           "on %s vs control" % strain)
+    #     strain_meta = metadata[metadata['gene_name']==strain]
+    #     strain_feat = features.reindex(strain_meta.index)
+    #     strain_df = strain_meta.join(strain_feat[[FEATURE]])
+         
+    #     stats, pvals, reject = pairwise_ttest(control_df, 
+    #                                           strain_df, 
+    #                                           feature_list=[FEATURE], 
+    #                                           group_by='window', 
+    #                                           fdr_method=args.fdr_method,
+    #                                           fdr=0.05)
+ 
+    #     # compile table of results
+    #     stats.columns = ['stats_' + str(c) for c in stats.columns]
+    #     pvals.columns = ['pvals_' + str(c) for c in pvals.columns]
+    #     reject.columns = ['reject_' + str(c) for c in reject.columns]
+    #     test_results = pd.concat([stats, pvals, reject], axis=1)
+        
+    #     # save results
+    #     ttest_strain_path = stats_dir / 'pairwise_ttests' / '{}_window_results.csv'.format(strain)
+    #     ttest_strain_path.parent.mkdir(parents=True, exist_ok=True)
+    #     test_results.to_csv(ttest_strain_path, header=True, index=True)
+        
+    #     for window in window_list:
+    #         print("%s difference in '%s' between %s vs %s in window %s (paired t-test, P=%.3f, %s)" %\
+    #               (("SIGNIFICANT" if reject.loc[FEATURE, 'reject_{}'.format(window)] else "No"), 
+    #               FEATURE, strain, control_strain, window, pvals.loc[FEATURE, 'pvals_{}'.format(window)],
+    #               args.fdr_method))
+        
+    return
+
+def acute_single_worm():
+    
+    
+    window_list = metadata['window'].unique()
+    assert all(w in WINDOW_DICT_SECONDS.keys() for w in window_list)
+    grouped_window = metadata.groupby('window')
+    for window in window_list:
+        window_metadata = grouped_window.get_group(window)
+
 #%% Main
 
-if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description="Analyse single worm data")
-    parser.add_argument('-r', "--project_dir", help="Path to project root directory", 
-                        default=PROJECT_DIR, type=str)
-    parser.add_argument('-d', "--imaging_dates", help="List of imaging dates to analyse", 
-                        default=IMAGING_DATES, nargs='+', type=str)
-    parser.add_argument('-n', "--n_wells", help="Number of wells in plate under each Hydra rig \
-    (only 6-well and 96-well are currently supported)", default=6, type=int)
-    parser.add_argument('-s', "--save_dir", help="Path to save directory", default=None, type=str)
-    args = parser.parse_args()
+if __name__ == "__main__":
     
-    aux_dir = Path(args.project_dir) / "AuxiliaryFiles"
-    args.save_dir = Path(args.project_dir) / "Results" if args.save_dir is None else args.save_dir
-        
-    # process metadata
-    metadata, metadata_path = process_metadata(aux_dir, 
-                                               imaging_dates=args.imaging_dates, 
-                                               add_well_annotations=False,
-                                               n_wells=N_WELLS)
-    
-    metadata = metadata[metadata['instrument_name'] == 'Hydra05']
-       
-    # create bins
-    bins = [int(b) for b in np.linspace(0, VIDEO_LENGTH_SECONDS*FPS, 
-                                        int(VIDEO_LENGTH_SECONDS/BIN_SIZE_SECONDS+1))]
-    metadata['first_food_binned_freq'] = pd.cut(x=metadata['first_food_frame'], bins=bins)
-    first_food_freq = metadata.groupby('first_food_binned_freq', as_index=False).count()
+    AUX_DIR = Path(PROJECT_DIR) / 'AuxiliaryFiles'
+    RES_DIR = Path(PROJECT_DIR) / 'Results'
 
-    # plot histogram of binned frequency of first food encounter 
-    plt.close('all')
-    fig, ax = plt.subplots(figsize=(12,6))    
-    sns.barplot(x=first_food_freq['first_food_binned_freq'].astype(str), 
-                y=first_food_freq['first_food_frame'], alpha=0.9, palette='rainbow')        
-    ax.set_xticks([x - 0.5 for x in ax.get_xticks()])
-    ax.set_xticklabels([str(int(b / FPS)) for b in bins], rotation=45)
-    ax.set_xlim(0, np.where(bins > metadata['first_food_frame'].max())[0][0])
-    ax.set_xlabel("Time until first food encounter (seconds)", fontsize=15, labelpad=10)
-    ax.set_ylabel("Number of videos", fontsize=15, labelpad=10)
-    ax.set_title("N = {} videos".format(metadata.shape[0]), loc='right')
-    plt.tight_layout()
-    
-    # save histogram
-    save_path = Path(args.save_dir) / "first_food_encounter.pdf"
-    save_path.parent.mkdir(exist_ok=True, parents=True)
-    plt.savefig(save_path, dpi=300)
-
-    # Subset to remove all videos where the worm took >10 seconds (250 frames)
-    # to reach the food from the start of the video recording
-    metadata = metadata[metadata['first_food_frame'] < THRESHOLD_N_SECONDS*FPS]
-    sample_sizes = metadata.groupby('gene_name').count()['first_food_frame']
-    print("\nThreshold time until food encounter: {} seconds".format(THRESHOLD_N_SECONDS))
-    for s in sample_sizes.index:
-        print('{0}: n={1}'.format(s, sample_sizes.loc[s]))
+    # compile metadata
+    metadata, metadata_path = compile_metadata(aux_dir=AUX_DIR,
+                                               imaging_dates=IMAGING_DATES,
+                                               add_well_annotations=N_WELLS==96,
+                                               n_wells=N_WELLS,
+                                               from_source_plate=False)
         
-    mean_delay_seconds = int(metadata['first_food_frame'].mean()) / FPS
-    print("Worms took %.1f seconds on average to reach food" % mean_delay_seconds)
+    # compile window summaries
+    features, metadata = process_feature_summaries(metadata_path,
+                                                   results_dir=RES_DIR,
+                                                   compile_day_summaries=True,
+                                                   imaging_dates=IMAGING_DATES,
+                                                   align_bluelight=False,
+                                                   window_summaries=True)
     
-    # Timeseries plots for worms that took <10 seconds to reach food
-    # (then try with inculding 'hump' <75 seconds, see if it makes a difference?)
-    
-    grouped_strain = metadata.groupby('gene_name')
+    # clean results
+    features, metadata = clean_summary_results(features, 
+                                               metadata,
+                                               feature_columns=None,
+                                               nan_threshold_row=NAN_THRESHOLD_ROW,
+                                               nan_threshold_col=NAN_THRESHOLD_COL,
+                                               max_value_cap=1e15,
+                                               imputeNaN=True,
+                                               min_nskel_per_video=MIN_NSKEL_PER_VIDEO,
+                                               min_nskel_sum=MIN_NSKEL_SUM,
+                                               drop_size_related_feats=False,
+                                               norm_feats_only=False,
+                                               percentile_to_use=None)
 
-    colours = sns.color_palette(palette="tab10", n_colors=len(metadata['gene_name'].unique()))
-    bluelight_frames = [(i*60*FPS, i*60*FPS+10*FPS) for i in BLUELIGHT_TIMEPOINTS_MINUTES]
+    assert not features.isna().sum(axis=1).any()
+    assert not (features.std(axis=1) == 0).any()
 
-    # both strains together, for each motion mode
-    for mode in ['forwards','backwards','stationary']:
-    
-        plt.close('all')
-        fig, ax = plt.subplots(figsize=(15,5))
-        save_path = Path(args.save_dir) / 'timeseries_plots' / 'motion_mode_{}.pdf'.format(mode)
-        
-        for s, strain in enumerate(metadata['gene_name'].unique()):
-            print("Plotting motion mode %s timeseries for %s..." % (mode, strain))
-            
-            strain_meta = grouped_strain.get_group(strain)
-            
-            strain_timeseries_list = []
-            for i in strain_meta.index:
-                imgstore = strain_meta.loc[i, 'imgstore_name']
-                filename = Path(args.project_dir) / "Results" / imgstore / 'metadata_featuresN.hdf5'
-                
-                df = read_timeseries(filename, names=['worm_index','timestamp','motion_mode'])
-                df['filename'] = filename
-                df['well_name'] = strain_meta.loc[i, 'well_name']
+    # save features
+    features_path = Path(SAVE_DIR) / 'features.csv'
+    features.to_csv(features_path, index=False) 
 
-                strain_timeseries_list.append(df)
-                
-            # compile timeseries data for strain 
-            strain_timeseries = pd.concat(strain_timeseries_list, axis=0, ignore_index=True)
-                    
-            ax = plot_timeseries_motion_mode(df=strain_timeseries,
-                                             window=SMOOTH_WINDOW_SECONDS*FPS,
-                                             error=True,
-                                             mode=mode,
-                                             max_n_frames=VIDEO_LENGTH_SECONDS*FPS,
-                                             title=None,
-                                             #figsize=(15,5), 
-                                             saveAs=None, #saveAs=save_path,
-                                             ax=ax, #ax=None,
-                                             bluelight_frames=bluelight_frames,
-                                             cols=['filename','timestamp','well_name','motion_mode'],
-                                             colour=colours[s],
-                                             alpha=0.75)
-            
-        ax.axvspan(mean_delay_seconds*FPS-FPS, mean_delay_seconds*FPS+FPS, facecolor='red', alpha=1)
-        xticks = np.linspace(0,VIDEO_LENGTH_SECONDS*FPS, 31)
-        ax.set_xticks(xticks)
-        ax.set_xticklabels([str(int(x/FPS/60)) for x in xticks])   
-        ax.set_xlabel('Time (minutes)', fontsize=15, labelpad=10)
-        ax.set_ylabel('Fraction {}'.format(mode), fontsize=15, labelpad=10)
-        ax.legend(metadata['gene_name'].unique(), fontsize=12, frameon=False, loc='best')
-        ax.set_title("motion mode fraction '%s' (total n=%d worms)" % (mode, metadata.shape[0]),
-                     fontsize=15, pad=10)
-        
-        save_path.parent.mkdir(exist_ok=True, parents=True)
-        plt.savefig(save_path, dpi=300)        
-    
-    # TODO: process_feature_summaries
-        
+    # Save metadata
+    metadata_path = Path(SAVE_DIR) / 'metadata.csv'
+    metadata.to_csv(metadata_path, index=False)
+
+
+    #acute_single_worm(metadata, features, PROJECT_DIR, SAVE_DIR)
+

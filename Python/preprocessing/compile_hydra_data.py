@@ -19,10 +19,14 @@ from pathlib import Path
 
 #%% Functions
 
-def compile_day_metadata(aux_dir, day, from_source_plate=False, from_robot_runlog=False, verbose=True,
-                         n_wells=96):
+def compile_day_metadata(aux_dir, 
+                         day,
+                         n_wells=96,
+                         from_source_plate=False, 
+                         from_robot_runlog=False):
+    
     """ Compile experiment day metadata from wormsorter and hydra rig metadata for a given day in 
-        'AuxilliaryFiles' directory 
+        'AuxiliaryFiles' directory 
         
         Parameters
         ----------
@@ -30,43 +34,70 @@ def compile_day_metadata(aux_dir, day, from_source_plate=False, from_robot_runlo
             Path to "AuxiliaryFiles" containing metadata  
         day : str, None
             Experiment day folder in format 'YYYYMMDD'
+        from_source_plate : bool
+            Compile day metadata using source plate metadata ('source_plate.csv') and mapping for 
+            each imaging plate ID ('source2imaging.csv')
+        from_robot_runlog : bool
+            Compile plate metadata from OpenTrons run log files (eg. for randomised plates)
             
         Returns
         -------
-        compiled_day_metadata
+        day_metadata : pandas.DataFrame
+            Compiled day metadata
     """
-
-    from tierpsytools.hydra.compile_metadata import (populate_96WPs, 
-                                                     populate_6WPs,
+    from tierpsytools.hydra.compile_metadata import (populate_6WPs,
+                                                     populate_24WPs,
+                                                     populate_96WPs,
                                                      get_day_metadata,
-                                                     #get_source_plate_metadata
+                                                     get_source_metadata,
+                                                     merge_basic_and_source_meta,
+                                                     #merge_robot_metadata, 
+                                                     #merge_robot_wormsorter,
                                                      number_wells_per_plate, 
                                                      day_metadata_check)
-
+    
     day_dir = Path(aux_dir) / str(day)
+    
     wormsorter_meta = day_dir / (str(day) + '_wormsorter.csv')
     hydra_meta = day_dir / (str(day) + '_manual_metadata.csv')
       
     # Expand wormsorter metadata to have separate row for each well (96-well or 6-well plate format)
-    if n_wells == 96:    
-        plate_metadata = populate_96WPs(wormsorter_meta)
-    elif n_wells == 6:
+    if n_wells == 6:    
         plate_metadata = populate_6WPs(wormsorter_meta)
+    elif n_wells == 24:
+        plate_metadata = populate_24WPs(wormsorter_meta)
+    elif n_wells == 96:
+        plate_metadata = populate_96WPs(wormsorter_meta)
     else:
-        raise ValueError("Please choose from n_wells == 96 or 6 wells only")
+        raise ValueError("Please choose n_wells from: [6, 24, 96]")
     
+    from_source_plate = True if from_robot_runlog else from_source_plate
+    
+    if from_source_plate:
+        source_plate_meta = day_dir / 'source_plates.csv'
+    
+        plate_mapping_meta = day_dir / 'source2plate.csv'
+
+        source_metadata = get_source_metadata(sourceplates_file=source_plate_meta,
+                                              imaging2source_file=plate_mapping_meta)
+    
+        plate_metadata = merge_basic_and_source_meta(plate_metadata, 
+                                                     source_metadata, 
+                                                     merge_on=['imaging_plate_id', 'well_name'],
+                                                     saveto=None,
+                                                     del_if_exists=False)
+        
 # =============================================================================
-#     if from_source_plate:
-#         sourceplates_file = get_source_plate_metadata()
-#
 #     if from_robot_runlog:
-#         from tierpsytools.hydra.compile_metadata import merge_robot_metadata, merge_robot_wormsorter
-#         drug_metadata = merge_robot_metadata(sourceplates_file,
+#         robot_runlog_meta = day_dir / 'robot_runlog.csv'
+#     
+#         drug_metadata = merge_robot_metadata(robot_runlog_meta,
 #                                              randomized_by='column',
 #                                              saveto=None,
 #                                              drug_by_column=True,
 #                                              compact_drug_plate=False,
 #                                              del_if_exists=False)
+#         
 #         plate_metadata = merge_robot_wormsorter(day_dir, 
 #                                                 drug_metadata,
 #                                                 plate_metadata,
@@ -79,21 +110,155 @@ def compile_day_metadata(aux_dir, day, from_source_plate=False, from_robot_runlo
     day_metadata = get_day_metadata(complete_plate_metadata=plate_metadata, 
                                     hydra_metadata_file=hydra_meta,
                                     merge_on=['imaging_plate_id'],
-                                    n_wells=96,
+                                    n_wells=n_wells,
                                     run_number_regex='run\\d+_',
                                     saveto=None,
                                     del_if_exists=False,
                                     include_imgstore_name=True,
                                     raw_day_dir=None)
     
-    # Check that day metadata is correct dimension
-    day_metadata_check(day_metadata, day_dir)
-    
-    if verbose:
-        print(number_wells_per_plate(day_metadata, day_dir))
-    
+    day_metadata_check(day_metadata, day_dir) # check day metadata is correct dimension
+    print(number_wells_per_plate(day_metadata, day_dir))
+
     return day_metadata
 
+def compile_metadata(aux_dir, 
+                     imaging_dates, 
+                     n_wells=96,
+                     add_well_annotations=True,
+                     from_source_plate=False,
+                     from_robot_runlog=False):
+    """ Compile metadata from individual day metadata files
+
+        Parameters
+        ----------
+        aux_dir : str
+            Path to "AuxiliaryFiles" directory containing project metadata files
+        dates : list of str, None
+            List of imaging dates to compile metadata from
+        add_well_annotations : bool
+            Add annotations from WellAnnotator GUI
+        n_wells : int
+            Choose from 6, 24, or 96. NB: 'camera_serial' information is required in metadata if 
+            n_wells is not 96
+    
+        Returns
+        -------
+        metadata : pandas.DataFrame
+            Compiled project metadata
+    """
+    
+    import re
+    from tierpsytools.hydra.hydra_helper import add_imgstore_name
+    from tierpsytools.hydra.match_wells_annotations import update_metadata_with_wells_annotations
+
+    metadata_path = Path(aux_dir) / 'metadata.csv'
+    
+    Path(aux_dir).rglob('\d{8}')
+       
+    if metadata_path.exists():
+        metadata = pd.read_csv(metadata_path, dtype={"comments":str, "source_plate_id":str}, header=0)
+        print("Metadata loaded.")
+        
+        if imaging_dates is not None:
+            metadata = metadata[metadata['date_yyyymmdd'].astype(str).isin(imaging_dates)]
+            
+    else:
+        print("Metadata not found.\nCompiling from day metadata in: %s" % aux_dir)
+        
+        aux_list = [p.name for p in Path(aux_dir).glob('*')]
+        dates_found = sorted([date for date in aux_list if re.match(r'\d{8}', date)])
+        if imaging_dates:
+            assert all(i in dates_found for i in imaging_dates)
+        else:
+            imaging_dates = dates_found
+    
+        # from tierpsytools.hydra.compile_metadata import concatenate_days_metadata
+        # metadata = concatenate_days_metadata(aux_dir, imaging_dates, saveto=None)
+        
+        day_meta_list = []
+        for date in imaging_dates:
+            day_meta_path = Path(aux_dir) / date / '{}_day_metadata.csv'.format(date)
+            
+            if day_meta_path.exists():
+                day_meta = pd.read_csv(day_meta_path, dtype={"comments":str})            
+            else:
+                day_meta = compile_day_metadata(aux_dir=aux_dir, 
+                                                day=date, 
+                                                n_wells=n_wells, 
+                                                from_source_plate=from_source_plate, 
+                                                from_robot_runlog=from_robot_runlog)
+
+            raw_dir = Path(str(day_meta_path).replace("AuxiliaryFiles", "RawVideos")).parent
+                
+            # add 'imgstore_name' if not present in metadata
+            if 'imgstore_name' not in day_meta.columns:
+                
+                # delete 'camera_serial' column as it will be recreated
+                if 'camera_serial' in day_meta.columns:
+                     day_meta = day_meta.drop(columns='camera_serial')
+
+                # add 'imgstore_name' and 'camera_serial'
+                day_meta = add_imgstore_name(day_meta, raw_dir, n_wells=n_wells)
+
+            # add filename = raw_dir / imgstore_name
+            assert not day_meta['imgstore_name'].isna().any()
+            day_meta['filename'] = [raw_dir.parent / day_meta.loc[i, 'imgstore_name'] for i in
+                                    range(day_meta.shape[0])]
+            
+            # append day metadata to list
+            day_meta_list.append(day_meta)
+        
+        # concatenate list of day metadata into full metadata
+        metadata = pd.concat(day_meta_list, axis=0, ignore_index=True, sort=False)
+
+        # Ensure no NA values in any columns with 'date' in the name 
+        # for compatibility with fix_dtypes from tierpsytools platechecker
+        check_na_cols = [col for col in metadata.columns if 'date' in col]
+        assert not any(any(metadata[col].isna()) for col in check_na_cols)
+                
+        # Convert 'date_yyyymmdd' column to string (factor)
+        metadata['date_yyyymmdd'] = metadata['date_yyyymmdd'].astype(str)
+        
+        # drop any wells annotations columns that might exist as will throw an error when re-added
+        metadata = metadata.drop(columns=['is_bad_well', 'well_label'], errors='ignore')
+        
+        # save metadata
+        metadata.to_csv(metadata_path, index=None) 
+        print("Metadata saved to: %s" % metadata_path)
+    
+    # add annotations to metadata
+    if add_well_annotations and n_wells == 96:        
+        annotated_metadata_path = Path(str(metadata_path).replace('.csv', '_annotated.csv'))
+        
+        if not annotated_metadata_path.exists():
+            print("Adding annotations to metadata")
+            metadata = update_metadata_with_wells_annotations(aux_dir=aux_dir, 
+                                                              saveto=annotated_metadata_path, 
+                                                              del_if_exists=False)
+
+            if imaging_dates is not None:
+                metadata = metadata.loc[metadata['date_yyyymmdd'].astype(str).isin(imaging_dates)]
+                metadata.to_csv(annotated_metadata_path, index=None)
+    
+            assert annotated_metadata_path.exists()
+            metadata_path = annotated_metadata_path
+   
+        # Load annotated metadata
+        metadata = pd.read_csv(metadata_path, header=0,
+                               dtype={"comments":str, "source_plate_id":str})
+        if imaging_dates is not None:
+            metadata = metadata.loc[metadata['date_yyyymmdd'].astype(str).isin(imaging_dates)]
+                                  
+        if not 'is_bad_well' in metadata.columns:
+            raise Warning("Bad well annotations not found in metadata!")
+        else:
+            prop_bad = metadata['is_bad_well'].sum() / len(metadata['is_bad_well'])
+            print("%.1f%% of data are labelled as 'bad well' data" % (prop_bad * 100))
+            
+    return metadata, metadata_path
+
+# TODO: Deprecated. Remove this function
 def process_metadata(aux_dir, 
                      imaging_dates=None, 
                      add_well_annotations=True,
@@ -124,7 +289,7 @@ def process_metadata(aux_dir,
         compiled metadata path
     """
     
-    from tierpsytools.hydra.hydra_helper import add_imgstore_name  
+    from tierpsytools.hydra.hydra_helper import add_imgstore_name
     from tierpsytools.hydra.match_wells_annotations import update_metadata_with_wells_annotations
     # from tierpsytools.hydra.match_wells_annotations import (import_wells_annotations_in_folder,
     #                                                         match_rawvids_annotations, update_metadata)
@@ -318,7 +483,7 @@ def process_feature_summaries(metadata_path,
         
         Returns
         -------
-        metadata, features
+        features, metadata
         
     """    
 
@@ -419,6 +584,7 @@ def process_feature_summaries(metadata_path,
     return features, metadata[meta_col_order]
 
 #%% Main
+
 if __name__ == "__main__":
     # Accept command-line inputs
     parser = argparse.ArgumentParser(description='Compile metadata and feature summary results \

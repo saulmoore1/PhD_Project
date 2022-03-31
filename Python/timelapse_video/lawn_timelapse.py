@@ -19,6 +19,7 @@ import numpy as np
 from tqdm import tqdm
 from pathlib import Path
 from matplotlib import pyplot as plt
+
 from tierpsytools.hydra import CAM2CH_df
 from tierpsytools.hydra.hydra_filenames_helper import parse_camera_serial, serial2channel
 from tierpsytools.plot.plot_plate_trajectories_with_raw_video_background import CH2PLATE_dict

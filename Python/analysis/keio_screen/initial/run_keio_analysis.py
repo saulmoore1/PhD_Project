@@ -27,7 +27,7 @@ from scipy.stats import zscore # levene, ttest_ind, f_oneway, kruskal
 from read_data.paths import get_save_dir
 from read_data.read import load_json, load_topfeats
 from write_data.write import write_list_to_file
-from analysis.control_variation import control_variation
+from analysis.compare_strains.control_variation import control_variation
 from filter_data.clean_feature_summaries import clean_summary_results, subset_results
 from statistical_testing.perform_keio_stats import average_plate_control_data
 from clustering.hierarchical_clustering import plot_clustermap, plot_barcode_heatmap
