@@ -449,8 +449,6 @@ def boxplots_sigfeats(features,
         if z_class is not None:
             cols = sns.color_palette("Greens", len(z_class.unique()))
             col_dict = dict(zip(list(z_class.unique()), cols))   
-            # pchs = ['.','+','*'] # CANNOT DO THIS IN MATPLOTLIB: https://github.com/mwaskom/seaborn/issues/1210
-            # pch_dict = dict(zip(list(z_class.unique()), pchs))
             
         order = list(strain_data[y_class.name].unique())
         order.remove(control)
@@ -506,7 +504,7 @@ def boxplots_sigfeats(features,
                 plt.legend(loc='upper right')
  
             if scale_outliers:
-                grouped_strain = strain_data.groupby('gene_name')
+                grouped_strain = strain_data.groupby(y_class.name)
                 y_bar = grouped_strain[feature].median() # median is less skewed by outliers
                 # Computing IQR
                 Q1 = grouped_strain[feature].quantile(0.25)
@@ -587,7 +585,7 @@ def boxplots_grouped(feat_meta_df,
     # OPTIONAL: Plot cherry-picked features
     #feature_set = ['speed_50th','curvature_neck_abs_50th','angular_velocity_neck_abs_50th']
             
-    # Seaborn boxplots with swarmplot overlay for each feature - saved to file
+    # Seaborn boxplots for each feature - saved to file
     plt.ioff() if saveDir else plt.ion()
     for f, feature in enumerate(tqdm(feature_set, position=0)):
         if test_pvalues_df is not None:
@@ -638,7 +636,7 @@ def boxplots_grouped(feat_meta_df,
         ax.axes.get_yaxis().get_label().set_visible(False) # remove y axis label
         _, ylabels = plt.yticks()
         ax.set_yticklabels(ylabels, size=3)
-        #ax.set_ylabel(group_by, fontsize=18, labelpad=10)
+        #ax.set_ylabel(group_by.replace('_',' '), fontsize=18, labelpad=10)
         
         # Add p-value to plot
         #c_pos = np.where(rankMedian.index == control_group)[0][0]
@@ -674,3 +672,5 @@ def boxplots_grouped(feat_meta_df,
 # # REMOVE OUTLIERS
 # # Filtering Values between Q1-1.5IQR and Q3+1.5IQR
 # # filtered = df.query('(@Q1 - 1.5 * @IQR) <= nb <= (@Q3 + 1.5 * @IQR)')
+
+

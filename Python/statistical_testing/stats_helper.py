@@ -566,3 +566,158 @@ def anova_by_feature(feat_df,
     
 #     return pvals_corrected
 
+def single_feature_window_stats(metadata, 
+                                features, 
+                                group_by,
+                                control,
+                                save_dir,
+                                windows=None,
+                                feat='motion_mode_paused_fraction', 
+                                pvalue_threshold=0.05, 
+                                fdr_method='fdr_by'):
+    
+    """ Pairwise t-tests for each window comparing a feature of worm behaviour on mutant strains 
+        vs control 
+        
+        Parameters
+        ----------
+        metadata : pandas.DataFrame
+        
+        features : pandas.DataFrame
+            Dataframe of compiled window summaries
+            
+        group_by : str
+            Column name of variable containing control and other groups to compare, eg. 'gene_name'
+            
+        control : str
+            Name of control group in 'group_by' column in metadata
+            
+        save_dir : str
+            Path to directory to save results files
+            
+        windows : list
+            List of window numbers at which to compare strains (corrected for multiple testing)
+            
+        feat : str
+            Feature to test
+        
+        pvalue_threshold : float
+            P-value significance threshold
+            
+        fdr_method : str
+            Multiple testing correction method to use
+    """
+    
+    import pandas as pd
+    from pathlib import Path
+    from statistical_testing.stats_helper import pairwise_ttest
+    from statistical_testing.perform_keio_stats import df_summary_stats
+    from visualisation.plotting_helper import sig_asterix
+    from write_data.write import write_list_to_file
+    from tierpsytools.analysis.statistical_tests import univariate_tests, get_effect_sizes
+
+    # categorical variables to investigate: 'gene_name' and 'window'
+    print("\nInvestigating variation in fraction of worms paused between hit strains and control " +
+          "(for each window)")    
+
+    # check there will be no errors due to case-sensitivity
+    assert len(metadata[group_by].unique()) == len(metadata[group_by].str.upper().unique())
+        
+    # subset for list of windows
+    if windows is None:
+        windows = sorted(metadata['window'].unique())
+    else:
+        assert all(w in metadata['window'] for w in windows)
+        metadata = metadata[metadata['window'].isin(windows)]
+        features = features[[feat]].reindex(metadata.index)
+
+    # print mean sample size
+    sample_size = df_summary_stats(metadata, columns=[group_by, 'window'])
+    print("Mean sample size of %s/window: %d" % (group_by, int(sample_size['n_samples'].mean())))
+    
+    # construct save path
+    stats_dir =  Path(save_dir) / "Stats" / fdr_method
+        
+    control_meta = metadata[metadata[group_by]==control]
+    control_feat = features.reindex(control_meta.index)
+    control_df = control_meta.join(control_feat)
+
+    n = len(metadata[group_by].unique())
+    strain_list = list([s for s in metadata[group_by].unique() if s != control])    
+    fset = []
+    
+    if n > 2:
+        
+        # Perform ANOVA - is there variation among strains at each window?
+        anova_path = stats_dir / 'ANOVA' / 'ANOVA_{}window_results.csv'.format(len(windows))
+        anova_path.parent.mkdir(parents=True, exist_ok=True)
+
+        stats, pvals, reject = univariate_tests(X=features, 
+                                                y=metadata[group_by], 
+                                                control=control, 
+                                                test='ANOVA',
+                                                comparison_type='multiclass',
+                                                multitest_correction=fdr_method,
+                                                alpha=pvalue_threshold,
+                                                n_permutation_test=None)
+
+        # get effect sizes
+        effect_sizes = get_effect_sizes(X=features, 
+                                        y=metadata[group_by],
+                                        control=control,
+                                        effect_type=None,
+                                        linked_test='ANOVA')
+
+        # compile + save results
+        test_results = pd.concat([stats, effect_sizes, pvals, reject], axis=1)
+        test_results.columns = ['stats','effect_size','pvals','reject']     
+        test_results['significance'] = sig_asterix(test_results['pvals'])
+        test_results = test_results.sort_values(by=['pvals'], ascending=True) # rank by p-value
+        test_results.to_csv(anova_path, header=True, index=True)
+
+        # use reject mask to find significant feature set
+        fset = pvals.loc[reject['ANOVA']].sort_values(by='ANOVA', ascending=True).index.to_list()
+
+        if len(fset) > 0:
+            print("%d significant features found by ANOVA for '%s' (P<%.2f, %s)" %\
+                  (len(fset), group_by, pvalue_threshold, fdr_method))
+            anova_sigfeats_path = anova_path.parent / 'ANOVA_sigfeats.txt'
+            write_list_to_file(fset, anova_sigfeats_path)
+                    
+    if n == 2 or len(fset) > 0:
+        
+        # pairwise t-tests
+        for strain in strain_list:
+            print("\nPairwise t-tests for each window comparing fraction of worms paused " +
+                  "on %s vs control" % strain)
+            
+            ttest_strain_path = stats_dir / 'pairwise_ttests' / '{}_window_results.csv'.format(strain)
+            ttest_strain_path.parent.mkdir(parents=True, exist_ok=True)
+
+            strain_meta = metadata[metadata[group_by]==strain]
+            strain_feat = features.reindex(strain_meta.index)
+            strain_df = strain_meta.join(strain_feat[[feat]])
+             
+            stats, pvals, reject = pairwise_ttest(control_df, 
+                                                  strain_df, 
+                                                  feature_list=[feat], 
+                                                  group_by='window', 
+                                                  fdr_method=fdr_method,
+                                                  fdr=pvalue_threshold)
+     
+            # compile table of results
+            stats.columns = ['stats_' + str(c) for c in stats.columns]
+            pvals.columns = ['pvals_' + str(c) for c in pvals.columns]
+            reject.columns = ['reject_' + str(c) for c in reject.columns]
+            test_results = pd.concat([stats, pvals, reject], axis=1)
+            
+            # save results
+            test_results.to_csv(ttest_strain_path, header=True, index=True)
+            
+            for window in windows:
+                print("%s difference in '%s' between %s vs %s in window %s (t-test, P=%.3f, %s)" %\
+                      (("SIGNIFICANT" if reject.loc[feat, 'reject_{}'.format(window)] else "No"), 
+                      feat, strain, control, window, pvals.loc[feat, 'pvals_{}'.format(window)],
+                      fdr_method))
+        
+    return
