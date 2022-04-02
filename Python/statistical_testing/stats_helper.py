@@ -634,9 +634,6 @@ def single_feature_window_stats(metadata,
     # print mean sample size
     sample_size = df_summary_stats(metadata, columns=[group_by, 'window'])
     print("Mean sample size of %s/window: %d" % (group_by, int(sample_size['n_samples'].mean())))
-    
-    # construct save path
-    stats_dir =  Path(save_dir) / "Stats" / fdr_method
         
     control_meta = metadata[metadata[group_by]==control]
     control_feat = features.reindex(control_meta.index)
@@ -649,7 +646,7 @@ def single_feature_window_stats(metadata,
     if n > 2:
         
         # Perform ANOVA - is there variation among strains at each window?
-        anova_path = stats_dir / 'ANOVA' / 'ANOVA_{}window_results.csv'.format(len(windows))
+        anova_path = Path(save_dir) / 'ANOVA' / 'ANOVA_{}window_results.csv'.format(len(windows))
         anova_path.parent.mkdir(parents=True, exist_ok=True)
 
         stats, pvals, reject = univariate_tests(X=features, 
@@ -691,7 +688,8 @@ def single_feature_window_stats(metadata,
             print("\nPairwise t-tests for each window comparing fraction of worms paused " +
                   "on %s vs control" % strain)
             
-            ttest_strain_path = stats_dir / 'pairwise_ttests' / '{}_window_results.csv'.format(strain)
+            ttest_strain_path = Path(save_dir) / 'pairwise_ttests' /\
+                '{}_window_results.csv'.format(strain)
             ttest_strain_path.parent.mkdir(parents=True, exist_ok=True)
 
             strain_meta = metadata[metadata[group_by]==strain]

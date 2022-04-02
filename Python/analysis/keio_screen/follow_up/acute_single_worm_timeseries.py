@@ -23,10 +23,12 @@ from matplotlib import pyplot as plt
 from tierpsytools.read_data.get_timeseries import read_timeseries
 from preprocessing.compile_hydra_data import compile_metadata
 from time_series.plot_timeseries import plot_timeseries_motion_mode
+from analysis.keio_screen.follow_up import WINDOW_DICT_SECONDS, WINDOW_DICT_STIM_TYPE
 
 #%% Globals
 
 PROJECT_DIR = "/Volumes/hermes$/Keio_Acute_Single_Worm"
+SAVE_DIR = "/Users/sm5911/Documents/Keio_Acute_Single_Worm"
 IMAGING_DATES = ['20220206', '20220209', '20220212']
 
 FPS = 25
@@ -36,12 +38,6 @@ SMOOTH_WINDOW_SECONDS = 5
 THRESHOLD_N_SECONDS = 10
 BLUELIGHT_TIMEPOINTS_MINUTES = [5,10,15,20,25]
 N_WELLS = 6
-
-WINDOW_DICT_SECONDS = {0:(290,300), 1:(305,315), 2:(315,325), 
-                       3:(590,600), 4:(605,615), 5:(615,625), 
-                       6:(890,900), 7:(905,915), 8:(915,925), 
-                       9:(1190,1200), 10:(1205,1215), 11:(1215,1225), 
-                       12:(1490,1500), 13:(1505.1515), 14:(1515,1525)}
 
 #%% Functions
     
