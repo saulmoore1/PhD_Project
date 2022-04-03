@@ -152,7 +152,23 @@ def _bootstrapped_ci(x, function=np.mean, n_boot=100, which_ci=95, axis=None):
 #     turn_dict = {0:'straight', 1:'turn'}
 #     df['turn_type'] = ['NA' if pd.isna(t) else turn_dict[int(t)] for t in df['turn']]
 
-
+def get_motion_mode_timestamp_stats(frac_mode, mode='stationary'):
+           
+        # average fraction in given motion mode
+        mode_df = frac_mode[frac_mode['motion_name']==mode]
+        
+        total_frame_count = frac_mode.groupby(['timestamp'])['fraction'].agg(['count'])
+        
+        # group by timestamp (average fraction across videos for each timestamp)
+        mode_frame_stats = mode_df.groupby(['timestamp'])['fraction'].agg(['sum','mean','std'])
+        
+        # total count may include frames where no recording was made for this motion mode,
+        # so pad out results with 0 for this motion mode
+        frame_mode_df = pd.merge(mode_frame_stats.reset_index(), total_frame_count.reset_index(), 
+                                 on='timestamp', how='outer').fillna(0)
+                
+        return frame_mode_df
+    
 def plot_timeseries_motion_mode(df, window=None, error=False, mode=None, max_n_frames=None,
                                 title=None, figsize=(12,6), ax=None, saveAs=None,
                                 sns_colour_palette='pastel', colour=None, 
@@ -208,7 +224,9 @@ def plot_timeseries_motion_mode(df, window=None, error=False, mode=None, max_n_f
         if type(mode) == int or type(mode) == float:
             mode = motion_dict[mode]     
         else:
-            assert type(mode) == str and mode in motion_modes
+            assert type(mode) == str 
+            mode = 'stationary' if mode == 'paused' else mode
+            assert mode in motion_modes
     
     assert all(c in df.columns for c in cols)
 
@@ -218,55 +236,68 @@ def plot_timeseries_motion_mode(df, window=None, error=False, mode=None, max_n_f
     # map whether forwards, backwards or stationary motion in each frame
     df['motion_name'] = df['motion_mode'].map(motion_dict)
     assert not df['motion_name'].isna().any()
+        
+    # total number of worms recorded at each timestamp
+    total_video_count = df.groupby(['timestamp'])['filename'].count()
     
-    # group by video filename and timestamp
-    grouped_vid_frame = df.groupby(['filename', 'timestamp'])
+    # total number of worms in each motion mode at each timestamp
+    motion_mode_count = df.groupby(['timestamp','motion_name'])['filename'].count().reset_index()
+    motion_mode_count = motion_mode_count.rename(columns={'filename':'count'})
+        
+    frac_mode = pd.merge(motion_mode_count, total_video_count, 
+                         left_on='timestamp', right_on=total_video_count.index, 
+                         how='left')
+        
+    # divide by total filename count
+    frac_mode['fraction'] = frac_mode['count'] / frac_mode['filename']
     
-    # total number of observations for each video/timestamp
-    total_count = grouped_vid_frame['motion_name'].count()
-    
-    # total number of worms in each motion mode at each timestamp for each video
-    motion_count = grouped_vid_frame['motion_name'].value_counts()
-    
-    # average fraction of worms in each motion mode for each video/timestamp
-    frac_mode = motion_count / total_count
-    frac_mode.name = 'fraction'
-    frac_mode = frac_mode.reset_index(drop=False)
-
-    # average fraction in given motion mode
-    mode_df = frac_mode[frac_mode['motion_name']==mode]
-    
-    # group by timestamp only (average across videos for each timestamp)
-    frame_mode_mean = mode_df.groupby('timestamp')['fraction'].mean()
-    frame_video_count = df.groupby('timestamp')['filename'].count()
-    mode_frac = frame_mode_mean / frame_video_count
-    mode_frac = mode_frac.reset_index(drop=None).rename(columns={0: "fraction"})
-    mode_frac = mode_frac.dropna(axis=0, how='any')
+    # subset for motion mode
+    plot_df = frac_mode[frac_mode['motion_name']==mode][['timestamp','fraction']]
      
     # mean and bootstrap CI error for each timestamp
     if error:
-        conf_ints = mode_df.groupby('timestamp')['fraction'].apply(_bootstrapped_ci, 
-                                                                   function=np.mean, 
-                                                                   n_boot=100)
-        lower_ci = [x[0] for x in conf_ints]   
-        upper_ci = [x[1] for x in conf_ints]
-        mode_frac['lower'] = lower_ci
-        mode_frac['upper'] = upper_ci
-    
+        # subset for mode
+        # divide full video fraction (fraction in each timestamp of each video) by the frame_video_count
+        # then sum up (divide first then sum to get the mean)
+        # this way you can use the bootstrapping on the full video fraction
+        raise IOError("Error not fixed yet!")
+        
+        # full_video_frac = mode_df.set_index(['filename','timestamp','motion_name']) / frame_total_count
+        # _frac_mode = pd.merge(frac_mode, total_frame_count, 
+        #                       left_on='timestamp', right_on=total_frame_count.index,
+        #                       how='inner')
+        
+        std = frac_mode.groupby(['timestamp'])['fraction'].agg(['std'])
+        #_frac_mode['fraction'] = _frac_mode['fraction'] / _frac_mode['count']
+        # mode_df = frac_mode[frac_mode['motion_name']==mode]
+
+        conf_ints = frac_mode.groupby(['timestamp'])['fraction'].apply(_bootstrapped_ci, 
+                                                                       function=np.mean, 
+                                                                       n_boot=10)#TODO:100
+
+        conf_ints = pd.concat([pd.Series([x[0] for x in conf_ints], index=conf_ints.index), 
+                               pd.Series([x[1] for x in conf_ints], index=conf_ints.index)], axis=1)
+        conf_ints = conf_ints.rename(columns={0:'lower',1:'upper'})
+        
+        plot_df = pd.merge(plot_df, conf_ints, left_on='timestamp', right_on=conf_ints.index, 
+                           how='inner')
+         
+        plot_df = plot_df.dropna(axis=0, how='any')
+
     # crop timeseries data to standard video length (optional)
     if max_n_frames:
-        mode_frac = mode_frac[mode_frac['timestamp'] <= max_n_frames]
+        plot_df = plot_df[plot_df['timestamp'] <= max_n_frames]
     
     # moving average (optional)
     if window:
-        mode_frac = mode_frac.set_index('timestamp').rolling(window=window, 
-                                                             center=True).mean().reset_index()
+        plot_df = plot_df.set_index('timestamp').rolling(window=window, 
+                                                         center=True).mean().reset_index()
 
     if ax is None:
-        fig, ax = plt.subplots(figsize=figsize)
+        fig, ax = plt.subplots(figsize=(15,6))
 
     # motion_ls_dict = dict(zip(motion_modes, ['-','--','-.']))                
-    sns.lineplot(data=mode_frac, 
+    sns.lineplot(data=plot_df, 
                  x='timestamp', 
                  y='fraction', 
                  ax=ax, 
@@ -275,17 +306,16 @@ def plot_timeseries_motion_mode(df, window=None, error=False, mode=None, max_n_f
                  palette=None, #palette if colour is None else None,
                  color=colour)
     if error:
-        ax.fill_between(mode_frac.index, mode_frac['lower'], mode_frac['upper'], 
-                        color=colour, alpha=alpha, edgecolor=None)
+        ax.fill_between(plot_df.index, plot_df['lower'], plot_df['upper'], 
+                        color=colour, edgecolor=None, alpha=0.25)
     
-    xmax = mode_frac['timestamp'].max()
+    xmax = plot_df['timestamp'].max()
     ax.set_xlim(0, xmax)
-    #ax.set_ylim(0, 1)
 
     # add decorations
     if bluelight_frames is not None:
         ax = add_bluelight_to_plot(ax, bluelight_frames=bluelight_frames, alpha=alpha)
-    # ax.axhline(0, 0, xmax, ls='--', marker='o')    
+
     if title:
         plt.title(title, pad=10)
 
@@ -297,8 +327,6 @@ def plot_timeseries_motion_mode(df, window=None, error=False, mode=None, max_n_f
         return fig, ax
     else:
         return ax
-    
-#def _timeseries_feature():
     
 def plot_timeseries_from_metadata(metadata_path,
                                   results_dir,
@@ -542,6 +570,7 @@ def plot_timeseries_from_metadata(metadata_path,
         elif feature != 'motion_mode':
             # TODO
             raise IOError("Only motion mode timeseries is supported!")
+            
 # =============================================================================
 #         elif feature == 'turn':
 #             # discrete data

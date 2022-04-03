@@ -33,6 +33,9 @@ MIN_NSKEL_PER_VIDEO = None
 MIN_NSKEL_SUM = 50
 PVAL_THRESH = 0.05
 
+THRESHOLD_N_SECONDS = 75
+FPS = 25
+
 WINDOW_DICT_SECONDS = {0:(290,300), 1:(305,315), 2:(315,325), 
                        3:(590,600), 4:(605,615), 5:(615,625), 
                        6:(890,900), 7:(905,915), 8:(915,925), 
@@ -62,7 +65,7 @@ def window_boxplot_fepD_vs_BW(metadata,
     plot_df = metadata[['bacteria_strain','window','date_yyyymmdd']].join(features[[feat]])
     
     if windows is not None:
-        assert all(w in plot_df['window'] for w in windows)
+        assert all(w in sorted(plot_df['window'].unique()) for w in windows)
         plot_df = plot_df[plot_df['window'].isin(windows)]
     else:
         windows = sorted(plot_df['window'].unique())
@@ -194,7 +197,10 @@ if __name__ == "__main__":
         metadata = pd.read_csv(META_PATH, dtype={'comments':str, 'source_plate_id':str})
         features = pd.read_csv(FEAT_PATH, index_col=None)
             
-    
+    # subset to remove entries for worms that took > 10 seconds to encounter food
+    metadata = metadata[metadata['first_food_frame'] < THRESHOLD_N_SECONDS*FPS]
+    features = features.reindex(metadata.index)
+
     # statistics: perform pairwise t-tests comparing fepD vs BW at each window 
     stats_dir = Path(SAVE_DIR) / "Stats"    
     single_feature_window_stats(metadata,

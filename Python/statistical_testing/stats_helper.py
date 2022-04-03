@@ -627,7 +627,7 @@ def single_feature_window_stats(metadata,
     if windows is None:
         windows = sorted(metadata['window'].unique())
     else:
-        assert all(w in metadata['window'] for w in windows)
+        assert all(w in sorted(metadata['window'].unique()) for w in windows)
         metadata = metadata[metadata['window'].isin(windows)]
         features = features[[feat]].reindex(metadata.index)
 
