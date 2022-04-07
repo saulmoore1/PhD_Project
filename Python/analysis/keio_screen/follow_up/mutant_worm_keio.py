@@ -11,6 +11,7 @@ Keio Mutant Worm Screen - Response to BW vs fepD bacteria
 
 #%% Imports
 
+import numpy as np
 import pandas as pd
 import seaborn as sns
 from pathlib import Path
@@ -19,6 +20,8 @@ from matplotlib import pyplot as plt
 from preprocessing.compile_hydra_data import compile_metadata, process_feature_summaries
 from filter_data.clean_feature_summaries import clean_summary_results
 from statistical_testing.stats_helper import single_feature_window_stats
+from time_series.time_series_helper import get_strain_timeseries
+from time_series.plot_timeseries import plot_timeseries_motion_mode
 from tierpsytools.analysis.statistical_tests import univariate_tests, get_effect_sizes
 
 #%% Globals
@@ -36,6 +39,13 @@ NAN_THRESHOLD_COL = 0.05
 MIN_NSKEL_PER_VIDEO = None
 MIN_NSKEL_SUM = 500
 PVAL_THRESH = 0.05
+
+FPS = 25
+VIDEO_LENGTH_SECONDS = 38*60
+BLUELIGHT_TIMEPOINTS_MINUTES = [30,31,32]
+BLUELIGHT_WINDOWS_ONLY_TS = True
+BIN_SIZE_SECONDS = 5
+SMOOTH_WINDOW_SECONDS = 5
 
 WINDOW_DICT_SECONDS = {0:(1790,1800), 1:(1805,1815), 2:(1815,1825),
                        3:(1850,1860), 4:(1865,1875), 5:(1875,1885),
@@ -340,7 +350,10 @@ if __name__ == '__main__':
         features = pd.read_csv(FEAT_PATH, index_col=None)
 
     stats_dir =  Path(SAVE_DIR) / "Stats"
+    
     window_list = sorted(WINDOW_DICT_SECONDS.keys())
+    worm_strain_list = list(metadata['worm_strain'].unique())
+    bacteria_strain_list = sorted(metadata['bacteria_strain'].unique())
 
     # statistics: perform ANOVA and pairwise t-tests comparing mutant worms vs N2 at each window 
     single_feature_window_stats(metadata,
@@ -374,11 +387,73 @@ if __name__ == '__main__':
                                 save_dir=plot_dir / 'boxplots_BW_vs_fepD' / 'window_{}'.format(window))
         
     # plot for each worm
-    worm_strain_list = list(metadata['worm_strain'].unique())
     for worm in worm_strain_list:
         plot_1worm_fepD_vs_BW(metadata, 
                               features, 
                               feat=FEATURE, 
                               worm_strain=worm,
                               save_dir=plot_dir / 'boxplots_BW_vs_fepD' / '{}'.format(worm))    
+        
+    # timeseries: motion mode paused fraction over time
+    for worm in worm_strain_list:
+        
+        print("\nPlotting timeseries for %s.." % worm)   
+
+        # both bacteria together, for each worm/motion mode
+        for mode in ['forwards','backwards','stationary']:
+            
+            plt.close('all')
+            fig, ax = plt.subplots(figsize=(15,5))
+
+            colours = sns.color_palette(palette="tab10", n_colors=len(bacteria_strain_list))
+            bluelight_frames = [(i*60*FPS, i*60*FPS+10*FPS) for i in BLUELIGHT_TIMEPOINTS_MINUTES]
+                    
+            for b, bacteria in enumerate(bacteria_strain_list):
+                
+                strain_metadata = metadata[np.logical_and(metadata['worm_strain']==worm,
+                                                      metadata['bacteria_strain']==bacteria)]
+            
+                # get timeseries data for worm strain
+                strain_timeseries = get_strain_timeseries(strain_metadata, 
+                                                          project_dir=PROJECT_DIR, 
+                                                          strain=bacteria,
+                                                          group_by='bacteria_strain',
+                                                          only_wells=None,
+                                                          save_dir=Path(SAVE_DIR) / 'Data' / worm,
+                                                          max_n_videos_per_strain=50)
+    
+                ax = plot_timeseries_motion_mode(df=strain_timeseries,
+                                                 window=SMOOTH_WINDOW_SECONDS*FPS,
+                                                 error=True,
+                                                 mode=mode,
+                                                 max_n_frames=VIDEO_LENGTH_SECONDS*FPS,
+                                                 title=None,
+                                                 #figsize=(15,5), 
+                                                 saveAs=None, #saveAs=save_path,
+                                                 ax=ax, #ax=None,
+                                                 bluelight_frames=bluelight_frames,
+                                                 cols=['filename','timestamp','well_name','motion_mode'],
+                                                 colour=colours[b],
+                                                 alpha=0.75)
+            
+            xticks = np.linspace(0, VIDEO_LENGTH_SECONDS*FPS, int(VIDEO_LENGTH_SECONDS/60)+1)
+            ax.set_xticks(xticks)
+            ax.set_xticklabels([str(int(x/FPS/60)) for x in xticks])   
+            ax.set_xlabel('Time (minutes)', fontsize=15, labelpad=10)
+            ax.set_ylabel('Fraction {}'.format(mode), fontsize=15, labelpad=10)
+            ax.legend(bacteria_strain_list, fontsize=12, frameon=False, loc='best')
+            ax.set_title("motion mode fraction '%s' (total n=%d worms)" % (mode, metadata.shape[0]),
+                         fontsize=15, pad=10)
+
+            if BLUELIGHT_WINDOWS_ONLY_TS:
+                ts_plot_dir = plot_dir / 'timeseries_bluelight' / worm
+                ax.set_xlim([min(BLUELIGHT_TIMEPOINTS_MINUTES)*60*FPS-60*FPS, 
+                             max(BLUELIGHT_TIMEPOINTS_MINUTES)*60*FPS+1.5*60*FPS])
+            else:
+                ts_plot_dir = plot_dir / 'timeseries' / worm
+    
+            # save plot
+            ts_plot_dir.mkdir(exist_ok=True)
+            plt.savefig(ts_plot_dir / '{0}_{1}.png'.format(worm, mode), dpi=300)  
+            plt.close()
     

@@ -237,52 +237,55 @@ def plot_timeseries_motion_mode(df, window=None, error=False, mode=None, max_n_f
     df['motion_name'] = df['motion_mode'].map(motion_dict)
     assert not df['motion_name'].isna().any()
         
-    # total number of worms recorded at each timestamp
-    total_video_count = df.groupby(['timestamp'])['filename'].count()
+    # # total number of worms recorded at each timestamp (across all videos)
+    # total_timestamp_count = df.groupby(['timestamp'])['filename'].count()
     
-    # total number of worms in each motion mode at each timestamp
-    motion_mode_count = df.groupby(['timestamp','motion_name'])['filename'].count().reset_index()
-    motion_mode_count = motion_mode_count.rename(columns={'filename':'count'})
+    # # total number of worms in each motion mode at each timestamp
+    # motion_mode_count = df.groupby(['timestamp','motion_name'])['filename'].count().reset_index()
+    # motion_mode_count = motion_mode_count.rename(columns={'filename':'count'})
         
-    frac_mode = pd.merge(motion_mode_count, total_video_count, 
-                         left_on='timestamp', right_on=total_video_count.index, 
-                         how='left')
+    # frac_mode = pd.merge(motion_mode_count, total_timestamp_count, 
+    #                       left_on='timestamp', right_on=total_timestamp_count.index, 
+    #                       how='left')
         
-    # divide by total filename count
-    frac_mode['fraction'] = frac_mode['count'] / frac_mode['filename']
+    # # divide by total filename count
+    # frac_mode['fraction'] = frac_mode['count'] / frac_mode['filename']
     
-    # subset for motion mode
-    plot_df = frac_mode[frac_mode['motion_name']==mode][['timestamp','fraction']]
+    # # subset for motion mode
+    # plot_df = frac_mode[frac_mode['motion_name']==mode][['timestamp','fraction']]
      
+    # total number of worms in each motion mode in each timestamp of each video
+    video_mode_count = df.groupby(['filename','timestamp','motion_name'])['well_name'].count().reset_index()
+    video_mode_count = video_mode_count.rename(columns={'well_name':'mode_count'})
+    
+    # total number of worms in each timestamp in each video
+    total_video_count = df.groupby(['filename','timestamp'])['well_name'].agg(['count']).reset_index()
+    
+    frac_video = pd.merge(video_mode_count, total_video_count, 
+                          left_on=['filename','timestamp'],
+                          right_on=['filename','timestamp'], how='outer')
+    
+    frac_video['fraction'] = frac_video['mode_count'] / frac_video['count']
+    
+    frac_video_mode = frac_video[frac_video['motion_name']==mode]
+
+    grouped_timestamp_mode = frac_video_mode.groupby(['timestamp'])['fraction']
+    
+    plot_df = grouped_timestamp_mode.mean().reset_index()
+
     # mean and bootstrap CI error for each timestamp
     if error:
-        # subset for mode
-        # divide full video fraction (fraction in each timestamp of each video) by the frame_video_count
-        # then sum up (divide first then sum to get the mean)
-        # this way you can use the bootstrapping on the full video fraction
-        raise IOError("Error not fixed yet!")
-        
-        # full_video_frac = mode_df.set_index(['filename','timestamp','motion_name']) / frame_total_count
-        # _frac_mode = pd.merge(frac_mode, total_frame_count, 
-        #                       left_on='timestamp', right_on=total_frame_count.index,
-        #                       how='inner')
-        
-        std = frac_mode.groupby(['timestamp'])['fraction'].agg(['std'])
-        #_frac_mode['fraction'] = _frac_mode['fraction'] / _frac_mode['count']
-        # mode_df = frac_mode[frac_mode['motion_name']==mode]
-
-        conf_ints = frac_mode.groupby(['timestamp'])['fraction'].apply(_bootstrapped_ci, 
-                                                                       function=np.mean, 
-                                                                       n_boot=10)#TODO:100
-
+        conf_ints = grouped_timestamp_mode.apply(_bootstrapped_ci, 
+                                                 function=np.mean, 
+                                                 n_boot=10)#TODO:100
+                    
         conf_ints = pd.concat([pd.Series([x[0] for x in conf_ints], index=conf_ints.index), 
                                pd.Series([x[1] for x in conf_ints], index=conf_ints.index)], axis=1)
         conf_ints = conf_ints.rename(columns={0:'lower',1:'upper'})
-        
-        plot_df = pd.merge(plot_df, conf_ints, left_on='timestamp', right_on=conf_ints.index, 
-                           how='inner')
          
-        plot_df = plot_df.dropna(axis=0, how='any')
+        plot_df = pd.merge(plot_df, conf_ints, 
+                           left_on='timestamp', right_on=conf_ints.index, how='outer')
+        #plot_df = plot_df.dropna(axis=0, how='any')
 
     # crop timeseries data to standard video length (optional)
     if max_n_frames:
@@ -310,7 +313,7 @@ def plot_timeseries_motion_mode(df, window=None, error=False, mode=None, max_n_f
                         color=colour, edgecolor=None, alpha=0.25)
     
     xmax = plot_df['timestamp'].max()
-    ax.set_xlim(0, xmax)
+    #ax.set_xlim(0, xmax)
 
     # add decorations
     if bluelight_frames is not None:
@@ -647,3 +650,22 @@ if __name__ == "__main__":
                                       error=True,
                                       max_n_frames=MAX_N_FRAMES,
                                       sns_colour_palette='Greens')
+        
+
+#%%        
+# # total number of worms recorded at each timestamp (across all videos)
+# total_timestamp_count = df.groupby(['timestamp'])['filename'].count()
+
+# # total number of worms in each motion mode at each timestamp
+# motion_mode_count = df.groupby(['timestamp','motion_name'])['filename'].count().reset_index()
+# motion_mode_count = motion_mode_count.rename(columns={'filename':'count'})
+    
+# frac_mode = pd.merge(motion_mode_count, total_timestamp_count, 
+#                      left_on='timestamp', right_on=total_timestamp_count.index, 
+#                      how='left')
+    
+# # divide by total filename count
+# frac_mode['fraction'] = frac_mode['count'] / frac_mode['filename']
+
+# # subset for motion mode
+# plot_df = frac_mode[frac_mode['motion_name']==mode][['timestamp','fraction']]

@@ -42,7 +42,7 @@ WINDOW_DICT_SECONDS = {0:(290,300), 1:(305,315), 2:(315,325),
                        9:(1190,1200), 10:(1205,1215), 11:(1215,1225), 
                        12:(1490,1500), 13:(1505.1515), 14:(1515,1525)}
 
-WINDOW_NUMBERS = [12,13,14] #sorted(WINDOW_DICT_SECONDS.keys())
+WINDOW_NUMBERS = [9,10,11]#[12,13,14] #sorted(WINDOW_DICT_SECONDS.keys())
 
 WINDOW_DICT_STIM_TYPE = {0:'prestim\n(5min)',1:'bluelight\n(5min)',2:'poststim\n(5min)',
                          3:'prestim\n(10min)',4:'bluelight\n(10min)',5:'poststim\n(10min)',

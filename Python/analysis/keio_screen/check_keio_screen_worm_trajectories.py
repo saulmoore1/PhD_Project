@@ -33,11 +33,15 @@ from tierpsytools.read_data.get_timeseries import get_timeseries
 
 #%% Globals
 
-PROJECT_DIR = "/Volumes/hermes$/KeioScreen_96WP"
-METADATA_PATH = "/Users/sm5911/Documents/Keio_Screen/metadata.csv"
-SAVE_DIR = "/Users/sm5911/Documents/Keio_Screen"
+# PROJECT_DIR = "/Volumes/hermes$/KeioScreen_96WP"
+# METADATA_PATH = "/Users/sm5911/Documents/Keio_Screen/metadata.csv"
+# SAVE_DIR = "/Users/sm5911/Documents/Keio_Screen"
 
-STRAIN_LIST = None #['wild_type', 'fepD']
+PROJECT_DIR = "/Volumes/hermes$/KeioScreen2_96WP"
+METADATA_PATH = "/Users/sm5911/Documents/Keio_Conf_Screen/metadata.csv"
+SAVE_DIR = "/Users/sm5911/Documents/Keio_Conf_Screen"
+
+STRAIN_LIST = ['wild_type', 'fepD', 'fes', 'fepB', 'fepG', 'sdhD', 'nuoC', 'entA', 'atpB', 'sdhA']
 STIM_TYPE = 'poststim'
 
 MAX_N_WORMS_TRACKED = 5 # maximum number of worms to calculate fraction of time tracked for

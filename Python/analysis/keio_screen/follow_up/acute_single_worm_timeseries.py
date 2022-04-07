@@ -19,10 +19,9 @@ import pandas as pd
 import seaborn as sns
 from pathlib import Path
 from matplotlib import pyplot as plt
-from tierpsytools.read_data.get_timeseries import read_timeseries
 from preprocessing.compile_hydra_data import compile_metadata
-from time_series.plot_timeseries import plot_timeseries_motion_mode
-#from analysis.keio_screen.follow_up import WINDOW_DICT_SECONDS, WINDOW_DICT_STIM_TYPE
+from time_series.time_series_helper import get_strain_timeseries
+from time_series.plot_timeseries import plot_timeseries_motion_mode, add_bluelight_to_plot
 
 #%% Globals
 
@@ -49,43 +48,132 @@ THRESHOLD_N_SECONDS = 10
 BLUELIGHT_TIMEPOINTS_MINUTES = [5,10,15,20,25]
 N_WELLS = 6
 
-#%% Functions
+#%% Function 
+
+def plot_timeseries_motion_mode_single_worm(df, window=None, mode=None, max_n_frames=None,
+                                            title=None, figsize=(12,6), ax=None, saveAs=None,
+                                            sns_colour_palette='pastel', colour=None, 
+                                            bluelight_frames=None,
+                                            cols = ['motion_mode','filename','well_name','timestamp'], 
+                                            alpha=0.5):
+    """ Plot motion mode timeseries from 'timeseries_data' for a given treatment (eg. strain) 
     
-def get_strain_timeseries(metadata, strain, project_dir, save_dir=None):
-    """ Load saved timeseries reults for strain, or compile from featuresN timeseries data """
+        Inputs
+        ------
+        df : pd.DataFrame
+            Compiled dataframe of 'timeseries_data' from all featuresN HDF5 files for a given 
+            treatment (eg. strain) 
+        window : int
+            Moving average window of n frames
+        error : bool
+            Add error to timeseries plots
+        mode : str
+            The motion mode you would like to plot (choose from: ['stationary','forwards','backwards'])
+        max_n_frames : int
+            Maximum number of frames in video (x axis limit)
+        title : str
+            Title of figure (optional, ax is returned so title and other plot params can be added later)
+        figsize : tuple
+            Size of figure to be passed to plt.subplots figsize param
+        ax : matplotlib AxesSubplot, None
+            Axis of figure subplot
+        saveAs : str
+            Path to save directory
+        sns_colour_palette : str
+            Name of seaborn colour palette
+        colour : str, None
+            Plot single colour for plot (if plotting a single strain or a single motion mode)
+        bluelight_frames : list
+            List of tuples for (start, end) frame numbers of each bluelight stimulus (optional)
+        cols : list
+            List of cols to group_by
+            
+        Returns
+        -------
+        fig : matplotlib Figure 
+            If ax is None, so the figure may be saved
+            
+        ax : matplotlib AxesSubplot
+            For iterative plotting   
+    """
+ 
+    # discrete data mapping
+    motion_modes = ['stationary','forwards','backwards']
+    motion_dict = dict(zip([0,1,-1], motion_modes))
+
+    if mode is not None:
+        if type(mode) == int or type(mode) == float:
+            mode = motion_dict[mode]     
+        else:
+            assert type(mode) == str 
+            mode = 'stationary' if mode == 'paused' else mode
+            assert mode in motion_modes
+    
+    assert all(c in df.columns for c in cols)
+
+    # drop NaN data
+    df = df.loc[~df['motion_mode'].isna(), cols]
      
-    strain_timeseries = None
-    
-    if save_dir is not None:
-        save_path = Path(save_dir) / '{0}_timeseries_max_delay={1}s.csv'.format(strain, 
-                                                                                THRESHOLD_N_SECONDS)
-        if save_path.exists():
-            strain_timeseries = pd.read_csv(save_path)
-
-    if strain_timeseries is None:        
-        strain_meta = metadata.groupby('bacteria_strain').get_group(strain)
-            
-        strain_timeseries_list = []
-        for i in strain_meta.index:
-            imgstore = strain_meta.loc[i, 'imgstore_name']
-            filename = Path(project_dir) / 'Results' / imgstore / 'metadata_featuresN.hdf5'
-            
-            df = read_timeseries(filename, names=['worm_index','timestamp','motion_mode'])
-            df['filename'] = filename
-            df['well_name'] = strain_meta.loc[i, 'well_name']
-    
-            strain_timeseries_list.append(df)
-                
-        # compile timeseries data for strain 
-        strain_timeseries = pd.concat(strain_timeseries_list, axis=0, ignore_index=True)
+    # map whether forwards, backwards or stationary motion in each frame
+    df['motion_name'] = df['motion_mode'].map(motion_dict)
+    assert not df['motion_name'].isna().any()
         
-        # save timeseries dataframe to file
-        if save_dir is not None:
-            save_dir.mkdir(exist_ok=True, parents=True)
-            strain_timeseries.to_csv(save_path, index=False)
-                 
-    return strain_timeseries
+    # total number of worms recorded at each timestamp (across all videos)
+    total_timestamp_count = df.groupby(['timestamp'])['filename'].count()
+    
+    # total number of worms in each motion mode at each timestamp
+    motion_mode_count = df.groupby(['timestamp','motion_name'])['filename'].count().reset_index()
+    motion_mode_count = motion_mode_count.rename(columns={'filename':'count'})
+        
+    frac_mode = pd.merge(motion_mode_count, total_timestamp_count, 
+                          left_on='timestamp', right_on=total_timestamp_count.index, 
+                          how='left')
+        
+    # divide by total filename count
+    frac_mode['fraction'] = frac_mode['count'] / frac_mode['filename']
+    
+    # subset for motion mode
+    plot_df = frac_mode[frac_mode['motion_name']==mode][['timestamp','fraction']]
+     
+    # crop timeseries data to standard video length (optional)
+    if max_n_frames:
+        plot_df = plot_df[plot_df['timestamp'] <= max_n_frames]
+    
+    # moving average (optional)
+    if window:
+        plot_df = plot_df.set_index('timestamp').rolling(window=window, 
+                                                         center=True).mean().reset_index()
 
+    if ax is None:
+        fig, ax = plt.subplots(figsize=(15,6))
+
+    # motion_ls_dict = dict(zip(motion_modes, ['-','--','-.']))                
+    sns.lineplot(data=plot_df, 
+                 x='timestamp', 
+                 y='fraction', 
+                 ax=ax, 
+                 ls='-', # motion_ls_dict[mode] if len(mode_list) > 1 else '-',
+                 hue=None, #'motion_name' if colour is None else None, 
+                 palette=None, #palette if colour is None else None,
+                 color=colour)
+
+    # add decorations
+    if bluelight_frames is not None:
+        ax = add_bluelight_to_plot(ax, bluelight_frames=bluelight_frames, alpha=alpha)
+
+    if title:
+        plt.title(title, pad=10)
+
+    if saveAs is not None:
+        Path(saveAs).parent.mkdir(parents=True, exist_ok=True)
+        plt.savefig(saveAs)
+    
+    if ax is None:
+        return fig, ax
+    else:
+        return ax
+    
+    
 #%% Main
 
 if __name__ == '__main__':
@@ -156,31 +244,29 @@ if __name__ == '__main__':
 
     # both strains together, for each motion mode
     for mode in ['forwards','backwards','stationary']:
-        
+
         plt.close('all')
         fig, ax = plt.subplots(figsize=(15,5))
 
         for s, strain in enumerate(strain_list):
             print("Plotting motion mode %s timeseries for %s..." % (mode, strain))
 
-            strain_timeseries = get_strain_timeseries(metadata, 
-                                                      strain, 
+            strain_timeseries = get_strain_timeseries(metadata,
                                                       project_dir=PROJECT_DIR, 
+                                                      strain=strain,
+                                                      group_by='bacteria_strain',
                                                       save_dir=save_dir / 'data')
             
-            ax = plot_timeseries_motion_mode(df=strain_timeseries,
-                                             window=SMOOTH_WINDOW_SECONDS*FPS,
-                                             error=False,
-                                             mode=mode,
-                                             max_n_frames=VIDEO_LENGTH_SECONDS*FPS,
-                                             title=None,
-                                             #figsize=(15,5), 
-                                             saveAs=None, #saveAs=save_path,
-                                             ax=ax, #ax=None,
-                                             bluelight_frames=bluelight_frames,
-                                             cols=['filename','timestamp','well_name','motion_mode'],
-                                             colour=colours[s],
-                                             alpha=0.75)
+            ax = plot_timeseries_motion_mode_single_worm(df=strain_timeseries,
+                                                         window=SMOOTH_WINDOW_SECONDS*FPS,
+                                                         mode=mode,
+                                                         max_n_frames=VIDEO_LENGTH_SECONDS*FPS,
+                                                         title=None,
+                                                         saveAs=None,
+                                                         ax=ax,
+                                                         bluelight_frames=bluelight_frames,
+                                                         colour=colours[s],
+                                                         alpha=0.75)
             
         ax.axvspan(mean_delay_seconds*FPS-FPS, mean_delay_seconds*FPS+FPS, facecolor='k', alpha=1)
         ax.axvspan(THRESHOLD_N_SECONDS*FPS-FPS, THRESHOLD_N_SECONDS*FPS+FPS, facecolor='r', alpha=1)

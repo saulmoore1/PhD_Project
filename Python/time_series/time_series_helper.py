@@ -8,12 +8,59 @@ Time-series Analysis
 
 """
 
-#%% Imports
-
-import numpy as np
-from matplotlib import pyplot as plt
-
 #%% Functions
+
+def get_strain_timeseries(metadata, 
+                          project_dir, 
+                          strain='BW', 
+                          group_by='bacteria_strain', 
+                          save_dir=None,
+                          only_wells=None,
+                          max_n_videos_per_strain=None):
+    """ Load saved timeseries reults for strain, or compile from featuresN timeseries data """
+
+    import pandas as pd
+    from tqdm import tqdm
+    from pathlib import Path 
+    from tierpsytools.read_data.get_timeseries import read_timeseries
+
+    strain_timeseries = None
+    
+    if save_dir is not None:
+        save_path = Path(save_dir) / '{0}_timeseries.csv'.format(strain)
+        if save_path.exists():
+            print("Loading timeseries data for %s.." % strain)
+            strain_timeseries = pd.read_csv(save_path)
+
+    if strain_timeseries is None:        
+        strain_meta = metadata.groupby(group_by).get_group(strain)
+        
+        if not max_n_videos_per_strain:
+            max_n_videos_per_strain = strain_meta.shape[0]
+            
+        strain_timeseries_list = []
+        for i in tqdm(strain_meta.index[:max_n_videos_per_strain]):
+            imgstore = strain_meta.loc[i, 'imgstore_name']
+            filename = Path(project_dir) / 'Results' / imgstore / 'metadata_featuresN.hdf5'
+            
+            df = read_timeseries(filename, 
+                                 names=['worm_index','timestamp','motion_mode'],
+                                 only_wells=only_wells)
+            df['filename'] = filename
+            df['well_name'] = strain_meta.loc[i, 'well_name']
+    
+            strain_timeseries_list.append(df)
+                
+        # compile timeseries data for strain 
+        strain_timeseries = pd.concat(strain_timeseries_list, axis=0, ignore_index=True)
+        
+        # save timeseries dataframe to file
+        if save_dir is not None:
+            print("Saving timeseries data for %s" % strain)
+            save_dir.mkdir(exist_ok=True, parents=True)
+            strain_timeseries.to_csv(save_path, index=False)
+                 
+    return strain_timeseries
 
 def plot_timeseries_phenix(df, colour_dict, window=1000, acclimtime=0, annotate=True,\
                            legend=True, ax=None, count=False, show=True, **kwargs):
@@ -27,6 +74,8 @@ def plot_timeseries_phenix(df, colour_dict, window=1000, acclimtime=0, annotate=
         - count (default = False) Return counts (number of worms), not mean proportion of worms
     """
     
+    import numpy as np
+    from matplotlib import pyplot as plt
     from matplotlib import patches as mpatches
 
     # List of food labels + dictionary keys for plot colours
