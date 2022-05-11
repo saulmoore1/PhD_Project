@@ -74,9 +74,9 @@ def compile_day_metadata(aux_dir,
     from_source_plate = True if from_robot_runlog else from_source_plate
     
     if from_source_plate:
+        print("Compiling from source plate metadata...")
         source_plate_meta = day_dir / 'source_plates.csv'
-    
-        plate_mapping_meta = day_dir / 'source2plate.csv'
+        plate_mapping_meta = day_dir / 'source2imaging.csv'
 
         source_metadata = get_source_metadata(sourceplates_file=source_plate_meta,
                                               imaging2source_file=plate_mapping_meta)
@@ -148,14 +148,11 @@ def compile_metadata(aux_dir,
             Compiled project metadata
     """
     
-    import re
     from tierpsytools.hydra.hydra_helper import add_imgstore_name
     from tierpsytools.hydra.match_wells_annotations import update_metadata_with_wells_annotations
 
     metadata_path = Path(aux_dir) / 'metadata.csv'
-    
-    Path(aux_dir).rglob('\d{8}')
-       
+           
     if metadata_path.exists():
         metadata = pd.read_csv(metadata_path, dtype={"comments":str, "source_plate_id":str}, header=0)
         print("Metadata loaded.")
@@ -166,8 +163,8 @@ def compile_metadata(aux_dir,
     else:
         print("Metadata not found.\nCompiling from day metadata in: %s" % aux_dir)
         
-        aux_list = [p.name for p in Path(aux_dir).glob('*')]
-        dates_found = sorted([date for date in aux_list if re.match(r'\d{8}', date)])
+        dates_list = [p.name for p in Path(aux_dir).glob('*')]
+        dates_found = sorted([date for date in dates_list if re.match(r'\d{8}', date)])
         if imaging_dates:
             assert all(i in dates_found for i in imaging_dates)
         else:

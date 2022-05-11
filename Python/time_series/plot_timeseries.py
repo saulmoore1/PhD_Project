@@ -230,30 +230,13 @@ def plot_timeseries_motion_mode(df, window=None, error=False, mode=None, max_n_f
     
     assert all(c in df.columns for c in cols)
 
-    # drop NaN data
+    # # drop NaN data
     df = df.loc[~df['motion_mode'].isna(), cols]
      
     # map whether forwards, backwards or stationary motion in each frame
     df['motion_name'] = df['motion_mode'].map(motion_dict)
     assert not df['motion_name'].isna().any()
-        
-    # # total number of worms recorded at each timestamp (across all videos)
-    # total_timestamp_count = df.groupby(['timestamp'])['filename'].count()
-    
-    # # total number of worms in each motion mode at each timestamp
-    # motion_mode_count = df.groupby(['timestamp','motion_name'])['filename'].count().reset_index()
-    # motion_mode_count = motion_mode_count.rename(columns={'filename':'count'})
-        
-    # frac_mode = pd.merge(motion_mode_count, total_timestamp_count, 
-    #                       left_on='timestamp', right_on=total_timestamp_count.index, 
-    #                       how='left')
-        
-    # # divide by total filename count
-    # frac_mode['fraction'] = frac_mode['count'] / frac_mode['filename']
-    
-    # # subset for motion mode
-    # plot_df = frac_mode[frac_mode['motion_name']==mode][['timestamp','fraction']]
-     
+             
     # total number of worms in each motion mode in each timestamp of each video
     video_mode_count = df.groupby(['filename','timestamp','motion_name'])['well_name'].count().reset_index()
     video_mode_count = video_mode_count.rename(columns={'well_name':'mode_count'})
@@ -278,13 +261,12 @@ def plot_timeseries_motion_mode(df, window=None, error=False, mode=None, max_n_f
         conf_ints = grouped_timestamp_mode.apply(_bootstrapped_ci, 
                                                  function=np.mean, 
                                                  n_boot=10)#TODO:100
-                    
+         
         conf_ints = pd.concat([pd.Series([x[0] for x in conf_ints], index=conf_ints.index), 
                                pd.Series([x[1] for x in conf_ints], index=conf_ints.index)], axis=1)
-        conf_ints = conf_ints.rename(columns={0:'lower',1:'upper'})
+        conf_ints = conf_ints.rename(columns={0:'lower',1:'upper'}).reset_index()
          
-        plot_df = pd.merge(plot_df, conf_ints, 
-                           left_on='timestamp', right_on=conf_ints.index, how='outer')
+        plot_df = pd.merge(plot_df, conf_ints, on='timestamp')
         #plot_df = plot_df.dropna(axis=0, how='any')
 
     # crop timeseries data to standard video length (optional)
@@ -309,12 +291,9 @@ def plot_timeseries_motion_mode(df, window=None, error=False, mode=None, max_n_f
                  palette=None, #palette if colour is None else None,
                  color=colour)
     if error:
-        ax.fill_between(plot_df.index, plot_df['lower'], plot_df['upper'], 
+        ax.fill_between(plot_df['timestamp'], plot_df['lower'], plot_df['upper'], 
                         color=colour, edgecolor=None, alpha=0.25)
     
-    xmax = plot_df['timestamp'].max()
-    #ax.set_xlim(0, xmax)
-
     # add decorations
     if bluelight_frames is not None:
         ax = add_bluelight_to_plot(ax, bluelight_frames=bluelight_frames, alpha=alpha)

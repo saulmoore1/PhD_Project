@@ -16,7 +16,7 @@ def get_strain_timeseries(metadata,
                           group_by='bacteria_strain', 
                           save_dir=None,
                           only_wells=None,
-                          max_n_videos_per_strain=None):
+                          verbose=True):
     """ Load saved timeseries reults for strain, or compile from featuresN timeseries data """
 
     import pandas as pd
@@ -29,25 +29,29 @@ def get_strain_timeseries(metadata,
     if save_dir is not None:
         save_path = Path(save_dir) / '{0}_timeseries.csv'.format(strain)
         if save_path.exists():
-            print("Loading timeseries data for %s.." % strain)
+            if verbose:
+                print("Loading timeseries data for %s.." % strain)
             strain_timeseries = pd.read_csv(save_path)
 
     if strain_timeseries is None:        
         strain_meta = metadata.groupby(group_by).get_group(strain)
-        
-        if not max_n_videos_per_strain:
-            max_n_videos_per_strain = strain_meta.shape[0]
-            
+                    
+        # make dict of video imgstore names and wells we need to extract for strain data
+        video_list = sorted(strain_meta['imgstore_name'].unique())
+        grouped_video = strain_meta.groupby('imgstore_name')
+        video_dict = {vid : sorted(grouped_video.get_group(vid)['well_name'].unique()) 
+                      for vid in video_list}     
+          
         strain_timeseries_list = []
-        for i in tqdm(strain_meta.index[:max_n_videos_per_strain]):
-            imgstore = strain_meta.loc[i, 'imgstore_name']
-            filename = Path(project_dir) / 'Results' / imgstore / 'metadata_featuresN.hdf5'
+        for imgstore, wells in tqdm(video_dict.items()):
             
+            filename = Path(project_dir) / 'Results' / imgstore / 'metadata_featuresN.hdf5'
             df = read_timeseries(filename, 
-                                 names=['worm_index','timestamp','motion_mode'],
+                                 names=['worm_index','timestamp','motion_mode','well_name'],
                                  only_wells=only_wells)
             df['filename'] = filename
-            df['well_name'] = strain_meta.loc[i, 'well_name']
+            if len(wells) == 1:
+                df['well_name'] = wells[0]
     
             strain_timeseries_list.append(df)
                 
@@ -56,7 +60,8 @@ def get_strain_timeseries(metadata,
         
         # save timeseries dataframe to file
         if save_dir is not None:
-            print("Saving timeseries data for %s" % strain)
+            if verbose:
+                print("Saving timeseries data for %s" % strain)
             save_dir.mkdir(exist_ok=True, parents=True)
             strain_timeseries.to_csv(save_path, index=False)
                  

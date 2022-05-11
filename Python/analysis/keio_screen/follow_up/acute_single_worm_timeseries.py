@@ -257,6 +257,7 @@ if __name__ == '__main__':
                                                       group_by='bacteria_strain',
                                                       save_dir=save_dir / 'data')
             
+            # TODO: Fix plot for single worm timeseries fraction
             ax = plot_timeseries_motion_mode_single_worm(df=strain_timeseries,
                                                          window=SMOOTH_WINDOW_SECONDS*FPS,
                                                          mode=mode,

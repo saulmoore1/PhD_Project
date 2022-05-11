@@ -39,7 +39,6 @@ NAN_THRESHOLD_COL = 0.05
 MIN_NSKEL_PER_VIDEO = None
 MIN_NSKEL_SUM = 500
 PVAL_THRESH = 0.05
-
 FPS = 25
 VIDEO_LENGTH_SECONDS = 38*60
 BLUELIGHT_TIMEPOINTS_MINUTES = [30,31,32]
@@ -397,11 +396,10 @@ if __name__ == '__main__':
     # timeseries: motion mode paused fraction over time
     for worm in worm_strain_list:
         
-        print("\nPlotting timeseries for %s.." % worm)   
-
         # both bacteria together, for each worm/motion mode
         for mode in ['forwards','backwards','stationary']:
-            
+            print("Plotting timeseries '%s' fraction for %s..." % (mode, worm)) 
+
             plt.close('all')
             fig, ax = plt.subplots(figsize=(15,5))
 
@@ -411,7 +409,7 @@ if __name__ == '__main__':
             for b, bacteria in enumerate(bacteria_strain_list):
                 
                 strain_metadata = metadata[np.logical_and(metadata['worm_strain']==worm,
-                                                      metadata['bacteria_strain']==bacteria)]
+                                                          metadata['bacteria_strain']==bacteria)]
             
                 # get timeseries data for worm strain
                 strain_timeseries = get_strain_timeseries(strain_metadata, 
@@ -420,7 +418,7 @@ if __name__ == '__main__':
                                                           group_by='bacteria_strain',
                                                           only_wells=None,
                                                           save_dir=Path(SAVE_DIR) / 'Data' / worm,
-                                                          max_n_videos_per_strain=50)
+                                                          verbose=False)
     
                 ax = plot_timeseries_motion_mode(df=strain_timeseries,
                                                  window=SMOOTH_WINDOW_SECONDS*FPS,
@@ -432,9 +430,8 @@ if __name__ == '__main__':
                                                  saveAs=None, #saveAs=save_path,
                                                  ax=ax, #ax=None,
                                                  bluelight_frames=bluelight_frames,
-                                                 cols=['filename','timestamp','well_name','motion_mode'],
                                                  colour=colours[b],
-                                                 alpha=0.75)
+                                                 alpha=0.25)
             
             xticks = np.linspace(0, VIDEO_LENGTH_SECONDS*FPS, int(VIDEO_LENGTH_SECONDS/60)+1)
             ax.set_xticks(xticks)
@@ -442,18 +439,17 @@ if __name__ == '__main__':
             ax.set_xlabel('Time (minutes)', fontsize=15, labelpad=10)
             ax.set_ylabel('Fraction {}'.format(mode), fontsize=15, labelpad=10)
             ax.legend(bacteria_strain_list, fontsize=12, frameon=False, loc='best')
-            ax.set_title("motion mode fraction '%s' (total n=%d worms)" % (mode, metadata.shape[0]),
-                         fontsize=15, pad=10)
+            ax.set_title('motion mode fraction {}'.format(mode), fontsize=15, pad=10)
 
             if BLUELIGHT_WINDOWS_ONLY_TS:
                 ts_plot_dir = plot_dir / 'timeseries_bluelight' / worm
                 ax.set_xlim([min(BLUELIGHT_TIMEPOINTS_MINUTES)*60*FPS-60*FPS, 
-                             max(BLUELIGHT_TIMEPOINTS_MINUTES)*60*FPS+1.5*60*FPS])
+                             max(BLUELIGHT_TIMEPOINTS_MINUTES)*60*FPS+70*FPS])
             else:
                 ts_plot_dir = plot_dir / 'timeseries' / worm
     
             # save plot
-            ts_plot_dir.mkdir(exist_ok=True)
+            ts_plot_dir.mkdir(exist_ok=True, parents=True)
             plt.savefig(ts_plot_dir / '{0}_{1}.png'.format(worm, mode), dpi=300)  
             plt.close()
     

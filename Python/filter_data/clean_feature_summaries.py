@@ -135,6 +135,10 @@ def clean_summary_results(features,
         print("Dropped %d features that are derived from path curvature"\
               % len(path_curvature_feats))
     
+    # TODO: plot n skeletons before filtering
+    # metadata = metadata.sort_values('n_skeletons', ascending=True)
+    # sns.barplot(x=np.arange(metadata.shape[0]), y='n_skeletons', data=metadata)
+    
     # Drop rows from feature summaries where any videos has less than min_nskel_per_video
     if min_nskel_per_video is not None:
         features, metadata = filter_n_skeletons(features, metadata, 
