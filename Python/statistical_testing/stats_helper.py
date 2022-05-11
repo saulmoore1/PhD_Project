@@ -566,13 +566,152 @@ def anova_by_feature(feat_df,
     
 #     return pvals_corrected
 
+def do_stats(metadata, 
+             features, 
+             group_by,
+             control,
+             save_dir,
+             feat='motion_mode_forward_fraction', 
+             pvalue_threshold=0.05, 
+             fdr_method='fdr_by',
+             ttest_if_nonsig=False):
+    
+    """ ANOVA / t-tests comparing a single feature of worm behaviour across treatments vs control 
+        
+        Parameters
+        ----------
+        metadata : pandas.DataFrame
+        
+        features : pandas.DataFrame
+            Dataframe of compiled window summaries
+            
+        group_by : str
+            Column name of variable containing control and other groups to compare, eg. 'gene_name'
+            
+        control : str
+            Name of control group in 'group_by' column in metadata
+            
+        save_dir : str
+            Path to directory to save results files
+            
+        feat : str
+            Feature (or list of features) to test
+        
+        pvalue_threshold : float
+            P-value significance threshold
+            
+        fdr_method : str
+            Multiple testing correction method to use
+    """
+    
+    import pandas as pd
+    from pathlib import Path
+    from tierpsytools.analysis.statistical_tests import univariate_tests, get_effect_sizes    
+    from statistical_testing.perform_keio_stats import df_summary_stats
+    from visualisation.plotting_helper import sig_asterix
+    from write_data.write import write_list_to_file
+
+    # categorical variables to investigate: 'gene_name' and 'window'
+    print("\nInvestigating variation in fraction of worms paused with respect to '%s'" % group_by)    
+
+    groups = metadata[group_by].unique()
+    test_groups = list([s for s in groups if s != control])    
+    
+    # check there will be no errors due to case-sensitivity
+    assert len(groups) == len(metadata[group_by].str.upper().unique())
+    
+    # print mean sample size
+    sample_size = df_summary_stats(metadata, columns=[group_by, 'window'])
+    print("Mean sample size of %s/window: %d" % (group_by, int(sample_size['n_samples'].mean())))
+
+
+    ### perform ANOVA - is there variation in worm motion mode among solvents used?
+        
+    fset = []
+    if len(groups) > 2:        
+        anova_path = Path(save_dir) / '{}_ANOVA_results.csv'.format(group_by)
+        anova_path.parent.mkdir(parents=True, exist_ok=True)
+
+        stats, pvals, reject = univariate_tests(X=features[feat], 
+                                                y=metadata[group_by], 
+                                                control=control, 
+                                                test='ANOVA',
+                                                comparison_type='multiclass',
+                                                multitest_correction=fdr_method,
+                                                alpha=pvalue_threshold,
+                                                n_permutation_test=None)
+
+        # get effect sizes
+        effect_sizes = get_effect_sizes(X=features[feat], 
+                                        y=metadata[group_by],
+                                        control=control,
+                                        effect_type=None,
+                                        linked_test='ANOVA')
+
+        # compile + save results
+        test_results = pd.concat([stats, effect_sizes, pvals, reject], axis=1)
+        test_results.columns = ['stats','effect_size','pvals','reject']     
+        test_results['significance'] = sig_asterix(test_results['pvals'])
+        test_results = test_results.sort_values(by=['pvals'], ascending=True) # rank by p-value
+        test_results.to_csv(anova_path, header=True, index=True)
+
+        # use reject mask to find significant feature set
+        fset = pvals.loc[reject['ANOVA']].sort_values(by='ANOVA', ascending=True).index.to_list()
+
+        if len(fset) > 0:
+            print("%d significant features found by ANOVA for '%s' (P<%.2f, %s)" %\
+                  (len(fset), group_by, pvalue_threshold, fdr_method))
+            anova_sigfeats_path = anova_path.parent / 'ANOVA_sigfeats.txt'
+            write_list_to_file(fset, anova_sigfeats_path)
+
+
+    ### perform t-tests - compare each group to control            
+                    
+    if len(groups) == 2 or len(fset) > 0 or ttest_if_nonsig:
+        
+        ttest_strain_path = Path(save_dir) / '{}_ttest_results.csv'.format(group_by)
+        ttest_strain_path.parent.mkdir(parents=True, exist_ok=True)
+
+        stats, pvals, reject = univariate_tests(X=features[feat], 
+                                                y=metadata[group_by], 
+                                                control=control, 
+                                                test='t-test',
+                                                comparison_type='binary_each_group',
+                                                multitest_correction=fdr_method,
+                                                alpha=pvalue_threshold,
+                                                n_permutation_test=None)
+
+        # get effect sizes
+        effect_sizes = get_effect_sizes(X=features[feat], 
+                                        y=metadata[group_by],
+                                        control=control,
+                                        effect_type=None,
+                                        linked_test='t-test')
+     
+        # compile table of results
+        stats.columns = ['stats_' + str(c) for c in stats.columns]
+        pvals.columns = ['pvals_' + str(c) for c in pvals.columns]
+        reject.columns = ['reject_' + str(c) for c in reject.columns]
+        effect_sizes.columns = ['effect_size_' + str(c) for c in effect_sizes.columns]
+        test_results = pd.concat([stats, effect_sizes, pvals, reject], axis=1)
+        
+        # save results
+        test_results.to_csv(ttest_strain_path, header=True, index=True)
+        
+        for group in test_groups:
+            print("%s difference in '%s' between %s vs %s (t-test, P=%.3f, %s)" %\
+                  (("SIGNIFICANT" if reject.loc[feat, 'reject_{}'.format(group)] else "No"), 
+                  feat, group, control, pvals.loc[feat, 'pvals_{}'.format(group)], fdr_method))
+        
+    return
+
 def single_feature_window_stats(metadata, 
                                 features, 
                                 group_by,
                                 control,
                                 save_dir,
                                 windows=None,
-                                feat='motion_mode_paused_fraction', 
+                                feat='motion_mode_forward_fraction', 
                                 pvalue_threshold=0.05, 
                                 fdr_method='fdr_by'):
     
