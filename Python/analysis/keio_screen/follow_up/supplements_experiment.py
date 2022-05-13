@@ -273,7 +273,7 @@ def supplements_plots(metadata,
         p_text = '***\nP < 0.001' if p < 0.001 else sig_asterix([p])[0] + '\nP = %.3f' % p
         trans = transforms.blended_transform_factory(ax.transData, ax.transAxes)
         ax.text(i, 1.01, p_text, fontsize=9, ha='center', va='bottom', transform=trans)
-    ax.set_xticklabels([s.get_text().replace('-','\n') for s in ax.get_xticklabels()])#rotation=45,ha='right'
+    ax.set_xticklabels([s.get_text().replace('-','\n') for s in ax.get_xticklabels()]) #rotation=45
     # save figure
     save_path = Path(plot_dir) / 'iron.png'
     save_path.parent.mkdir(parents=True, exist_ok=True)

@@ -41,13 +41,15 @@ PROJECT_DIR = "/Volumes/hermes$/KeioScreen2_96WP"
 METADATA_PATH = "/Users/sm5911/Documents/Keio_Conf_Screen/metadata.csv"
 SAVE_DIR = "/Users/sm5911/Documents/Keio_Conf_Screen"
 
-STRAIN_LIST = ['wild_type', 'fepD', 'fes', 'fepB', 'fepG', 'sdhD', 'nuoC', 'entA', 'atpB', 'sdhA']
+STRAIN_LIST = None #['wild_type', 'fepD', 'fes', 'fepB', 'fepG', 'sdhD', 'nuoC', 'entA', 'atpB', 'sdhA']
 STIM_TYPE = 'poststim'
 
 MAX_N_WORMS_TRACKED = 5 # maximum number of worms to calculate fraction of time tracked for
 MAX_N_VIDEOS = 10 # cap at first 10 videos (for speed, especially for control data)
 FPS = 25 # video frame rate (frames per second)
 SMOOTHING = 100 # None; window size for moving average to smooth n worms timeseries scatterplot
+
+FRAC_TIME_THRESH = 0.5 # threshold fraction of time n worms tracked for (for finding aversive strains)
 
 #%% Functions
 
@@ -99,7 +101,7 @@ if __name__ == "__main__":
         args.strain_list = list(sorted(metadata['gene_name'].unique()))
     
     grouped = metadata.groupby('gene_name')
-    
+        
     # group by each strain in turn: compile metadata and timeseries for strain, then plot 
     # trajectory length, number and fraction of worms tracked
     for strain in tqdm(args.strain_list):
@@ -253,19 +255,89 @@ if __name__ == "__main__":
 
     frac_n_worms_tracked = compile_n_worms_frac(dirpath=Path(args.save_dir) / 'worm_tracking_checks', 
                                                 strain_list=args.strain_list,
-                                                mode=STIM_TYPE)
+                                                mode=STIM_TYPE).reset_index(drop=True)
     
     # strains with highest ranked fraction of time with n worms tracked - aversive foods
-    for n in [0,3]:
     
-        # filter strains for n worms tracked
-        frac_n_worms = frac_n_worms_tracked[frac_n_worms_tracked['n_worms']==n]
-        frac_n_worms = frac_n_worms.sort_values(by='time_fraction', ascending=False)
+    ### AVERSIVE STRAINS - 0 worms tracked
 
-        # save sorted list for n worms
-        save_path = Path(args.save_dir) / 'worm_tracking_checks' /\
-            'fraction_{0}_worms_tracked_{1}.csv'.format(n, STIM_TYPE)
-        frac_n_worms.to_csv(save_path, header=True, index=False)
+    print("\nPlotting aversive strains (0 worms)...")
+
+    # filter strains for n worms tracked
+    frac_n_worms = frac_n_worms_tracked.query("n_worms==0")
+    frac_n_worms = frac_n_worms.sort_values(by='time_fraction', ascending=False)
+
+    # save sorted list for n worms
+    save_path = Path(args.save_dir) / 'worm_tracking_checks' /\
+        'fraction_0_worms_tracked_{}.csv'.format(STIM_TYPE)
+    frac_n_worms.to_csv(save_path, header=True, index=False)
+    
+    # plot strains ranked by fraction of time 0 worms were tracked for
+    plt.close('all')
+    fig, ax = plt.subplots(figsize=(80,4), dpi=100)
+    sns.lineplot(x='gene_name', y='time_fraction', data=frac_n_worms, ax=ax)
+    plt.setp(ax.get_xticklabels(), ha="center", rotation=90, fontsize=1)
+    plt.yticks(np.arange(0, 1.1, 0.1))
+    ax.set_ylim(min(frac_n_worms['time_fraction'])-0.1, max(frac_n_worms['time_fraction']+0.1))
+    ax.set_xlabel('')
+    plt.tight_layout()
+    plt.savefig(Path(args.save_dir) / 'worm_tracking_checks' /\
+                'ranked fraction 0 worms tracked {}.pdf'.format(STIM_TYPE))
+
+    # plot top100 most aversive strains (close-up view)
+    top_frac = frac_n_worms[:100]
+    
+    plt.close('all')
+    fig, ax = plt.subplots(figsize=(30,3), dpi=100)
+    sns.lineplot(x='gene_name', y='time_fraction', data=top_frac, ax=ax)       
+    plt.setp(ax.get_xticklabels(), ha="center", rotation=90, fontsize=8)
+    plt.yticks(np.arange(0, 1.1, 0.1))
+    ax.set_ylim(min(top_frac['time_fraction'])-0.1, max(top_frac['time_fraction']+0.1))
+    ax.set_xlabel('')
+    plt.tight_layout()
+    plt.savefig(Path(args.save_dir) / 'worm_tracking_checks' /\
+                'aversive strains {} (0 worms tracked top100 strains).pdf'.format(STIM_TYPE))
+    
+
+    ### AVERSIVE STRAINS - 3 worms tracked
+
+    print("\nPlotting aversive strains (3 worms)...")
+
+    # filter strains for n worms tracked
+    frac_n_worms = frac_n_worms_tracked.query("n_worms==3")
+    frac_n_worms = frac_n_worms.sort_values(by='time_fraction', ascending=True)
+
+    # save sorted list for n worms
+    save_path = Path(args.save_dir) / 'worm_tracking_checks' /\
+        'fraction_3_worms_tracked_{}.csv'.format(STIM_TYPE)
+    frac_n_worms.to_csv(save_path, header=True, index=False)
+    
+    # plot strains ranked by fraction of time 3 worms were NOT tracked for
+    plt.close('all')
+    fig, ax = plt.subplots(figsize=(80,4), dpi=100)
+    sns.lineplot(x='gene_name', y='time_fraction', data=frac_n_worms, ax=ax)
+    plt.setp(ax.get_xticklabels(), ha="center", rotation=90, fontsize=1)
+    plt.yticks(np.arange(0, 1.1, 0.1))
+    ax.set_ylim(min(frac_n_worms['time_fraction'])-0.1, max(frac_n_worms['time_fraction']+0.1))
+    ax.set_xlabel('')
+    plt.tight_layout()
+    plt.savefig(Path(args.save_dir) / 'worm_tracking_checks' /\
+                'ranked fraction 3 worms tracked {}.pdf'.format(STIM_TYPE))
+
+    # plot top100 most aversive strains (close-up view)
+    top_frac = frac_n_worms[frac_n_worms['time_fraction'] < 0.1]
+    
+    plt.close('all')
+    fig, ax = plt.subplots(figsize=(30,3), dpi=100)
+    sns.lineplot(x='gene_name', y='time_fraction', data=top_frac, ax=ax)       
+    plt.setp(ax.get_xticklabels(), ha="center", rotation=90, fontsize=1)
+    plt.yticks(np.arange(0, 1.1, 0.1))
+    ax.set_ylim(min(top_frac['time_fraction'])-0.1, max(top_frac['time_fraction']+0.1))
+    ax.set_xlabel('')
+    plt.tight_layout()
+    plt.savefig(Path(args.save_dir) / 'worm_tracking_checks' /\
+                'aversive strains {} (3 worms tracked <10% of the time).pdf'.format(STIM_TYPE))
+
 
     # TODO: check to see if the 5 avoidance genes show up in keio tracking data for zero worms tracked
     

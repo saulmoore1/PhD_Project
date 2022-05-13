@@ -12,6 +12,7 @@ Keio ubiC vs BW
 
 import pandas as pd
 import seaborn as sns
+from tqdm import tqdm
 from pathlib import Path
 from matplotlib import transforms
 from matplotlib import pyplot as plt
@@ -35,6 +36,9 @@ MIN_NSKEL_PER_VIDEO = None
 MIN_NSKEL_SUM = 500
 
 FEATURE = 'motion_mode_forward_fraction'
+FEATURE_LIST = ['motion_mode_forward_fraction',
+                'motion_mode_paused_fraction',
+                'motion_mode_backward_fraction']
 
 WINDOW_DICT_SECONDS = {0:(1790,1800), 1:(1805,1815), 2:(1815,1825),
                        3:(1850,1860), 4:(1865,1875), 5:(1875,1885),
@@ -54,7 +58,7 @@ def ubiC_stats(metadata,
                features,                       
                save_dir,
                window=WINDOW_NUMBER,
-               feature=FEATURE,
+               feature_list=[FEATURE],
                pvalue_threshold=0.05,
                fdr_method='fdr_by'):
     """ T-tests comparing worm motion mode on ubiC and fepD vs BW control """
@@ -68,7 +72,7 @@ def ubiC_stats(metadata,
              group_by='food_type',
              control='BW',
              save_dir=save_dir / 'ubiC_vs_BW',
-             feat=feature,
+             feat=feature_list,
              pvalue_threshold=pvalue_threshold,
              fdr_method=fdr_method,
              ttest_if_nonsig=True)
@@ -80,7 +84,7 @@ def ubiC_plots(metadata,
                plot_dir,
                stats_dir,
                window=WINDOW_NUMBER,
-               feature=FEATURE):
+               feature_list=[FEATURE]):
     """ Plots of worm motion mode on ubiC and fepD vs BW control """
     
     assert metadata.shape[0] == features.shape[0]
@@ -88,31 +92,31 @@ def ubiC_plots(metadata,
     window_meta = metadata.query("window==@window")
     plot_df = window_meta.join(features.reindex(window_meta.index))
 
-    plt.close('all')
-    fig, ax = plt.subplots(figsize=(12,8))
-    sns.boxplot(x='food_type', y=feature, order=food_type_list, ax=ax, data=plot_df,
-                palette='tab10', showfliers=False) 
-                #hue='is_dead', hue_order=is_dead_list, dodge=True
-    sns.stripplot(x='food_type', y=feature, order=food_type_list, ax=ax, data=plot_df,
-                  s=5, marker='D', color='k')
-    ax.set_xlabel('')
-    ax.set_ylabel(feature.replace('_',' '), fontsize=12, labelpad=10)
-    ax.set_title('BW control vs fepD and ubiC', pad=30, fontsize=18)
-    # annotate p-values - load t-test results for each treatment vs BW control
-    ttest_path = stats_dir / 'ubiC_vs_BW' / 'food_type_ttest_results.csv'
-    ttest_df = pd.read_csv(ttest_path, index_col=0)
-    for i, food in enumerate(food_type_list):
-        if food == 'BW':
-            continue
-        assert ax.get_xticklabels()[i].get_text() == food
-        p = ttest_df.loc[feature, 'pvals_' + food]
-        p_text = '***\nP < 0.001' if p < 0.001 else sig_asterix([p])[0] + '\nP = %.3f' % p
-        trans = transforms.blended_transform_factory(ax.transData, ax.transAxes)
-        ax.text(i, 1.01, p_text, fontsize=9, ha='center', va='bottom', transform=trans)
-    save_path = Path(plot_dir) / 'ubiC_vs_BW.png'
-    save_path.parent.mkdir(parents=True, exist_ok=True)
-    plt.savefig(save_path, dpi=300)
-
+    for feature in tqdm(feature_list):
+        plt.close('all')
+        fig, ax = plt.subplots(figsize=(12,8))
+        sns.boxplot(x='food_type', y=feature, order=food_type_list, ax=ax, data=plot_df,
+                    palette='tab10', showfliers=False) 
+                    #hue='is_dead', hue_order=is_dead_list, dodge=True
+        sns.stripplot(x='food_type', y=feature, order=food_type_list, ax=ax, data=plot_df,
+                      s=5, marker='D', color='k')
+        ax.set_xlabel('')
+        ax.set_ylabel(feature.replace('_',' '), fontsize=12, labelpad=10)
+        ax.set_title('BW control vs fepD and ubiC', pad=30, fontsize=18)
+        # annotate p-values - load t-test results for each treatment vs BW control
+        ttest_path = stats_dir / 'ubiC_vs_BW' / 'food_type_ttest_results.csv'
+        ttest_df = pd.read_csv(ttest_path, index_col=0)
+        for i, food in enumerate(food_type_list):
+            if food == 'BW':
+                continue
+            assert ax.get_xticklabels()[i].get_text() == food
+            p = ttest_df.loc[feature, 'pvals_' + food]
+            p_text = '***\nP < 0.001' if p < 0.001 else sig_asterix([p])[0] + '\nP = %.3f' % p
+            trans = transforms.blended_transform_factory(ax.transData, ax.transAxes)
+            ax.text(i, 1.01, p_text, fontsize=9, ha='center', va='bottom', transform=trans)
+        save_path = Path(plot_dir) / 'ubiC_vs_BW' / '{}.png'.format(feature)
+        save_path.parent.mkdir(parents=True, exist_ok=True)
+        plt.savefig(save_path, dpi=300)
 
     return
     
@@ -175,11 +179,11 @@ if __name__ == '__main__':
                features,
                save_dir=Path(SAVE_DIR) / "Stats",
                window=WINDOW_NUMBER,
-               feature=FEATURE)
+               feature_list=FEATURE_LIST)
     
     ubiC_plots(metadata,
                features,
                plot_dir=Path(SAVE_DIR) / "Plots",
                stats_dir=Path(SAVE_DIR) / "Stats",
                window=WINDOW_NUMBER,
-               feature=FEATURE)
+               feature_list=FEATURE_LIST)
