@@ -13,8 +13,10 @@ Adding supplements BW and fepD lawns
 
 #%% Imports
 
+import numpy as np
 import pandas as pd
 import seaborn as sns
+from tqdm import tqdm
 from pathlib import Path
 from matplotlib import transforms
 from matplotlib import pyplot as plt
@@ -23,6 +25,10 @@ from preprocessing.compile_hydra_data import compile_metadata, process_feature_s
 from filter_data.clean_feature_summaries import clean_summary_results
 from visualisation.plotting_helper import sig_asterix
 from statistical_testing.stats_helper import do_stats
+from time_series.time_series_helper import get_strain_timeseries
+from time_series.plot_timeseries import plot_timeseries_motion_mode
+
+np.random.seed(2022)
 
 #%% Globals
 
@@ -37,6 +43,7 @@ MIN_NSKEL_PER_VIDEO = None
 MIN_NSKEL_SUM = 500
 
 FEATURE = 'motion_mode_forward_fraction'
+motion_modes = ['forwards']
 
 WINDOW_DICT_SECONDS = {0:(1790,1800), 1:(1805,1815), 2:(1815,1825),
                        3:(1850,1860), 4:(1865,1875), 5:(1875,1885),
@@ -61,6 +68,13 @@ paraquat_treatment_list = ['BW-none-nan', 'BW-paraquat-0.5', 'BW-paraquat-1.0',
                            'fepD-none-nan', 'fepD-paraquat-0.5', 'fepD-paraquat-1.0',
                            'fepD-paraquat-2.0', 'fepD-paraquat-4.0']
     
+all_treatment_control = ''
+BLUELIGHT_TIMEPOINTS_MINUTES = [30,31,32]
+FPS = 25
+VIDEO_LENGTH_SECONDS = 38*60
+SMOOTH_WINDOW_SECONDS = 5
+BLUELIGHT_WINDOWS_ONLY_TS = True
+
 #%% Functions
 
 def supplements_stats(metadata, 
@@ -321,6 +335,300 @@ def supplements_plots(metadata,
     
     return
 
+def supplements_timeseries(metadata, project_dir=PROJECT_DIR, save_dir=SAVE_DIR, window=WINDOW_NUMBER):
+    """ Timeseries plots for addition of enterobactin, paraquat, and iron to BW and fepD """
+    
+    # # Plot BW and fepD together for each treatment: none, enterobactin, paraquat, iron    
+    # for drug in tqdm(drug_type_list):
+    #     print("Plotting timeseries comparing BW to fepD when %s is added" % drug)
+        
+    #     drug_meta = metadata.query("window==@window and  drug_type==@drug")
+                
+    #     # boxplots for all treatments vs BW control
+    #     drug_meta['treatment'] = drug_meta[['food_type','drug_type','imaging_plate_drug_conc']
+    #                                        ].agg('-'.join, axis=1) 
+                
+    #     treatment_order = sorted(drug_meta['treatment'].unique())
+        
+    #     # get timeseries for control data
+    #     control_timeseries = get_strain_timeseries(metadata[metadata['treatment']==all_treatment_control], 
+    #                                                project_dir=project_dir, 
+    #                                                strain=all_treatment_control,
+    #                                                group_by='treatment',
+    #                                                only_wells=None,
+    #                                                save_dir=Path(save_dir) / 'Data' / all_treatment_control,
+    #                                                verbose=False)
+        
+    #     for mode in motion_modes:
+            
+    #         plt.close('all')
+    #         fig, ax = plt.subplots(figsize=(15,5), dpi=200)
+    #         BW_treatments = [t for t in treatment_order if 'BW' in t]
+    #         fepD_treatments = [t for t in treatment_order if 'fepD' in t]
+    #         col_dict = dict(zip(BW_treatments, sns.color_palette('Blues', len(BW_treatments))))
+    #         col_dict.update(dict(zip(fepD_treatments, sns.color_palette('Greens', len(fepD_treatments)))))
+            
+    #         # col_dict = dict(zip(treatment_order, sns.color_palette("plasma", len(treatment_order))))
+    #         bluelight_frames = [(i*60*FPS, i*60*FPS+10*FPS) for i in BLUELIGHT_TIMEPOINTS_MINUTES]
+
+    #         for treatment in treatment_order:
+                    
+    #             # get timeseries data for treatment data
+    #             treatment_metadata = drug_meta[drug_meta['treatment']==treatment]
+    #             treatment_timeseries = get_strain_timeseries(treatment_metadata, 
+    #                                                          project_dir=project_dir, 
+    #                                                          strain=treatment,
+    #                                                          group_by='treatment',
+    #                                                          only_wells=None,
+    #                                                          save_dir=Path(save_dir) / 'Data' / treatment,
+    #                                                          verbose=False)
+
+    #             print("Plotting timeseries '%s' fraction for %s" % (mode, treatment))
+    #             ax = plot_timeseries_motion_mode(df=treatment_timeseries,
+    #                                              window=SMOOTH_WINDOW_SECONDS*FPS,
+    #                                              error=True,
+    #                                              mode=mode,
+    #                                              max_n_frames=VIDEO_LENGTH_SECONDS*FPS,
+    #                                              title=None,
+    #                                              saveAs=None,
+    #                                              ax=ax,
+    #                                              bluelight_frames=bluelight_frames,
+    #                                              colour=col_dict[treatment],
+    #                                              alpha=0.25)
+            
+    #         xticks = np.linspace(0, VIDEO_LENGTH_SECONDS*FPS, int(VIDEO_LENGTH_SECONDS/60)+1)
+    #         ax.set_xticks(xticks)
+    #         ax.set_xticklabels([str(int(x/FPS/60)) for x in xticks])   
+    #         ax.set_xlabel('Time (minutes)', fontsize=12, labelpad=10)
+    #         ax.set_ylabel('Fraction {}'.format(mode), fontsize=12, labelpad=10)
+    #         ax.legend(treatment_order, fontsize=12, frameon=False, loc='best')
+    
+    #         if BLUELIGHT_WINDOWS_ONLY_TS:
+    #             ts_plot_dir = Path(save_dir) / 'Plots' / 'timeseries_bluelight' / treatment
+    #             ax.set_xlim([min(BLUELIGHT_TIMEPOINTS_MINUTES)*60*FPS-60*FPS, 
+    #                          max(BLUELIGHT_TIMEPOINTS_MINUTES)*60*FPS+70*FPS])
+    #         else:
+    #             ts_plot_dir = Path(save_dir) / 'Plots' / 'timeseries' / treatment
+    
+    #         plt.tight_layout()
+    #         ts_plot_dir.mkdir(exist_ok=True, parents=True)
+    #         plt.savefig(ts_plot_dir / '{0}_{1}.png'.format(treatment, mode))  
+
+    ### Each treatment vs control: BW vs BW + lysate // BW vs BW + supernatant
+    window_meta = metadata.query("window==@window")
+    window_meta['treatment'] = window_meta[['food_type','drug_type',
+                                            'imaging_plate_drug_conc']].agg('-'.join, axis=1)     
+    control_list = list(np.concatenate([np.array(['fepD-none-nan']), np.repeat('BW-none-nan', 19)]))
+    treatment_list = ['fepD-enterobactin-nan',
+                      'fepD-none-nan','BW-enterobactin-nan',
+                      'BW-fe2O12S3-1.0','BW-fe2O12S3-4.0',
+                      'BW-feCl3-1.0','BW-feCl3-4.0',
+                      'BW-paraquat-0.5','BW-paraquat-1.0',
+                      'BW-paraquat-2.0','BW-paraquat-4.0',
+                      'fepD-enterobactin-nan',
+                      'fepD-fe2O12S3-1.0','fepD-fe2O12S3-4.0',
+                      'fepD-feCl3-1.0','fepD-feCl3-4.0',
+                      'fepD-paraquat-0.5','fepD-paraquat-1.0',
+                      'fepD-paraquat-2.0','fepD-paraquat-4.0']
+    title_list = ['fepD vs fepD + enterobactin',
+                  'BW vs fepD','Addition of enterobactin (BW control)',
+                  'Addition of 1mM fe2O12S3 (BW control)','Addition of 4mM fe2O12S3 (BW control)',
+                  'Addition of 1mM feCl3 (BW control)','Addition of 4mM feCl3 (BW control)',
+                  'Addition of 0.5mM paraquat (BW control)','Addition of 1mM paraquat (BW control)',
+                  'Addition of 2mM paraquat (BW control)','Addition of 4mM paraquat (BW control)',
+                  'BW vs fepD + enterobactin',
+                  'BW vs fepD + 1mM fe2O12S3','BW vs fepD + 4mM fe2O12S3',
+                  'BW vs fepD + 1mM feCl3','BW vs fepD + 4mM feCl3',
+                  'BW vs fepD + 0.5mM paraquat','BW vs fepD + 1mM paraquat',
+                  'BW vs fepD + 2mM paraquat','BW vs fepD + 4mM paraquat']
+    labs = [('fepD', 'fepD + enterobactin'),
+            ('BW', 'fepD'),('BW', 'BW + enterobactin'),
+            ('BW', 'BW + 1mM fe2O12S3'),('BW', 'BW + 4mM fe2O12S3'),
+            ('BW', 'BW + 1mM feCl3'),('BW', 'BW + 4mM feCl3'),
+            ('BW', 'BW + 0.5mM paraquat'),('BW', 'BW + 1mM paraquat'),
+            ('BW', 'BW + 2mM paraquat'),('BW', 'BW + 4mM paraquat'),
+            ('BW', 'fepD + enterobactin'),
+            ('BW', 'fepD + 1mM fe2O12S3'),('BW', 'fepD + 4mM fe2O12S3'),
+            ('BW', 'fepD + 1mM feCl3'),('BW', 'fepD + 4mM feCl3'),
+            ('BW', 'fepD + 0.5mM paraquat'),('BW', 'fepD + 1mM paraquat'),
+            ('BW', 'fepD + 2mM paraquat'),('BW', 'fepD + 4mM paraquat')]
+    
+    for control, treatment, title, lab in tqdm(zip(control_list, treatment_list, title_list, labs)):
+        
+        # get timeseries for control data
+        control_ts = get_strain_timeseries(window_meta[window_meta['treatment']==control], 
+                                           project_dir=project_dir, 
+                                           strain=control,
+                                           group_by='treatment',
+                                           only_wells=None,
+                                           save_dir=Path(save_dir) / 'Data' / control,
+                                           verbose=False)
+        
+        # get timeseries for treatment data
+        treatment_ts = get_strain_timeseries(window_meta[window_meta['treatment']==treatment], 
+                                             project_dir=project_dir, 
+                                             strain=treatment,
+                                             group_by='treatment',
+                                             only_wells=None,
+                                             save_dir=Path(save_dir) / 'Data' / treatment,
+                                             verbose=False)
+ 
+        col_dict = dict(zip([control, treatment], sns.color_palette("pastel", 2)))
+        bluelight_frames = [(i*60*FPS, i*60*FPS+10*FPS) for i in BLUELIGHT_TIMEPOINTS_MINUTES]
+
+        for mode in motion_modes:
+                    
+            print("Plotting timeseries '%s' fraction for '%s' vs '%s'..." %\
+                  (mode, treatment, control))
+    
+            plt.close('all')
+            fig, ax = plt.subplots(figsize=(15,5), dpi=200)
+    
+            ax = plot_timeseries_motion_mode(df=control_ts,
+                                             window=SMOOTH_WINDOW_SECONDS*FPS,
+                                             error=True,
+                                             mode=mode,
+                                             max_n_frames=VIDEO_LENGTH_SECONDS*FPS,
+                                             title=None,
+                                             saveAs=None,
+                                             ax=ax,
+                                             bluelight_frames=bluelight_frames,
+                                             colour=col_dict[control],
+                                             alpha=0.25)
+            
+            ax = plot_timeseries_motion_mode(df=treatment_ts,
+                                             window=SMOOTH_WINDOW_SECONDS*FPS,
+                                             error=True,
+                                             mode=mode,
+                                             max_n_frames=VIDEO_LENGTH_SECONDS*FPS,
+                                             title=None,
+                                             saveAs=None,
+                                             ax=ax,
+                                             bluelight_frames=bluelight_frames,
+                                             colour=col_dict[treatment],
+                                             alpha=0.25)
+        
+            xticks = np.linspace(0, VIDEO_LENGTH_SECONDS*FPS, int(VIDEO_LENGTH_SECONDS/60)+1)
+            ax.set_xticks(xticks)
+            ax.set_xticklabels([str(int(x/FPS/60)) for x in xticks])   
+            ax.set_xlabel('Time (minutes)', fontsize=12, labelpad=10)
+            ax.set_ylabel('Fraction {}'.format(mode), fontsize=12, labelpad=10)
+            ax.set_title(title, fontsize=12, pad=10)
+            ax.legend([lab[0], lab[1]], fontsize=12, frameon=False, loc='best')
+    
+            if BLUELIGHT_WINDOWS_ONLY_TS:
+                ts_plot_dir = Path(save_dir) / 'Plots' / 'timeseries_bluelight' / treatment
+                ax.set_xlim([min(BLUELIGHT_TIMEPOINTS_MINUTES)*60*FPS-60*FPS, 
+                             max(BLUELIGHT_TIMEPOINTS_MINUTES)*60*FPS+70*FPS])
+            else:   
+                ts_plot_dir = Path(save_dir) / 'Plots' / 'timeseries' / treatment
+    
+            #plt.tight_layout()
+            ts_plot_dir.mkdir(exist_ok=True, parents=True)
+            save_path = ts_plot_dir / '{0}_{1}.png'.format(treatment, mode)
+            print("Saving to: %s" % save_path)
+            plt.savefig(save_path)  
+
+    return
+
+def check_tracked_objects(metadata, 
+                          length_minmax=(200, 2000), 
+                          width_minmax=(20, 500), 
+                          save_to=None,
+                          max_n_videos=50):
+    """ Load trajectories data for each well and calculate the proportion of tracked objects that
+        are within normal range for worm area and length (ie. real worms)
+    """
+    
+    from tierpsytools.read_data.get_timeseries import get_timeseries
+    from tierpsytools.analysis.count_worms import n_worms_per_frame, _fraction_of_time_with_n_worms
+    
+    # if window summaries, get filenames from first window only (to prevent duplicate filenames)
+    if 'window' in metadata.columns:
+        metadata = metadata.query("window==0")
+    # TODO: if align bluelight, select only featuresN for given bluelight condition
+        
+    metadata = metadata.sort_values(by=['featuresN_filename', 'well_name'], ascending=True)
+    
+    area_minmax = (length_minmax[0] * width_minmax[0], length_minmax[1] * width_minmax[1])
+
+    n_worms_list = []
+    frac_time_list = []
+    traj_duration_list = []
+    prop_bad_worm_list = []
+    
+    # subset metadata for random sample
+    if max_n_videos:
+        random_sample_idx = np.random.choice(metadata.index, size=max_n_videos, replace=False)
+        metadata = metadata.reindex(random_sample_idx)
+    else:
+        max_n_videos = metadata.shape[0]
+    
+    for i, file in enumerate(tqdm(metadata['featuresN_filename'])):
+    # for file, well in tqdm(zip(metadata['featuresN_filename'], metadata['well_name']), 
+    #                        total=metadata.shape[0]):
+        
+        # read video time-series (no wells needed as 6-well plates map 1-to-1 wells with cameras)
+        ts = get_timeseries(root_dir=Path(file).parent,
+                            names=None,
+                            only_wells=None)[1][0]
+        
+        area_mask = np.logical_and(ts['area'] > area_minmax[0], 
+                                   ts['area'] < area_minmax[1])
+        length_mask = np.logical_and(ts['length'] > length_minmax[0], 
+                                     ts['length'] < length_minmax[1])
+        bad_worm_mask = np.logical_and(area_mask, length_mask)
+        prop_bad_worm = (ts.shape[0] - ts[bad_worm_mask].shape[0]) / ts.shape[0]
+        print("%.1f%% of tracked objects are suspected bad worms based on length or area"\
+              % (prop_bad_worm * 100))
+        prop_bad_worm_list.append(prop_bad_worm)
+        
+        # compute number of worms per frame
+        n_worms = pd.DataFrame(n_worms_per_frame(ts['timestamp']))
+        n_worms_list.append(n_worms)
+        
+        # compute fraction of time with no worms tracked
+        frac_worms = pd.DataFrame(_fraction_of_time_with_n_worms(
+            n_worms_per_frame(ts['timestamp']), max_n=0))
+        frac_time_list.append(frac_worms)
+        
+        # compute trajectory duration (seconds)
+        worm_traj_duration = ts.groupby('worm_index').count()['timestamp']
+        traj_duration_list.append(worm_traj_duration)      
+
+                
+    ##### Trajectory duration - barplot of frequency of trajectories ranked by n frames       
+    
+    traj_duration = pd.concat(traj_duration_list, ignore_index=True).reset_index(drop=False)
+    traj_duration = traj_duration.sort_values(by='timestamp', ascending=True)
+    
+    # create bins
+    bins = [int(b) for b in np.linspace(0, 5*60*FPS, 31)] # 5-minute videos
+    #bins = np.linspace(0, np.round(traj_duration['timestamp'].max(), -2), 16)
+    traj_duration['traj_binned_freq'] = pd.cut(x=traj_duration['timestamp'], bins=bins)
+    traj_duration = traj_duration.dropna(axis=0, how='any') # drop NaN value timestamps > 7500
+    traj_freq = traj_duration.groupby(traj_duration['traj_binned_freq'], as_index=False).count()
+
+    plt.close('all')
+    fig, ax = plt.subplots(figsize=(15,6), dpi=150)
+    sns.barplot(x=traj_freq['traj_binned_freq'].astype(str), 
+                y=traj_freq['timestamp'], alpha=0.8)        
+    ax.set_xticks([x - 0.5 for x in ax.get_xticks()])
+    ax.set_xticklabels([str(int(b / FPS)) for b in bins], rotation=45)
+    
+    if max(bins) > traj_duration['timestamp'].max():
+        ax.set_xlim(0, np.where(bins > traj_duration['timestamp'].max())[0][0])
+        
+    ax.set_xlabel("Trajectory duration (seconds)", fontsize=15, labelpad=10)
+    ax.set_ylabel("Number of worm trajectories (n=%d videos)" % max_n_videos, fontsize=15, labelpad=10)
+    
+    # save trajectory duration histogram
+    if save_to is not None:
+        Path(save_to).parent.mkdir(exist_ok=True, parents=True)
+        plt.savefig(save_to)
+    
+    return
+
 #%% Main
 
 if __name__ == '__main__':
@@ -332,7 +640,8 @@ if __name__ == '__main__':
     FEAT_PATH = Path(SAVE_DIR) / 'features.csv'
     
     if not META_PATH.exists() and not FEAT_PATH.exists():
-    
+        Path(SAVE_DIR).mkdir(exist_ok=True, parents=True)
+
         # compile metadata
         metadata, metadata_path = compile_metadata(aux_dir=AUX_DIR, 
                                                    imaging_dates=IMAGING_DATES, 
@@ -349,13 +658,25 @@ if __name__ == '__main__':
                                                        window_summaries=True,
                                                        n_wells=N_WELLS)
         
+        # TODO: Check lengths/areas of tracked objects - skeleton data timeseries
+        # for each well, check distribution of worm length/areas etc
+        check_tracked_objects(metadata, 
+                              length_minmax=(200, 2000), 
+                              width_minmax=(20, 500),
+                              save_to=Path(SAVE_DIR) / 'tracking_checks.csv')
+        
+        
+        # TODO: plot n skeletons before filtering
+        # metadata = metadata.sort_values('n_skeletons', ascending=True)
+        # sns.barplot(x=np.arange(metadata.shape[0]), y='n_skeletons', data=metadata)        
+        
         # clean results
         features, metadata = clean_summary_results(features, 
                                                    metadata,
                                                    feature_columns=None,
                                                    nan_threshold_row=NAN_THRESHOLD_ROW,
                                                    nan_threshold_col=NAN_THRESHOLD_COL,
-                                                   max_value_cap=1e15,
+                                                   max_value_cap=1e15, # TODO: check if needed, delete if not
                                                    imputeNaN=True,
                                                    min_nskel_per_video=MIN_NSKEL_PER_VIDEO,
                                                    min_nskel_sum=MIN_NSKEL_SUM,
@@ -367,7 +688,6 @@ if __name__ == '__main__':
         assert not (features.std(axis=1) == 0).any()
     
         # save features
-        Path(SAVE_DIR).mkdir(exist_ok=True, parents=True)
         metadata.to_csv(META_PATH, index=False)
         features.to_csv(FEAT_PATH, index=False) 
     
@@ -383,6 +703,8 @@ if __name__ == '__main__':
                       save_dir=Path(SAVE_DIR) / "Stats",
                       window=WINDOW_NUMBER,
                       feature=FEATURE)
+
+    # TODO: Test effect of solvents! DMSO vs PBS
     
     supplements_plots(metadata,
                       features,
@@ -391,5 +713,10 @@ if __name__ == '__main__':
                       window=WINDOW_NUMBER,
                       feature=FEATURE)
 
+    supplements_timeseries(metadata,
+                           project_dir=Path(PROJECT_DIR),
+                           save_dir=Path(SAVE_DIR),
+                           window=WINDOW_NUMBER)
 
+    # TODO: drop sampls wrt. area (have to be done on timeseries/trajectory data) - check true +vs vs false tracking based on area
 

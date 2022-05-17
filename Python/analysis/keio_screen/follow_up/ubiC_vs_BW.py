@@ -10,6 +10,7 @@ Keio ubiC vs BW
 
 #%% Imports
 
+import numpy as np
 import pandas as pd
 import seaborn as sns
 from tqdm import tqdm
@@ -22,6 +23,8 @@ from preprocessing.compile_hydra_data import compile_metadata, process_feature_s
 from filter_data.clean_feature_summaries import clean_summary_results
 from visualisation.plotting_helper import sig_asterix
 from statistical_testing.stats_helper import do_stats
+from time_series.time_series_helper import get_strain_timeseries
+from time_series.plot_timeseries import plot_timeseries_motion_mode
 
 #%% Globals
 
@@ -51,7 +54,12 @@ WINDOW_DICT_STIM_TYPE = {0:'prestim\n(30min)',1:'bluelight\n(30min)',2:'poststim
 WINDOW_NUMBER = 2
 
 food_type_list = ['BW','fepD','ubiC']
-    
+BLUELIGHT_TIMEPOINTS_MINUTES = [30,31,32]
+FPS = 25
+VIDEO_LENGTH_SECONDS = 38*60
+SMOOTH_WINDOW_SECONDS = 5
+BLUELIGHT_WINDOWS_ONLY_TS = True
+  
 #%% Functions
 
 def ubiC_stats(metadata, 
@@ -118,6 +126,92 @@ def ubiC_plots(metadata,
         save_path.parent.mkdir(parents=True, exist_ok=True)
         plt.savefig(save_path, dpi=300)
 
+    return
+
+def ubiC_timeseries(metadata, project_dir=PROJECT_DIR, save_dir=SAVE_DIR, window=WINDOW_NUMBER):
+    """ Timeseries plots for addition of enterobactin, paraquat, and iron to BW and fepD """
+    
+    metadata = metadata.query("window==@window")
+        
+    control = 'BW'        
+    treatment_order = [t for t in sorted(metadata['food_type'].unique()) if t != control]
+
+    # get timeseries for control data
+    control_timeseries = get_strain_timeseries(metadata[metadata['food_type']==control], 
+                                               project_dir=project_dir, 
+                                               strain=control,
+                                               group_by='food_type',
+                                               only_wells=None,
+                                               save_dir=Path(save_dir) / 'Data' / control,
+                                               verbose=False)
+
+    for treatment in tqdm(treatment_order):
+        
+        test_treatments = [control, treatment]
+        motion_modes = ['forwards','backwards','stationary']
+
+        for mode in motion_modes:
+                    
+            # get timeseries data for treatment data
+            strain_metadata = metadata[metadata['food_type']==treatment]
+            strain_timeseries = get_strain_timeseries(strain_metadata, 
+                                                      project_dir=project_dir, 
+                                                      strain=treatment,
+                                                      group_by='food_type',
+                                                      only_wells=None,
+                                                      save_dir=Path(save_dir) / 'Data' / treatment,
+                                                      verbose=False)
+
+            print("Plotting timeseries '%s' fraction for '%s' vs '%s'..." %\
+                  (mode, treatment, control))
+
+            plt.close('all')
+            fig, ax = plt.subplots(figsize=(15,5), dpi=200)
+            col_dict = dict(zip(test_treatments, sns.color_palette("pastel", len(test_treatments))))
+            bluelight_frames = [(i*60*FPS, i*60*FPS+10*FPS) for i in BLUELIGHT_TIMEPOINTS_MINUTES]
+
+            ax = plot_timeseries_motion_mode(df=control_timeseries,
+                                             window=SMOOTH_WINDOW_SECONDS*FPS,
+                                             error=True,
+                                             mode=mode,
+                                             max_n_frames=VIDEO_LENGTH_SECONDS*FPS,
+                                             title=None,
+                                             saveAs=None,
+                                             ax=ax,
+                                             bluelight_frames=bluelight_frames,
+                                             colour=col_dict[control],
+                                             alpha=0.25)
+            
+            ax = plot_timeseries_motion_mode(df=strain_timeseries,
+                                             window=SMOOTH_WINDOW_SECONDS*FPS,
+                                             error=True,
+                                             mode=mode,
+                                             max_n_frames=VIDEO_LENGTH_SECONDS*FPS,
+                                             title=None,
+                                             saveAs=None,
+                                             ax=ax,
+                                             bluelight_frames=bluelight_frames,
+                                             colour=col_dict[treatment],
+                                             alpha=0.25)
+        
+            xticks = np.linspace(0, VIDEO_LENGTH_SECONDS*FPS, int(VIDEO_LENGTH_SECONDS/60)+1)
+            ax.set_xticks(xticks)
+            ax.set_xticklabels([str(int(x/FPS/60)) for x in xticks])   
+            ax.set_xlabel('Time (minutes)', fontsize=12, labelpad=10)
+            ax.set_ylabel('Fraction {}'.format(mode), fontsize=12, labelpad=10)
+            ax.legend(test_treatments, fontsize=12, frameon=False, loc='best')
+    
+            if BLUELIGHT_WINDOWS_ONLY_TS:
+                ts_plot_dir = Path(save_dir) / 'Plots' / 'timeseries_bluelight' / treatment
+                ax.set_xlim([min(BLUELIGHT_TIMEPOINTS_MINUTES)*60*FPS-60*FPS, 
+                             max(BLUELIGHT_TIMEPOINTS_MINUTES)*60*FPS+70*FPS])
+            else:
+                ts_plot_dir = Path(save_dir) / 'Plots' / 'timeseries' / treatment
+    
+            plt.tight_layout()
+            ts_plot_dir.mkdir(exist_ok=True, parents=True)
+            plt.savefig(ts_plot_dir / '{0}_{1}.png'.format(treatment, mode))  
+    
     return
     
 #%% Main
@@ -187,3 +281,8 @@ if __name__ == '__main__':
                stats_dir=Path(SAVE_DIR) / "Stats",
                window=WINDOW_NUMBER,
                feature_list=FEATURE_LIST)
+    
+    ubiC_timeseries(metadata,
+                    project_dir=Path(PROJECT_DIR),
+                    save_dir=Path(SAVE_DIR),
+                    window=WINDOW_NUMBER)

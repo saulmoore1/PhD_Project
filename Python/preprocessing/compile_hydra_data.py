@@ -115,9 +115,10 @@ def compile_day_metadata(aux_dir,
                                     saveto=None,
                                     del_if_exists=False,
                                     include_imgstore_name=True,
-                                    raw_day_dir=None)
+                                    raw_day_dir=Path(str(day_dir).replace("AuxiliaryFiles",
+                                                                          "RawVideos")))
     
-    day_metadata_check(day_metadata, day_dir) # check day metadata is correct dimension
+    day_metadata_check(day_metadata, day_dir, plate_size=n_wells) # check day metadata is correct dimension
     print(number_wells_per_plate(day_metadata, day_dir))
 
     return day_metadata

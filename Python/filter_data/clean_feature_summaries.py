@@ -86,7 +86,6 @@ def clean_summary_results(features,
     # raise warning if missing row data
     if any(features.sum(axis=1) == 0):
         n_missing, idxs = sum(features.sum(axis=1)==0), list(np.where(features.sum(axis=1)==0)[0])
-        
         print("\n\tWARNING: There are {} rows with missing data in features!".format(n_missing) +
               "\n\tThese samples will be dropped from the analysis\n")
         # NB: if using window summaries, esp for long videos, this could be due to condensation 
@@ -123,21 +122,18 @@ def clean_summary_results(features,
     ventrally_signed_feats = [f for f in feature_columns if f not in features.columns]
     if len(ventrally_signed_feats) > 0:
         print("Dropped %d features that are ventrally signed" % len(ventrally_signed_feats))
-    
-    # Cap feature values to max value for given feature
-    if max_value_cap:
-        features = cap_feat_values(features, cutoff=max_value_cap)
-    
+        
     # Remove 'path_curvature' features
     path_curvature_feats = [f for f in features.columns if 'path_curvature' in f]
     if len(path_curvature_feats) > 0:
         features = features.drop(columns=path_curvature_feats)
         print("Dropped %d features that are derived from path curvature"\
               % len(path_curvature_feats))
-    
-    # TODO: plot n skeletons before filtering
-    # metadata = metadata.sort_values('n_skeletons', ascending=True)
-    # sns.barplot(x=np.arange(metadata.shape[0]), y='n_skeletons', data=metadata)
+
+    # Cap feature values to max value for given feature
+    if max_value_cap and features[features > max_value_cap].any().any():
+        print("Capping values at %d" % max_value_cap)
+        features = cap_feat_values(features, cutoff=max_value_cap)
     
     # Drop rows from feature summaries where any videos has less than min_nskel_per_video
     if min_nskel_per_video is not None:
