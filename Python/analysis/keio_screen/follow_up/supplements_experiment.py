@@ -27,8 +27,7 @@ from visualisation.plotting_helper import sig_asterix
 from statistical_testing.stats_helper import do_stats
 from time_series.time_series_helper import get_strain_timeseries
 from time_series.plot_timeseries import plot_timeseries_motion_mode
-
-np.random.seed(2022)
+from analysis.keio_screen.check_keio_screen_worm_trajectories import check_tracked_objects
 
 #%% Globals
 
@@ -53,7 +52,7 @@ WINDOW_DICT_STIM_TYPE = {0:'prestim\n(30min)',1:'bluelight\n(30min)',2:'poststim
                          3:'prestim\n(31min)',4:'bluelight\n(31min)',5:'poststim\n(31min)',
                          6:'prestim\n(32min)',7:'bluelight\n(32min)',8:'poststim\n(32min)'}
 
-WINDOW_NUMBER = 2
+WINDOW_NUMBER = 3
 
 food_type_list = ['BW', 'fepD']
 drug_type_list = ['none', 'enterobactin', 'feCl3', 'fe2O12S3', 'paraquat']
@@ -68,7 +67,6 @@ paraquat_treatment_list = ['BW-none-nan', 'BW-paraquat-0.5', 'BW-paraquat-1.0',
                            'fepD-none-nan', 'fepD-paraquat-0.5', 'fepD-paraquat-1.0',
                            'fepD-paraquat-2.0', 'fepD-paraquat-4.0']
     
-all_treatment_control = ''
 BLUELIGHT_TIMEPOINTS_MINUTES = [30,31,32]
 FPS = 25
 VIDEO_LENGTH_SECONDS = 38*60
@@ -96,6 +94,8 @@ def supplements_stats(metadata,
     
     # subset for window of interest
     window_meta = metadata.query("window==@window")
+    save_dir = Path(save_dir) / 'window_{}'.format(window)
+
     
     # testing difference in motion mode forwards on fepD vs BW
     no_drug_meta = window_meta.query("drug_type=='none' and solvent!='DMSO'")
@@ -176,6 +176,9 @@ def supplements_plots(metadata,
     assert metadata.shape[0] == features.shape[0]
         
     window_meta = metadata.query("window==@window")
+    stats_dir = Path(stats_dir) / 'window_{}'.format(window)
+    plot_dir = Path(plot_dir) / 'window_{}'.format(window)
+    plot_dir.mkdir(parents=True, exist_ok=True)
     
     # difference in motion mode forwards on fepD vs BW
     no_drug_meta = window_meta.query("drug_type=='none' and solvent!='DMSO'")
@@ -200,9 +203,7 @@ def supplements_plots(metadata,
     p_text = '***\nP < 0.001' if p < 0.001 else sig_asterix([p])[0] + '\nP = %.3f' % p
     trans = transforms.blended_transform_factory(ax.transData, ax.transAxes)
     ax.text(1, 1.01, p_text, fontsize=9, ha='center', va='bottom', transform=trans)
-    save_path = Path(plot_dir) / 'fepD_vs_BW.png'
-    save_path.parent.mkdir(parents=True, exist_ok=True)
-    plt.savefig(save_path, dpi=300)
+    plt.savefig(plot_dir / 'fepD_vs_BW.pdf', dpi=300)
 
 
     # addition of enterobactin to BW and fepD
@@ -228,7 +229,12 @@ def supplements_plots(metadata,
 
     ax.set_xlabel('')
     ax.set_ylabel(feature.replace('_',' '), fontsize=12, labelpad=10)
-    ax.set_ylim(0.28,1.1)
+    # scale plot to exclude outliers > 2.5 * IQR
+    grouped_strain = plot_df.groupby(['food_type','drug_type'])
+    y_bar = grouped_strain[feature].median() # median is less skewed by outliers
+    Q1, Q3 = grouped_strain[feature].quantile(0.25), grouped_strain[feature].quantile(0.75)
+    IQR = Q3 - Q1
+    plt.ylim(min(y_bar) - 2.5 * max(IQR), max(y_bar) + 2.5 * max(IQR))
     ax.set_title('Addition of enterobactin to BW and fepD', pad=30, fontsize=18)
     # annotate p-values - load t-test results for each treatment vs BW control
     ttest_path = stats_dir / 'enterobactin' / 'treatment_ttest_results.csv'
@@ -249,9 +255,7 @@ def supplements_plots(metadata,
     p_text = '***\nP < 0.001' if p < 0.001 else sig_asterix([p])[0] + '\nP = %.3f' % p
     ax.text(1, 0.94, p_text, fontsize=9, ha='center', va='bottom', transform=trans)
     plt.plot([0.8,0.8,1.2,1.2],[0.92,0.93,0.93,0.92],lw=1.5,c='k',transform=trans)
-    save_path = Path(plot_dir) / 'enterobactin.png'
-    save_path.parent.mkdir(parents=True, exist_ok=True)
-    plt.savefig(save_path, dpi=300)
+    plt.savefig(plot_dir / 'enterobactin.pdf', dpi=300)
 
     
     # addition of iron to BW and fepD
@@ -288,10 +292,7 @@ def supplements_plots(metadata,
         trans = transforms.blended_transform_factory(ax.transData, ax.transAxes)
         ax.text(i, 1.01, p_text, fontsize=9, ha='center', va='bottom', transform=trans)
     ax.set_xticklabels([s.get_text().replace('-','\n') for s in ax.get_xticklabels()]) #rotation=45
-    # save figure
-    save_path = Path(plot_dir) / 'iron.png'
-    save_path.parent.mkdir(parents=True, exist_ok=True)
-    plt.savefig(save_path, dpi=300)
+    plt.savefig(plot_dir / 'iron.pdf', dpi=300)
     
     
     # addition of paraquat to BW and fepD
@@ -327,11 +328,7 @@ def supplements_plots(metadata,
     # ax.set_ylim(0.28,1.1)
     ax.set_title('Addition of paraquat to BW and fepD', pad=30, fontsize=18)
     ax.set_xticklabels([s.get_text().replace('-','\n') for s in ax.get_xticklabels()])#rotation=45,ha='right'
-    # save figure
-    save_path = Path(plot_dir) / 'paraquat.png'
-    save_path.parent.mkdir(parents=True, exist_ok=True)
-    plt.savefig(save_path, dpi=300)
-    
+    plt.savefig(plot_dir / 'paraquat.pdf', dpi=300)
     
     return
 
@@ -412,7 +409,7 @@ def supplements_timeseries(metadata, project_dir=PROJECT_DIR, save_dir=SAVE_DIR,
     
     #         plt.tight_layout()
     #         ts_plot_dir.mkdir(exist_ok=True, parents=True)
-    #         plt.savefig(ts_plot_dir / '{0}_{1}.png'.format(treatment, mode))  
+    #         plt.savefig(ts_plot_dir / '{0}_{1}.pdf'.format(treatment, mode))  
 
     ### Each treatment vs control: BW vs BW + lysate // BW vs BW + supernatant
     window_meta = metadata.query("window==@window")
@@ -460,7 +457,7 @@ def supplements_timeseries(metadata, project_dir=PROJECT_DIR, save_dir=SAVE_DIR,
                                            project_dir=project_dir, 
                                            strain=control,
                                            group_by='treatment',
-                                           only_wells=None,
+                                           n_wells=6,
                                            save_dir=Path(save_dir) / 'Data' / control,
                                            verbose=False)
         
@@ -469,7 +466,7 @@ def supplements_timeseries(metadata, project_dir=PROJECT_DIR, save_dir=SAVE_DIR,
                                              project_dir=project_dir, 
                                              strain=treatment,
                                              group_by='treatment',
-                                             only_wells=None,
+                                             n_wells=6,
                                              save_dir=Path(save_dir) / 'Data' / treatment,
                                              verbose=False)
  
@@ -525,108 +522,10 @@ def supplements_timeseries(metadata, project_dir=PROJECT_DIR, save_dir=SAVE_DIR,
     
             #plt.tight_layout()
             ts_plot_dir.mkdir(exist_ok=True, parents=True)
-            save_path = ts_plot_dir / '{0}_{1}.png'.format(treatment, mode)
+            save_path = ts_plot_dir / '{0}_{1}.pdf'.format(treatment, mode)
             print("Saving to: %s" % save_path)
             plt.savefig(save_path)  
 
-    return
-
-def check_tracked_objects(metadata, 
-                          length_minmax=(200, 2000), 
-                          width_minmax=(20, 500), 
-                          save_to=None,
-                          max_n_videos=50):
-    """ Load trajectories data for each well and calculate the proportion of tracked objects that
-        are within normal range for worm area and length (ie. real worms)
-    """
-    
-    from tierpsytools.read_data.get_timeseries import get_timeseries
-    from tierpsytools.analysis.count_worms import n_worms_per_frame, _fraction_of_time_with_n_worms
-    
-    # if window summaries, get filenames from first window only (to prevent duplicate filenames)
-    if 'window' in metadata.columns:
-        metadata = metadata.query("window==0")
-    # TODO: if align bluelight, select only featuresN for given bluelight condition
-        
-    metadata = metadata.sort_values(by=['featuresN_filename', 'well_name'], ascending=True)
-    
-    area_minmax = (length_minmax[0] * width_minmax[0], length_minmax[1] * width_minmax[1])
-
-    n_worms_list = []
-    frac_time_list = []
-    traj_duration_list = []
-    prop_bad_worm_list = []
-    
-    # subset metadata for random sample
-    if max_n_videos:
-        random_sample_idx = np.random.choice(metadata.index, size=max_n_videos, replace=False)
-        metadata = metadata.reindex(random_sample_idx)
-    else:
-        max_n_videos = metadata.shape[0]
-    
-    for i, file in enumerate(tqdm(metadata['featuresN_filename'])):
-    # for file, well in tqdm(zip(metadata['featuresN_filename'], metadata['well_name']), 
-    #                        total=metadata.shape[0]):
-        
-        # read video time-series (no wells needed as 6-well plates map 1-to-1 wells with cameras)
-        ts = get_timeseries(root_dir=Path(file).parent,
-                            names=None,
-                            only_wells=None)[1][0]
-        
-        area_mask = np.logical_and(ts['area'] > area_minmax[0], 
-                                   ts['area'] < area_minmax[1])
-        length_mask = np.logical_and(ts['length'] > length_minmax[0], 
-                                     ts['length'] < length_minmax[1])
-        bad_worm_mask = np.logical_and(area_mask, length_mask)
-        prop_bad_worm = (ts.shape[0] - ts[bad_worm_mask].shape[0]) / ts.shape[0]
-        print("%.1f%% of tracked objects are suspected bad worms based on length or area"\
-              % (prop_bad_worm * 100))
-        prop_bad_worm_list.append(prop_bad_worm)
-        
-        # compute number of worms per frame
-        n_worms = pd.DataFrame(n_worms_per_frame(ts['timestamp']))
-        n_worms_list.append(n_worms)
-        
-        # compute fraction of time with no worms tracked
-        frac_worms = pd.DataFrame(_fraction_of_time_with_n_worms(
-            n_worms_per_frame(ts['timestamp']), max_n=0))
-        frac_time_list.append(frac_worms)
-        
-        # compute trajectory duration (seconds)
-        worm_traj_duration = ts.groupby('worm_index').count()['timestamp']
-        traj_duration_list.append(worm_traj_duration)      
-
-                
-    ##### Trajectory duration - barplot of frequency of trajectories ranked by n frames       
-    
-    traj_duration = pd.concat(traj_duration_list, ignore_index=True).reset_index(drop=False)
-    traj_duration = traj_duration.sort_values(by='timestamp', ascending=True)
-    
-    # create bins
-    bins = [int(b) for b in np.linspace(0, 5*60*FPS, 31)] # 5-minute videos
-    #bins = np.linspace(0, np.round(traj_duration['timestamp'].max(), -2), 16)
-    traj_duration['traj_binned_freq'] = pd.cut(x=traj_duration['timestamp'], bins=bins)
-    traj_duration = traj_duration.dropna(axis=0, how='any') # drop NaN value timestamps > 7500
-    traj_freq = traj_duration.groupby(traj_duration['traj_binned_freq'], as_index=False).count()
-
-    plt.close('all')
-    fig, ax = plt.subplots(figsize=(15,6), dpi=150)
-    sns.barplot(x=traj_freq['traj_binned_freq'].astype(str), 
-                y=traj_freq['timestamp'], alpha=0.8)        
-    ax.set_xticks([x - 0.5 for x in ax.get_xticks()])
-    ax.set_xticklabels([str(int(b / FPS)) for b in bins], rotation=45)
-    
-    if max(bins) > traj_duration['timestamp'].max():
-        ax.set_xlim(0, np.where(bins > traj_duration['timestamp'].max())[0][0])
-        
-    ax.set_xlabel("Trajectory duration (seconds)", fontsize=15, labelpad=10)
-    ax.set_ylabel("Number of worm trajectories (n=%d videos)" % max_n_videos, fontsize=15, labelpad=10)
-    
-    # save trajectory duration histogram
-    if save_to is not None:
-        Path(save_to).parent.mkdir(exist_ok=True, parents=True)
-        plt.savefig(save_to)
-    
     return
 
 #%% Main
@@ -657,19 +556,7 @@ if __name__ == '__main__':
                                                        align_bluelight=False,
                                                        window_summaries=True,
                                                        n_wells=N_WELLS)
-        
-        # TODO: Check lengths/areas of tracked objects - skeleton data timeseries
-        # for each well, check distribution of worm length/areas etc
-        check_tracked_objects(metadata, 
-                              length_minmax=(200, 2000), 
-                              width_minmax=(20, 500),
-                              save_to=Path(SAVE_DIR) / 'tracking_checks.csv')
-        
-        
-        # TODO: plot n skeletons before filtering
-        # metadata = metadata.sort_values('n_skeletons', ascending=True)
-        # sns.barplot(x=np.arange(metadata.shape[0]), y='n_skeletons', data=metadata)        
-        
+                        
         # clean results
         features, metadata = clean_summary_results(features, 
                                                    metadata,
@@ -683,7 +570,7 @@ if __name__ == '__main__':
                                                    drop_size_related_feats=False,
                                                    norm_feats_only=False,
                                                    percentile_to_use=None)
-    
+
         assert not features.isna().sum(axis=1).any()
         assert not (features.std(axis=1) == 0).any()
     
@@ -718,5 +605,9 @@ if __name__ == '__main__':
                            save_dir=Path(SAVE_DIR),
                            window=WINDOW_NUMBER)
 
-    # TODO: drop sampls wrt. area (have to be done on timeseries/trajectory data) - check true +vs vs false tracking based on area
+    # # Check length/area of tracked objects - prop bad skeletons
+    # results_df = check_tracked_objects(metadata, 
+    #                                    length_minmax=(200, 2000), 
+    #                                    width_minmax=(20, 500),
+    #                                    save_to=Path(SAVE_DIR) / 'tracking_checks.csv')
 

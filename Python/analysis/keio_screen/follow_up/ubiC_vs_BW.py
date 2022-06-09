@@ -122,7 +122,7 @@ def ubiC_plots(metadata,
             p_text = '***\nP < 0.001' if p < 0.001 else sig_asterix([p])[0] + '\nP = %.3f' % p
             trans = transforms.blended_transform_factory(ax.transData, ax.transAxes)
             ax.text(i, 1.01, p_text, fontsize=9, ha='center', va='bottom', transform=trans)
-        save_path = Path(plot_dir) / 'ubiC_vs_BW' / '{}.png'.format(feature)
+        save_path = Path(plot_dir) / 'ubiC_vs_BW' / '{}.pdf'.format(feature)
         save_path.parent.mkdir(parents=True, exist_ok=True)
         plt.savefig(save_path, dpi=300)
 
@@ -141,7 +141,7 @@ def ubiC_timeseries(metadata, project_dir=PROJECT_DIR, save_dir=SAVE_DIR, window
                                                project_dir=project_dir, 
                                                strain=control,
                                                group_by='food_type',
-                                               only_wells=None,
+                                               n_wells=6,
                                                save_dir=Path(save_dir) / 'Data' / control,
                                                verbose=False)
 
@@ -158,7 +158,7 @@ def ubiC_timeseries(metadata, project_dir=PROJECT_DIR, save_dir=SAVE_DIR, window
                                                       project_dir=project_dir, 
                                                       strain=treatment,
                                                       group_by='food_type',
-                                                      only_wells=None,
+                                                      n_wells=6,
                                                       save_dir=Path(save_dir) / 'Data' / treatment,
                                                       verbose=False)
 
@@ -210,7 +210,7 @@ def ubiC_timeseries(metadata, project_dir=PROJECT_DIR, save_dir=SAVE_DIR, window
     
             plt.tight_layout()
             ts_plot_dir.mkdir(exist_ok=True, parents=True)
-            plt.savefig(ts_plot_dir / '{0}_{1}.png'.format(treatment, mode))  
+            plt.savefig(ts_plot_dir / '{0}_{1}.pdf'.format(treatment, mode))  
     
     return
     

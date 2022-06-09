@@ -30,6 +30,7 @@ from visualisation.plotting_helper import sig_asterix
 from statistical_testing.stats_helper import do_stats
 from time_series.time_series_helper import get_strain_timeseries
 from time_series.plot_timeseries import plot_timeseries_motion_mode
+from analysis.keio_screen.check_keio_screen_worm_trajectories import check_tracked_objects
 
 #%% Globals
 
@@ -54,7 +55,7 @@ WINDOW_DICT_STIM_TYPE = {0:'prestim\n(30min)',1:'bluelight\n(30min)',2:'poststim
                          3:'prestim\n(31min)',4:'bluelight\n(31min)',5:'poststim\n(31min)',
                          6:'prestim\n(32min)',7:'bluelight\n(32min)',8:'poststim\n(32min)'}
 
-WINDOW_NUMBER = 2
+WINDOW_NUMBER = 3
 BLUELIGHT_TIMEPOINTS_MINUTES = [30,31,32]
 FPS = 25
 VIDEO_LENGTH_SECONDS = 38*60
@@ -90,14 +91,16 @@ def supernatants_stats(metadata,
     
     assert metadata.shape[0] == features.shape[0]
     
-    window_meta = metadata.query("window==@window")    
+    window_meta = metadata.query("window==@window")  
+    save_dir = Path(save_dir) / 'window_{}'.format(window)
+    save_dir.mkdir(exist_ok=True, parents=True)
 
     ### Compare each treatment to BW control
-
-    # compare all treatments to BW control (correcting for multiple comparisons)
     window_meta['treatment'] = window_meta[['drug_type','cell_extract_type','culture_type',
                                             'is_dead','solvent']
                                            ].agg('-'.join, axis=1)    
+
+    # compare all treatments to BW control (correcting for multiple comparisons)
     do_stats(metadata=window_meta,
              features=features.reindex(window_meta.index),
              group_by='treatment',
@@ -174,7 +177,7 @@ def supernatants_stats(metadata,
     # dead BW + fepD solid lysate
     fepD_dead_solid_lysate_meta = window_meta.query("culture_type=='solid' and " +
                                                     "cell_extract_type=='lysate' and " +
-                                                    "killing_method=='ultraviolet/sonication' and " +
+                                                    "killing_method=='sonication' and " +
                                                     "is_dead=='Y'")
     test_meta = pd.concat([control_meta, fepD_dead_solid_lysate_meta], axis=0)
     do_stats(metadata=test_meta, 
@@ -204,7 +207,7 @@ def supernatants_stats(metadata,
     # dead BW + fepD liquid lysate 
     fepD_dead_liquid_lysate_meta = window_meta.query("culture_type=='liquid' and " +
                                                      "cell_extract_type=='lysate' and " +
-                                                     "killing_method=='ultraviolet/sonication' and " +
+                                                     "killing_method=='sonication' and " +
                                                      "is_dead=='Y'")
     test_meta = pd.concat([control_meta, fepD_dead_liquid_lysate_meta], axis=0)
     do_stats(metadata=test_meta, 
@@ -419,9 +422,9 @@ def supernatants_stats(metadata,
              fdr_method=fdr_method)
 
     
-    ### KILLING METHOD: Effect of use of methanol in addition to UV/sonication for killing fepD lysate
+    ### KILLING METHOD: Effect of use of methanol in addition to sonication for killing fepD lysate
 
-    # fepD lysate added to live BW - sonication vs sonication/methanol
+    # fepD lysate added to live BW - sonication vs methanol/sonication
     do_stats(metadata=fepD_live_lysate_meta,
              features=features.reindex(fepD_live_lysate_meta.index),
              group_by='killing_method',
@@ -431,11 +434,11 @@ def supernatants_stats(metadata,
              pvalue_threshold=pvalue_threshold,
              fdr_method=fdr_method)
         
-    # fepD lysate added to dead BW - UV/sonication vs methanol/UV/sonication
+    # fepD lysate added to dead BW - sonication vs methanol/sonication
     do_stats(metadata=fepD_dead_lysate_meta,
              features=features.reindex(fepD_dead_lysate_meta.index),
              group_by='killing_method',
-             control='ultraviolet/sonication',
+             control='sonication',
              save_dir=save_dir / 'fepD_killing_method' / 'lysate_on_dead_BW',
              feat=feature_list,
              pvalue_threshold=pvalue_threshold,
@@ -454,7 +457,9 @@ def supernatants_plots(metadata,
     assert metadata.shape[0] == features.shape[0]
         
     window_meta = metadata.query("window==@window")
-    
+    stats_dir = Path(stats_dir) / 'window_{}'.format(window)
+    plot_dir = Path(plot_dir) / 'window_{}'.format(window)
+
     for feature in tqdm(feature_list):
         
         # boxplots for all treatments vs BW control
@@ -488,7 +493,7 @@ def supernatants_plots(metadata,
         ax.set_xticklabels([s.get_text().replace('-','\n') for s in ax.get_xticklabels()])
         plt.tight_layout(rect=(0.01, 0.01, 0.99, 0.99))
         # save figure
-        save_path = Path(plot_dir) / 'all_treatments' / '{}.png'.format(feature)
+        save_path = Path(plot_dir) / 'all_treatments' / '{}.pdf'.format(feature)
         save_path.parent.mkdir(parents=True, exist_ok=True)
         plt.savefig(save_path)
         
@@ -524,7 +529,7 @@ def supernatants_plots(metadata,
             trans = transforms.blended_transform_factory(ax.transData, ax.transAxes)
             # plt.plot([ii-.2,ii-.2,ii+.2,ii+.2],[0.98,0.99,0.99,0.98],lw=1.5,c='k',transform=trans)
             ax.text(ii, 0.97, p_text, fontsize=9, ha='center', va='bottom', transform=trans)
-        save_path = Path(plot_dir) / 'fepD_added_to_live_BW' / '{}.png'.format(feature)
+        save_path = Path(plot_dir) / 'fepD_added_to_live_BW' / '{}.pdf'.format(feature)
         save_path.parent.mkdir(parents=True, exist_ok=True)
         plt.savefig(save_path, dpi=300)
         
@@ -557,13 +562,9 @@ def supernatants_plots(metadata,
             trans = transforms.blended_transform_factory(ax.transData, ax.transAxes)
             # plt.plot([ii-.2,ii-.2,ii+.2,ii+.2],[0.98,0.99,0.99,0.98],lw=1.5,c='k',transform=trans)
             ax.text(ii, 0.97, p_text, fontsize=9, ha='center', va='bottom', transform=trans)
-        save_path = Path(plot_dir) / 'fepD_added_to_dead_BW' / '{}.png'.format(feature)
+        save_path = Path(plot_dir) / 'fepD_added_to_dead_BW' / '{}.pdf'.format(feature)
         save_path.parent.mkdir(parents=True, exist_ok=True)
         plt.savefig(save_path, dpi=300)
-    
-    
-        # SIGNIFICANT difference between lysate vs supernatant
-        # No difference whether from solid vs liquid culture
         
         
         ### SOLVENTS
@@ -595,7 +596,7 @@ def supernatants_plots(metadata,
             trans = transforms.blended_transform_factory(ax.transData, ax.transAxes)
             # plt.plot([ii-.2,ii-.2,ii+.2,ii+.2],[0.98,0.99,0.99,0.98],lw=1.5,c='k',transform=trans)
             ax.text(ii, 0.97, p_text, fontsize=9, ha='center', va='bottom', transform=trans)
-        save_path = Path(plot_dir) / 'BW_control' / 'effect_of_solvent_used' / '{}.png'.format(feature)
+        save_path = Path(plot_dir) / 'BW_control' / 'effect_of_solvent_used' / '{}.pdf'.format(feature)
         save_path.parent.mkdir(parents=True, exist_ok=True)
         plt.savefig(save_path, dpi=300)
         
@@ -630,7 +631,7 @@ def supernatants_plots(metadata,
             trans = transforms.blended_transform_factory(ax.transData, ax.transAxes)
             ax.text(ii, 1.01, p_text, fontsize=9, ha='center', va='bottom', transform=trans)
         ax.set_xticklabels(['No','Yes'])
-        save_path = Path(plot_dir) / 'BW_control' / 'effect_of_UV_killing' / '{}.png'.format(feature)
+        save_path = Path(plot_dir) / 'BW_control' / 'effect_of_UV_killing' / '{}.pdf'.format(feature)
         save_path.parent.mkdir(parents=True, exist_ok=True)
         plt.savefig(save_path, dpi=300)
         
@@ -682,7 +683,7 @@ def supernatants_plots(metadata,
         ax.set_xticklabels(['No','Yes'])
         # save figure
         save_path = Path(plot_dir) / 'fepD_lysate' / 'solid_vs_liquid_on_dead_vs_alive_BW' /\
-            '{}.png'.format(feature)
+            '{}.pdf'.format(feature)
         save_path.parent.mkdir(parents=True, exist_ok=True)
         plt.savefig(save_path, dpi=300)
     
@@ -721,7 +722,7 @@ def supernatants_plots(metadata,
                      pad=30, fontsize=18)
         # save figure
         save_path = Path(plot_dir) / 'fepD_culture_type' / 'fepD_solid_vs_liquid_culture_on_live_BW' /\
-            '{}.png'.format(feature)
+            '{}.pdf'.format(feature)
         save_path.parent.mkdir(parents=True, exist_ok=True)
         plt.savefig(save_path, dpi=300)
     
@@ -759,7 +760,7 @@ def supernatants_plots(metadata,
                      pad=30, fontsize=18)
         # save figure
         save_path = Path(plot_dir) / 'fepD_culture_type' / 'fepD_solid_vs_liquid_culture_on_dead_BW' /\
-            '{}.png'.format(feature)
+            '{}.pdf'.format(feature)
         save_path.parent.mkdir(parents=True, exist_ok=True)
         plt.savefig(save_path, dpi=300)
     
@@ -787,7 +788,7 @@ def supernatants_timeseries(metadata,
     #                                            project_dir=project_dir, 
     #                                            strain=all_treatment_control,
     #                                            group_by='treatment',
-    #                                            only_wells=None,
+    #                                            n_wells=6,
     #                                            save_dir=Path(save_dir) / 'Data' / all_treatment_control,
     #                                            verbose=False)
 
@@ -803,7 +804,7 @@ def supernatants_timeseries(metadata,
     #                                                   project_dir=project_dir, 
     #                                                   strain=treatment,
     #                                                   group_by='treatment',
-    #                                                   only_wells=None,
+    #                                                   n_wells=6,
     #                                                   save_dir=Path(save_dir) / 'Data' / treatment,
     #                                                   verbose=False)
 
@@ -855,7 +856,7 @@ def supernatants_timeseries(metadata,
     
     #         plt.tight_layout()
     #         ts_plot_dir.mkdir(exist_ok=True, parents=True)
-    #         plt.savefig(ts_plot_dir / '{0}_{1}.png'.format(treatment, mode))  
+    #         plt.savefig(ts_plot_dir / '{0}_{1}.pdf'.format(treatment, mode))  
     
     
     ### Each treatment vs control: BW vs BW + lysate // BW vs BW + supernatant
@@ -890,14 +891,14 @@ def supernatants_timeseries(metadata,
                                                project_dir=project_dir, 
                                                strain=control,
                                                group_by='treatment',
-                                               only_wells=None,
+                                               n_wells=N_WELLS,
                                                save_dir=Path(save_dir) / 'Data' / control,
                                                verbose=False)
             treatment_ts = get_strain_timeseries(metadata[metadata['treatment']==treatment], 
                                                project_dir=project_dir, 
                                                strain=treatment,
                                                group_by='treatment',
-                                               only_wells=None,
+                                               n_wells=N_WELLS,
                                                save_dir=Path(save_dir) / 'Data' / treatment,
                                                verbose=False)
             
@@ -950,7 +951,7 @@ def supernatants_timeseries(metadata,
     
             #plt.tight_layout()
             ts_plot_dir.mkdir(exist_ok=True, parents=True)
-            save_path = ts_plot_dir / '{0}_{1}.png'.format(treatment, mode)
+            save_path = ts_plot_dir / '{0}_{1}.pdf'.format(treatment, mode)
             print("Saving to: %s" % save_path)
             plt.savefig(save_path)  
     
@@ -1027,3 +1028,10 @@ if __name__ == '__main__':
                             project_dir=Path(PROJECT_DIR),
                             save_dir=Path(SAVE_DIR),
                             window=WINDOW_NUMBER)
+    
+    # # Check length/area of tracked objects - prop bad skeletons
+    # results_df = check_tracked_objects(metadata, 
+    #                                    length_minmax=(200, 2000), 
+    #                                    width_minmax=(20, 500),
+    #                                    save_to=Path(SAVE_DIR) / 'tracking_checks.csv')
+

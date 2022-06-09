@@ -359,9 +359,9 @@ def boxplots_sigfeats(features,
                       drop_insignificant=True,
                       p_value_threshold=0.05,
                       max_sig_feats=10,
-                      max_strains=100,
+                      max_strains=None,
                       sns_colour_palette="tab10",
-                      verbose=True, 
+                      verbose=True,
                       scale_outliers=True):
     """ Box plots of most significantly different features between each strain and the control 
     
@@ -398,6 +398,7 @@ def boxplots_sigfeats(features,
         features = features[feature_set]
         pvals = pvals.loc[feature_set]
 
+    assert saveDir is not None
     assert all(f in features.columns for f in pvals.index)
                     
     # Strain list
@@ -455,90 +456,75 @@ def boxplots_sigfeats(features,
         order.insert(0, control)
                                               
         # Boxplots of control vs test-strain for each top-ranked significant feature
-        plt.ioff() if saveDir else plt.ion()
         for f, feature in enumerate(strain_pvals.index.to_list()[:max_sig_feats]):
-            plt.close('all')
-            plt.style.use(CUSTOM_STYLE) 
-            sns.set_style('ticks')
-            fig = plt.figure(figsize=[10,8])
-            ax = fig.add_subplot(1,1,1)
-            sns.boxplot(x=y_class.name, 
-                        y=feature, 
-                        data=strain_data, 
-                        order=order,
-                        palette=colour_dict,
-                        showfliers=False, 
-                        showmeans=True if z_class is not None else False,
-                        #meanline=True,
-                        meanprops={"marker":"x", 
-                                   "markersize":5,
-                                   "markeredgecolor":"k"},
-                        flierprops={"marker":"x", 
-                                    "markersize":15, 
-                                    "markeredgecolor":"r"})
-            sns.stripplot(x=y_class.name, 
-                          y=feature, 
-                          data=strain_data,
-                          s=10,
-                          order=order,
-                          hue=z_class if z_class is not None else None,
-                          palette=col_dict if z_class is not None else None,
-                          color=None if z_class is not None else 'gray',
-                          marker=".",
-                          edgecolor='k',
-                          linewidth=.3) #facecolors="none"
-            ax.axes.get_xaxis().get_label().set_visible(False) # remove x axis label
-            plt.ylabel("")
-            plt.title(feature.replace('_',' '), fontsize=18, pad=20)
-            # ylab = ' '.join(feature.split('_')[:-2])
-            # if any(f in feature for f in ['length','width']):
-            #     ylab = r'{} ($\mu m$)'.format(ylab)
-            # elif 'speed' in feature:
-            #     ylab = r'{} ($\mu m/s$)'.format(ylab)
-            # elif 'area' in feature:
-            #     ylab = r'{} ($\mu m^2$)'.format(ylab)
-            # plt.ylabel(ylab, fontsize=18) #fontsize=15, labelpad=12
-
-            if z_class is not None:
-                plt.xlim(right=len(order)-0.3)
-                plt.legend(loc='upper right')
- 
-            if scale_outliers:
-                grouped_strain = strain_data.groupby(y_class.name)
-                y_bar = grouped_strain[feature].median() # median is less skewed by outliers
-                # Computing IQR
-                Q1 = grouped_strain[feature].quantile(0.25)
-                Q3 = grouped_strain[feature].quantile(0.75)
-                IQR = Q3 - Q1
-                plt.ylim(min(y_bar) - 2.5 * max(IQR), max(y_bar) + 2.5 * max(IQR))
-
-            # Add p-value to plot
-            p = strain_pvals.loc[feature]
-            text = ax.get_xticklabels()[-1]
-            assert text.get_text() == strain
-            y = (max(y_bar) + 2 * max(IQR)) if scale_outliers else strain_data[feature].max()
-            h = (max(IQR) / 8) if scale_outliers else (y - strain_data[feature].min()) / 50
-            plt.plot([0, 0, 1, 1], [y+h, y+2*h, y+2*h, y+h], lw=1.5, c='k')
-            p_text = 'P < 0.001' if p < 0.001 else 'P = %.3f' % p
-            # TODO: Write pvalue as scientific abbrev standard form 
-            ax.text(0.5, y+2*h, p_text, fontsize=12, ha='center', va='bottom')
             
-            # # Custom legend
-            # from matplotlib import patches
-            # patch_list = []
-            # for l, key in enumerate(colour_dict.keys()):
-            #     patch = patches.Patch(color=colour_dict[key], label=key)
-            #     patch_list.append(patch)
-            # plt.tight_layout(rect=[0.04, 0, 0.84, 0.96])
-            # plt.legend(handles=patch_list, labels=colour_dict.keys(), loc=(1.02, 0.8),\
-            #           borderaxespad=0.4, frameon=False, fontsize=15)
-            plt.subplots_adjust(left=0.15)
-            
+            plot_path = saveDir / ('{0}_'.format(s + 1) + str(strain)) /\
+                        ('{0}_'.format(f + 1) + feature + '.pdf')
+            if plot_path.exists():
+                continue
+            else:
+                plot_path.parent.mkdir(exist_ok=True, parents=True)
+    
+                plt.close('all')
+                plt.style.use(CUSTOM_STYLE) 
+                sns.set_style('ticks')
+                fig = plt.figure(figsize=[10,8])
+                ax = fig.add_subplot(1,1,1)
+                sns.boxplot(x=y_class.name, 
+                            y=feature, 
+                            data=strain_data, 
+                            order=order,
+                            palette=colour_dict,
+                            showfliers=False, 
+                            showmeans=True if z_class is not None else False,
+                            #meanline=True,
+                            meanprops={"marker":"x", 
+                                       "markersize":5,
+                                       "markeredgecolor":"k"},
+                            flierprops={"marker":"x", 
+                                        "markersize":15, 
+                                        "markeredgecolor":"r"})
+                sns.stripplot(x=y_class.name, 
+                              y=feature, 
+                              data=strain_data,
+                              s=10,
+                              order=order,
+                              hue=z_class if z_class is not None else None,
+                              palette=col_dict if z_class is not None else None,
+                              color=None if z_class is not None else 'gray',
+                              marker=".",
+                              edgecolor='k',
+                              linewidth=.3) #facecolors="none"
+                ax.axes.get_xaxis().get_label().set_visible(False) # remove x axis label
+                plt.ylabel("")
+                plt.title(feature.replace('_',' '), fontsize=18, pad=20)
+    
+                if z_class is not None:
+                    plt.xlim(right=len(order)-0.3)
+                    plt.legend(loc='upper right')
+     
+                if scale_outliers:
+                    grouped_strain = strain_data.groupby(y_class.name)
+                    y_bar = grouped_strain[feature].median() # median is less skewed by outliers
+                    # compute IQR
+                    Q1 = grouped_strain[feature].quantile(0.25)
+                    Q3 = grouped_strain[feature].quantile(0.75)
+                    IQR = Q3 - Q1
+                    plt.ylim(min(y_bar) - 2.5 * max(IQR), max(y_bar) + 2.5 * max(IQR))
+    
+                # Add p-value to plot
+                p = strain_pvals.loc[feature]
+                text = ax.get_xticklabels()[-1]
+                assert text.get_text() == strain
+                y = (max(y_bar) + 2 * max(IQR)) if scale_outliers else strain_data[feature].max()
+                h = (max(IQR) / 8) if scale_outliers else (y - strain_data[feature].min()) / 50
+                plt.plot([0, 0, 1, 1], [y+h, y+2*h, y+2*h, y+h], lw=1.5, c='k')
+                p_text = 'P < 0.001' if p < 0.001 else 'P = %.3f' % p
+                ax.text(0.5, y+2*h, p_text, fontsize=12, ha='center', va='bottom')
+                plt.subplots_adjust(left=0.15)
+                
             # Save figure
             if saveDir:
-                plot_path = saveDir / ('{0}_'.format(s + 1) + str(strain)) /\
-                                      ('{0}_'.format(f + 1) + feature + '.pdf')
-                plot_path.parent.mkdir(exist_ok=True, parents=True)
                 plt.savefig(plot_path, dpi=300)
             else:
                 plt.show(); plt.pause(2)

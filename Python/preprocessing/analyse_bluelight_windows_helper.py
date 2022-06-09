@@ -19,6 +19,10 @@ def optimal_window_ziwei_seconds(x):
     """ x (in minutes) converted to window (in seconds) """
     return print("%d:%d, %d:%d, %d:%d" % (x*60-10,x*60,x*60+5,x*60+15,x*60+15,x*60+25)) 
 
+def keio_window_30seconds(x):
+    """ x (in minutes) converted to window (in seconds) """
+    return print("%d:%d" % (x*60+30,x*60+60))
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Generate optimal bluelight window timepoints \
                                      (seconds) based on 'Ziwei's optimal windows'")
@@ -29,3 +33,6 @@ if __name__ == "__main__":
     
     for i in args.bluelight_timepoints:
         optimal_window_ziwei_seconds(i)
+        
+    for i in args.bluelight_timepoints:
+        keio_window_30seconds(i)

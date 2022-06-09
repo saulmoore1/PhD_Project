@@ -43,6 +43,7 @@ FPS = 25
 VIDEO_LENGTH_SECONDS = 38*60
 BLUELIGHT_TIMEPOINTS_MINUTES = [30,31,32]
 BLUELIGHT_WINDOWS_ONLY_TS = True
+
 BIN_SIZE_SECONDS = 5
 SMOOTH_WINDOW_SECONDS = 5
 
@@ -199,7 +200,7 @@ def plot_1window_fepD_vs_BW(metadata,
                  loc='left', pad=30, fontsize=18)
 
     if save_dir is not None:
-        save_path = Path(save_dir) / '{}.png'.format(feat)
+        save_path = Path(save_dir) / '{}.pdf'.format(feat)
         save_path.parent.mkdir(parents=True, exist_ok=True)
         plt.savefig(save_path, dpi=300)
     else:
@@ -286,7 +287,7 @@ def plot_1worm_fepD_vs_BW(metadata,
     ax.set_title(worm_strain, loc='left', pad=30, fontsize=18)
 
     if save_dir is not None:
-        save_path = Path(save_dir) / '{}.png'.format(feat)
+        save_path = Path(save_dir) / '{}.pdf'.format(feat)
         save_path.parent.mkdir(parents=True, exist_ok=True)
         plt.savefig(save_path, dpi=300)
     else:
@@ -416,7 +417,7 @@ if __name__ == '__main__':
                                                           project_dir=PROJECT_DIR, 
                                                           strain=bacteria,
                                                           group_by='bacteria_strain',
-                                                          only_wells=None,
+                                                          n_wells=N_WELLS,
                                                           save_dir=Path(SAVE_DIR) / 'Data' / worm,
                                                           verbose=False)
     
@@ -450,6 +451,6 @@ if __name__ == '__main__':
     
             # save plot
             ts_plot_dir.mkdir(exist_ok=True, parents=True)
-            plt.savefig(ts_plot_dir / '{0}_{1}.png'.format(worm, mode), dpi=300)  
+            plt.savefig(ts_plot_dir / '{0}_{1}.pdf'.format(worm, mode), dpi=300)  
             plt.close()
     

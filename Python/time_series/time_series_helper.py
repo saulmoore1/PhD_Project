@@ -15,8 +15,10 @@ def get_strain_timeseries(metadata,
                           strain='BW', 
                           group_by='bacteria_strain', 
                           save_dir=None,
+                          n_wells=96,
                           only_wells=None,
-                          verbose=True):
+                          verbose=True,
+                          return_error_log=False):
     """ Load saved timeseries reults for strain, or compile from featuresN timeseries data """
 
     import pandas as pd
@@ -42,18 +44,28 @@ def get_strain_timeseries(metadata,
         video_dict = {vid : sorted(grouped_video.get_group(vid)['well_name'].unique()) 
                       for vid in video_list}     
           
+        error_log = []
         strain_timeseries_list = []
         for imgstore, wells in tqdm(video_dict.items()):
             
             filename = Path(project_dir) / 'Results' / imgstore / 'metadata_featuresN.hdf5'
-            df = read_timeseries(filename, 
-                                 names=['worm_index','timestamp','motion_mode','well_name'],
-                                 only_wells=only_wells)
-            df['filename'] = filename
-            if len(wells) == 1:
-                df['well_name'] = wells[0]
-    
-            strain_timeseries_list.append(df)
+
+            try:
+                df = read_timeseries(filename, 
+                                     names=['worm_index','timestamp','motion_mode','well_name'],
+                                     only_wells=wells if n_wells != 6 else None)
+                
+                df['filename'] = filename
+                if len(wells) == 1:
+                    df['well_name'] = wells[0]
+                                    
+                strain_timeseries_list.append(df)
+                
+            except Exception as E:
+                if verbose:
+                    print("ERROR reading file!")
+                    print(E)
+                error_log.append(filename)
                 
         # compile timeseries data for strain 
         strain_timeseries = pd.concat(strain_timeseries_list, axis=0, ignore_index=True)
@@ -65,7 +77,10 @@ def get_strain_timeseries(metadata,
             save_dir.mkdir(exist_ok=True, parents=True)
             strain_timeseries.to_csv(save_path, index=False)
                  
-    return strain_timeseries
+    if return_error_log:
+        return strain_timeseries, error_log
+    else:
+        return strain_timeseries
 
 def plot_timeseries_phenix(df, colour_dict, window=1000, acclimtime=0, annotate=True,\
                            legend=True, ax=None, count=False, show=True, **kwargs):

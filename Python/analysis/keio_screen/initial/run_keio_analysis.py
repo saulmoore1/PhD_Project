@@ -18,8 +18,9 @@ THRESHOLD MAX DISTANCE FOR CLUSTERING: 8 (Tierpsy16, fdr_bh, all strains)
 import argparse
 import numpy as np
 import pandas as pd
+import seaborn as sns
 from time import time
-#from tqdm import tqdm
+from tqdm import tqdm
 from pathlib import Path
 from matplotlib import pyplot as plt
 from scipy.stats import zscore # levene, ttest_ind, f_oneway, kruskal
@@ -34,14 +35,16 @@ from clustering.hierarchical_clustering import plot_clustermap, plot_barcode_hea
 from feature_extraction.decomposition.pca import plot_pca, remove_outliers_pca
 from feature_extraction.decomposition.tsne import plot_tSNE
 from feature_extraction.decomposition.umap import plot_umap
-#from visualisation.super_plots import superplot
-from visualisation.plotting_helper import errorbar_sigfeats, boxplots_sigfeats # boxplots_grouped, 
-                                        # barplot_sigfeats, plot_day_variation
+from time_series.time_series_helper import get_strain_timeseries
+from time_series.plot_timeseries import plot_timeseries_motion_mode
+from visualisation.plotting_helper import errorbar_sigfeats, boxplots_sigfeats 
+# from visualisation.plotting_helper import boxplots_grouped, barplot_sigfeats, plot_day_variation
+# from visualisation.super_plots import superplot
 
 #%% GLOBALS
 
-JSON_PARAMETERS_PATH = "analysis/20210406_parameters_keio_screen.json"
-#JSON_PARAMETERS_PATH = "analysis/20210914_parameters_keio_screen.json"
+#JSON_PARAMETERS_PATH = "analysis/20210406_parameters_keio_screen.json"
+JSON_PARAMETERS_PATH = "analysis/20210914_parameters_keio_screen.json"
 
 N_LOWEST_PVAL = 100
 SUBSET_HIT_STRAINS = False
@@ -50,7 +53,7 @@ TOP_N_HITS = 10
 METHOD = 'complete' # 'complete','linkage','average','weighted','centroid'
 METRIC = 'euclidean' # 'euclidean','cosine','correlation'
 
-# TODO: dendrogram cut-off dict: 1800 vs 4000 strains, settle on complete or euclidean
+# TODO: dendrogram cut-off dict: 1800 vs 4000 strains, settle on complete / euclidean
 
 COG_category_dict = {'J' : 'Translation, ribosomal structure, and biogenesis',
                      'K' : 'Transcription',
@@ -73,6 +76,14 @@ COG_category_dict = {'J' : 'Translation, ribosomal structure, and biogenesis',
                      'U' : 'Function unknown', 
                      'V' : 'Function unknown',
                      'Unknown' : 'Function unknown'}
+
+TIMESERIES_STRAIN_LIST = ['fepD','fepB','fepC','fepG','fes',
+                          'nuoA','nuoB','nuoC','nuoF','nuoG','nuoH','nuoK','nuoL','nuoM','nuoN',
+                          'cyoA','cyoC','cyoD','cyoE',
+                          'sdhA','sdhB','sdhC','sdhD',
+                          'atpA','atpB','atpC','atpD','atpE','atpF','atpH',
+                          'entA','entB','entC','entE','entF']
+FPS = 25
 
 #%% FUNCTIONS
 
@@ -139,12 +150,12 @@ def compare_strains_keio(features, metadata, args):
     control_features = features.reindex(control_metadata.index)
 
     # Clean data after subset - to remove features with zero std
-    control_feat_clean, control_meta_clean = clean_summary_results(control_features, 
+    control_features, control_metadata = clean_summary_results(control_features, 
                                                                    control_metadata, 
                                                                    max_value_cap=False,
                                                                    imputeNaN=False)                  
     if args.analyse_control:
-        control_variation(control_feat_clean, control_meta_clean, args,
+        control_variation(control_features, control_metadata, args,
                           variables=[k for k in args.control_dict.keys() if k != grouping_var],
                           n_sig_features=10)
 
@@ -152,6 +163,8 @@ def compare_strains_keio(features, metadata, args):
         print("\nCollapsing control data (mean of each day)")
         features, metadata = average_plate_control_data(features, metadata)
                             
+    ##### STATISTICS #####
+
     # Record mean sample size per group
     mean_sample_size = int(np.round(metadata.join(features).groupby([grouping_var], 
                                                                     as_index=False).size().mean()))
@@ -161,8 +174,6 @@ def compare_strains_keio(features, metadata, args):
     stats_dir =  save_dir / grouping_var / "Stats" / args.fdr_method
     plot_dir = save_dir / grouping_var / "Plots" / args.fdr_method
        
-    ##### STATISTICS #####
- 
 # =============================================================================
 #     ##### Pairplot Tierpsy Features - Pairwise correlation matrix #####
 #     if args.n_top_feats == 16:
@@ -336,7 +347,7 @@ def compare_strains_keio(features, metadata, args):
                           feature_set=None,
                           saveDir=plot_dir / 'paired_boxplots',
                           p_value_threshold=args.pval_threshold,
-                          drop_insignificant=True if len(hit_strains) > 0 else False,
+                          drop_insignificant=False, #True if len(hit_strains) > 0 else False,
                           max_sig_feats=args.n_sig_features,
                           max_strains=N_LOWEST_PVAL if len(hit_strains_nsig) == 0 else None,
                           sns_colour_palette="tab10",
@@ -393,20 +404,21 @@ def compare_strains_keio(features, metadata, args):
 #                       dodge=True)
 # =============================================================================
 
-        # from tierpsytools.analysis.significant_features import plot_feature_boxplots
-        # plot_feature_boxplots(feat_to_plot=features,
-        #                       y_class=metadata[grouping_var],
-        #                       scores=pvals_t.rank(axis=1),
-        #                       pvalues=np.asarray(pvals_t).flatten(),
-        #                       saveto=None,
-        #                       close_after_plotting=True)
-           
+# =============================================================================
+#         from tierpsytools.analysis.significant_features import plot_feature_boxplots
+#         plot_feature_boxplots(feat_to_plot=features,
+#                               y_class=metadata[grouping_var],
+#                               scores=pvals_t.rank(axis=1),
+#                               pvalues=np.asarray(pvals_t).flatten(),
+#                               saveto=None,
+#                               close_after_plotting=True)
+# =============================================================================
+
     ##### Hierarchical Clustering Analysis #####
         
     # Z-normalise control data
     control_featZ = control_features.apply(zscore, axis=0)
     #featZ = (features-features.mean())/features.std() # minus mean, divide by std
-    
     #from tierpsytools.preprocessing.scaling_class import scalingClass
     #scaler = scalingClass(scaling='standardize')
     #featZ = scaler.fit_transform(features)
@@ -427,23 +439,32 @@ def compare_strains_keio(features, metadata, args):
                          saveto=control_clustermap_path,
                          label_size=15,
                          show_xlabels=False)
+    
+    # save feature order to file
+    control_feature_order = np.array(control_featZ.columns)[cg.dendrogram_col.reordered_ind]
+    control_feature_order_df = pd.DataFrame(columns=['feature_name'], 
+                                            index=range(1, len(control_feature_order) + 1),
+                                            data=control_feature_order)
+    control_feature_order_path = control_clustermap_path.parent / (control_clustermap_path.stem + 
+                                                                   '_feature_order.csv')
+    control_feature_order_df.to_csv(control_feature_order_path, header=True, index=True)
+
     # control clustermap with labels
     if args.n_top_feats <= 256:
         control_clustermap_path = plot_dir / 'heatmaps' / 'date_clustermap_label.pdf'
-        cg = plot_clustermap(control_featZ, control_metadata,
+        cg = plot_clustermap(control_featZ, 
+                             control_metadata,
                              group_by=([grouping_var] if grouping_var == 'date_yyyymmdd' 
                                        else [grouping_var, 'date_yyyymmdd']),
                              method=METHOD, 
                              metric=METRIC,
-                             figsize=[20,10],
-                             sub_adj={'bottom':0.5,'left':0,'top':1,'right':0.85},
+                             figsize=[30,10],
+                             sub_adj={'bottom':(0.2 if args.n_top_feats >= 256 else 0.5),
+                                      'left':0,'top':1,'right':0.85},
                              saveto=control_clustermap_path,
-                             label_size=(15,15),
+                             label_size=(2 if args.n_top_feats >= 256 else 15, 15),
                              show_xlabels=True)
-
-    #col_linkage = cg.dendrogram_col.calculated_linkage
-    control_clustered_features = np.array(control_featZ.columns)[cg.dendrogram_col.reordered_ind]
-
+    
     ### Full clustermap 
 
     # Z-normalise data for all strains
@@ -466,7 +487,7 @@ def compare_strains_keio(features, metadata, args):
                          sub_adj={'bottom':0.01,'left':0,'top':1,'right':0.95},
                          saveto=full_clustermap_path,
                          label_size=8,
-                         show_xlabels=False)
+                         show_xlabels=False) # no feature labels
     
     if args.n_top_feats <= 256:
         full_clustermap_path = plot_dir / 'heatmaps' / (grouping_var + '_clustermap_label.pdf')
@@ -476,24 +497,31 @@ def compare_strains_keio(features, metadata, args):
                              method=METHOD, 
                              metric=METRIC,
                              figsize=[20,40],
-                             sub_adj={'bottom':0.18,'left':0,'top':1,'right':0.95},
+                             sub_adj={'bottom':0.2,'left':0,'top':1,'right':0.95},
                              saveto=full_clustermap_path,
-                             label_size=(15,10),
+                             label_size=(2 if args.n_top_feats >= 256 else 15, 15),
                              show_xlabels=True)
     
-    # clustered feature order for all strains
-    _ = np.array(featZ.columns)[fg.dendrogram_col.reordered_ind]
-    
-    pvals_heatmap = anova_table.loc[control_clustered_features, 'pvals']
-    pvals_heatmap.name = 'P < {}'.format(args.pval_threshold)
+    # save clustered feature order for all strains
+    full_feature_order = np.array(featZ.columns)[fg.dendrogram_col.reordered_ind]
+    full_feature_order_df = pd.DataFrame(columns=['feature_name'], 
+                                                index=range(1, len(full_feature_order) + 1),
+                                                data=full_feature_order)
+    full_feature_order_path = full_clustermap_path.parent / (full_clustermap_path.stem + 
+                                                                '_feature_order.csv')
+    full_feature_order_df.to_csv(full_feature_order_path, header=True, index=True)
 
+    ### Heatmap - features (x-axis columns) ordered by control clustered feature order
+    
+    pvals_heatmap = anova_table.loc[control_feature_order, 'pvals']
+    pvals_heatmap.name = 'P < {}'.format(args.pval_threshold)
     assert all(f in featZ.columns for f in pvals_heatmap.index)
             
     # Plot heatmap (averaged for each sample)
     if len(metadata[grouping_var].unique()) < 250:
         print("\nPlotting barcode heatmap")
         heatmap_path = plot_dir / 'heatmaps' / (grouping_var + '_heatmap.pdf')
-        plot_barcode_heatmap(featZ=featZ[control_clustered_features], 
+        plot_barcode_heatmap(featZ=featZ[control_feature_order], 
                              meta=metadata, 
                              group_by=[grouping_var], 
                              pvalues_series=pvals_heatmap,
@@ -606,7 +634,108 @@ def compare_strains_keio(features, metadata, args):
                   label_size=8,
                   marker_size=20,
                   sns_colour_palette="plasma")   
+
+    return
+
+def selected_strains_timeseries(metadata, 
+                                project_dir, 
+                                save_dir, 
+                                strain_list=['fepD'],
+                                n_wells=96,
+                                bluelight_stim_type='bluelight',
+                                video_length_seconds=6*60,
+                                bluelight_timepoints_seconds=[(60,70),(160,170),(260,270)],
+                                motion_modes=['forwards','stationary','backwards'],
+                                smoothing=10):
+    """ Timeseries plots for standard imaging and bluelight delivery protocol for the initial and 
+        confirmation screening of Keio Collection. Bluelight stimulation is delivered after 5 mins
+        pre-stimulus, 10 secs stimulus every 60 secs, repeated 3 times (6 mins total), 
+        followed by 5 mins post-stimulus (16 minutes total)
+    """
+            
+    if strain_list is None:
+        strain_list = list(metadata['gene_name'].unique())
+    else:
+        assert isinstance(strain_list, list)
+        assert all(s in metadata['gene_name'].unique() for s in strain_list)
+        strain_list = [s for s in strain_list if s != 'wild_type']
     
+    metadata['imgstore_name'] = metadata['imgstore_name_{}'.format(bluelight_stim_type)]
+    
+    bluelight_frames = [(i*FPS, j*FPS) for (i, j) in bluelight_timepoints_seconds]
+    
+    # get timeseries for BW
+    BW_ts = get_strain_timeseries(metadata[metadata['gene_name']=='wild_type'], 
+                                  project_dir=project_dir, 
+                                  strain='wild_type',
+                                  group_by='gene_name',
+                                  n_wells=n_wells,
+                                  save_dir=Path(save_dir) / 'timeseries' / 'Data' /\
+                                      bluelight_stim_type / 'wild_type')
+    
+    for strain in tqdm(strain_list):
+        col_dict = dict(zip(['wild_type', strain], sns.color_palette("pastel", 2)))
+
+        # get timeseries for strain
+        strain_ts = get_strain_timeseries(metadata[metadata['gene_name']==strain], 
+                                          project_dir=project_dir, 
+                                          strain=strain,
+                                          group_by='gene_name',
+                                          n_wells=n_wells,
+                                          save_dir=Path(save_dir) / 'timeseries' / 'Data' /\
+                                              bluelight_stim_type / strain)
+    
+        for mode in motion_modes:
+            print("Plotting timeseries for motion mode %s fraction for %s vs BW.." % (mode, strain))
+
+            plt.close('all')
+            fig, ax = plt.subplots(figsize=(12,5), dpi=200)
+    
+            ax = plot_timeseries_motion_mode(df=BW_ts,
+                                             window=smoothing*FPS,
+                                             error=True,
+                                             mode=mode,
+                                             max_n_frames=video_length_seconds*FPS,
+                                             title=None,
+                                             saveAs=None,
+                                             ax=ax,
+                                             bluelight_frames=(bluelight_frames if 
+                                                               bluelight_stim_type == 'bluelight'
+                                                               else None),
+                                             colour=col_dict['wild_type'],
+                                             alpha=0.25)
+            
+            ax = plot_timeseries_motion_mode(df=strain_ts,
+                                             window=smoothing*FPS,
+                                             error=True,
+                                             mode=mode,
+                                             max_n_frames=video_length_seconds*FPS,
+                                             title=None,
+                                             saveAs=None,
+                                             ax=ax,
+                                             bluelight_frames=(bluelight_frames if 
+                                                               bluelight_stim_type == 'bluelight'
+                                                               else None),
+                                             colour=col_dict[strain],
+                                             alpha=0.25)
+        
+            xticks = np.linspace(0, video_length_seconds*FPS, int(video_length_seconds/60)+1)
+            ax.set_xticks(xticks)
+            ax.set_xticklabels([str(int(x/FPS/60)) for x in xticks])   
+            ax.set_xlabel('Time (minutes)', fontsize=12, labelpad=10)
+            ax.set_ylabel('Fraction {}'.format(mode), fontsize=12, labelpad=10)
+            ax.set_title('BW vs {}'.format(strain), fontsize=12, pad=10)
+            ax.legend(['BW', strain], fontsize=12, frameon=False, loc='best')
+    
+            # save plot
+            ts_plot_dir = save_dir / 'timeseries' / 'Plots' / '{0}'.format(strain)
+            ts_plot_dir.mkdir(exist_ok=True, parents=True)
+            save_path = ts_plot_dir / 'motion_mode_{0}_{1}.pdf'.format(mode, bluelight_stim_type)
+            print("Saving to: %s" % save_path)
+            plt.savefig(save_path)
+
+    return
+
 #%% MAIN
 if __name__ == "__main__":
     tic = time()
@@ -643,6 +772,25 @@ if __name__ == "__main__":
         features = features.reindex(metadata.index)
 
     compare_strains_keio(features, metadata, args)
+    
+    # bluelight time-series
+    selected_strains_timeseries(metadata, 
+                                project_dir=Path(args.project_dir), 
+                                save_dir=Path(args.save_dir), 
+                                strain_list=TIMESERIES_STRAIN_LIST,
+                                n_wells=96,
+                                bluelight_stim_type='bluelight',
+                                video_length_seconds=6*60,
+                                smoothing=10)
+    # pre-stimulus time-series
+    selected_strains_timeseries(metadata, 
+                            project_dir=Path(args.project_dir), 
+                            save_dir=Path(args.save_dir), 
+                            strain_list=TIMESERIES_STRAIN_LIST,
+                            n_wells=96,
+                            bluelight_stim_type='prestim',
+                            video_length_seconds=5*60,
+                            smoothing=10)
     
     toc = time()
     print("\nDone in %.1f seconds (%.1f minutes)" % (toc - tic, (toc - tic) / 60))  

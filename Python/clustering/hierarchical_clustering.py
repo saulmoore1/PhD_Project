@@ -8,12 +8,7 @@ Hierarchical Clustering and Heatmaps
 
 """
 
-#%% Imports + pre-amble
-
-import sys
-
-# Path to Github helper functions (USER-DEFINED path to local copy of Github repo)
-sys.path.insert(0, '/Users/sm5911/Documents/GitHub/PhD_Project/Python/')
+#%% Imports
 
 # Custom style for plotting
 CUSTOM_STYLE = 'visualisation/style_sheet_20210126.mplstyle'
@@ -115,14 +110,17 @@ def plot_clustermap(featZ,
                                   #'shrink': 1,
                                   'ticks': [-2, -1, 0, 1, 2],
                                   'drawedges': False},
-                        linewidths=0)
-
+                        linewidths=0)  
+    #col_linkage = cg.dendrogram_col.calculated_linkage
+    
+    if show_xlabels:
+        labels = cg.ax_heatmap.xaxis.get_majorticklabels()
+        plt.setp(labels, rotation=90, fontsize=x_label_size)
+        
+    cg.ax_heatmap.set_yticklabels(cg.ax_heatmap.get_yticklabels(), rotation=0, 
+                                  fontsize=y_label_size, ha='left', va='center') 
     #plt.setp(cg.ax_heatmap.yaxis.get_majorticklabels(), fontsize=15)
     #cg.ax_heatmap.axes.set_xticklabels([]); cg.ax_heatmap.axes.set_yticklabels([])
-    if show_xlabels: # Top256 features * 3 bluelight stimuli = 768 features
-        plt.setp(cg.ax_heatmap.xaxis.get_majorticklabels(), rotation=90, fontsize=x_label_size)
-    cg.ax_heatmap.set_yticklabels(cg.ax_heatmap.get_yticklabels(), rotation=0, fontsize=y_label_size, 
-                                  ha='left', va='center')    
     
     if bluelight_col_colours:
         patch_list = []

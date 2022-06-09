@@ -70,6 +70,109 @@ def compile_n_worms_frac(dirpath, strain_list, mode=STIM_TYPE):
     
     return frac_n_worms_tracked
 
+def check_tracked_objects(metadata, 
+                          length_minmax=(200, 2000), 
+                          width_minmax=(20, 500), 
+                          save_to=None,
+                          max_n_videos=50):
+    """ Load trajectories data for each well and calculate the proportion of tracked objects that
+        are within normal range for worm area and length (ie. real worms)
+    """
+    
+    from tierpsytools.read_data.get_timeseries import get_timeseries
+    from tierpsytools.analysis.count_worms import n_worms_per_frame, _fraction_of_time_with_n_worms
+    
+    # if window summaries, get filenames from first window only (to prevent duplicate filenames)
+    if 'window' in metadata.columns:
+        metadata = metadata.query("window==0")
+    # TODO: if align bluelight, select only featuresN for given bluelight condition
+        
+    metadata = metadata.sort_values(by=['featuresN_filename', 'well_name'], ascending=True)
+    
+    area_minmax = (length_minmax[0] * width_minmax[0], length_minmax[1] * width_minmax[1])
+    
+    # subset metadata for random sample
+    if max_n_videos:
+        random_sample_idx = np.random.choice(metadata.index, size=max_n_videos, replace=False)
+        metadata = metadata.reindex(random_sample_idx)
+    else:
+        max_n_videos = metadata.shape[0]
+    
+    results_df = pd.DataFrame(index=range(metadata.shape[0]),columns=['n_worms_mean',
+                                                                      'prop_bad_size',
+                                                                      'prop_zero_worms',
+                                                                      'traj_duration_mean'])
+    for i, file in enumerate(tqdm(metadata['featuresN_filename'])):
+        
+        # read video time-series (no wells needed as 6-well plates map 1-to-1 wells with cameras)
+        ts = get_timeseries(root_dir=Path(file).parent,
+                            names=None,
+                            only_wells=None)[1][0]
+        
+        area_mask = np.logical_and(ts['area'] > area_minmax[0], 
+                                   ts['area'] < area_minmax[1])
+        length_mask = np.logical_and(ts['length'] > length_minmax[0], 
+                                     ts['length'] < length_minmax[1])
+        bad_worm_mask = np.logical_and(area_mask, length_mask)
+        prop_bad_worm = (ts.shape[0] - ts[bad_worm_mask].shape[0]) / ts.shape[0]
+        print("%.1f%% of tracked objects are suspected bad worms based on length or area"\
+              % (prop_bad_worm * 100))
+        results_df.loc[i,'prop_bad_size'] = prop_bad_worm
+        
+        # compute number of worms per frame
+        n_worms = pd.DataFrame(n_worms_per_frame(ts['timestamp']))
+        results_df.loc[i,'n_worms_mean'] = n_worms['n_worms'].mean()
+        
+        # compute fraction of time with no worms tracked
+        frac_worms = pd.DataFrame(_fraction_of_time_with_n_worms(n_worms_per_frame(ts['timestamp']), 
+                                                                 max_n=0))
+        results_df.loc[i,'prop_zero_worms'] = frac_worms.loc[0,'time_fraction']
+        
+        # compute trajectory duration (seconds)
+        worm_traj_duration = ts.groupby('worm_index').count()['timestamp']
+        results_df.loc[i,'traj_duration_mean'] = worm_traj_duration.mean()
+                
+        # TODO: plot n skeletons before filtering
+        # metadata = metadata.sort_values('n_skeletons', ascending=True)
+        # sns.barplot(x=np.arange(metadata.shape[0]), y='n_skeletons', data=metadata)        
+
+# =============================================================================
+#     ##### Trajectory duration - barplot of frequency of trajectories ranked by n frames       
+#     
+#     traj_duration = pd.concat(traj_duration_list, ignore_index=True).reset_index(drop=False)
+#     traj_duration = traj_duration.sort_values(by='timestamp', ascending=True)
+#     
+#     # create bins
+#     bins = [int(b) for b in np.linspace(0, 5*60*FPS, 31)] # 5-minute videos
+#     #bins = np.linspace(0, np.round(traj_duration['timestamp'].max(), -2), 16)
+#     traj_duration['traj_binned_freq'] = pd.cut(x=traj_duration['timestamp'], bins=bins)
+#     traj_duration = traj_duration.dropna(axis=0, how='any') # drop NaN value timestamps > 7500
+#     traj_freq = traj_duration.groupby(traj_duration['traj_binned_freq'], as_index=False).count()
+# 
+#     plt.close('all')
+#     fig, ax = plt.subplots(figsize=(15,6), dpi=150)
+#     sns.barplot(x=traj_freq['traj_binned_freq'].astype(str), 
+#                 y=traj_freq['timestamp'], alpha=0.8)        
+#     ax.set_xticks([x - 0.5 for x in ax.get_xticks()])
+#     ax.set_xticklabels([str(int(b / FPS)) for b in bins], rotation=45)
+#     
+#     if max(bins) > traj_duration['timestamp'].max():
+#         ax.set_xlim(0, np.where(bins > traj_duration['timestamp'].max())[0][0])
+#         
+#     ax.set_xlabel("Trajectory duration (seconds)", fontsize=15, labelpad=10)
+#     ax.set_ylabel("Number of worm trajectories (n=%d videos)" % max_n_videos, fontsize=15, labelpad=10)
+#     
+#     # save trajectory duration histogram
+#     if save_to is not None:
+#         Path(save_to).parent.mkdir(exist_ok=True, parents=True)
+#         plt.savefig(save_to)
+# =============================================================================
+    if save_to is not None:
+        Path(save_to).parent.mkdir(exist_ok=True, parents=True)
+        results_df.to_csv(save_to, header=True, index=False)
+
+    return results_df
+
 #%% Main
 
 if __name__ == "__main__":

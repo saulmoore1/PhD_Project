@@ -19,6 +19,7 @@ import argparse
 import numpy as np
 import pandas as pd
 import seaborn as sns
+from tqdm import tqdm
 from pathlib import Path
 from matplotlib import transforms
 from matplotlib import pyplot as plt
@@ -28,7 +29,8 @@ from preprocessing.compile_hydra_data import process_metadata, process_feature_s
 from filter_data.clean_feature_summaries import clean_summary_results
 from statistical_testing.stats_helper import pairwise_ttest
 from statistical_testing.perform_keio_stats import df_summary_stats
-#from time_series.plot_timeseries import add_bluelight_to_plot
+from time_series.time_series_helper import get_strain_timeseries
+from time_series.plot_timeseries import plot_timeseries_motion_mode
 
 #%% Globals
 
@@ -42,14 +44,20 @@ ALL_WINDOWS = False
 WINDOW_LIST = [3,6,9,12,15,18,21,24] # if ALL_WINDOWS is False
 
 # mapping dictionary - windows summary window number to corresponding timestamp (seconds)
-WINDOW_FRAME_DICT = {0:(300,310), 1:(1790,1800), 2:(1805,1815), 3:(1815,1825),
-                     4:(3590,3600), 5:(3605,3615), 6:(3615,3625), 7:(5390,5400),
-                     8:(5405,5415), 9:(5415,5425), 10:(7190,7200), 11:(7205,7215),
-                     12:(7215,7225), 13:(8990,9000), 14:(9005,9015), 15:(9015,9025),
-                     16:(10790,10800), 17:(10805,10815), 18:(10815,10825), 19:(12590,12600),
-                     20:(12605,12615), 21:(12615,12625), 22:(14390,14400), 23:(14405,14415),
-                     24:(14415,14425), 25:(16190,16200), 26:(16205,16215), 27:(16215,16225),
-                     28:(17700,17710)}
+WINDOW_DICT_SECONDS = {0:(300,310), 1:(1790,1800), 2:(1805,1815), 3:(1815,1825),
+                       4:(3590,3600), 5:(3605,3615), 6:(3615,3625), 7:(5390,5400),
+                       8:(5405,5415), 9:(5415,5425), 10:(7190,7200), 11:(7205,7215),
+                       12:(7215,7225), 13:(8990,9000), 14:(9005,9015), 15:(9015,9025),
+                       16:(10790,10800), 17:(10805,10815), 18:(10815,10825), 19:(12590,12600),
+                       20:(12605,12615), 21:(12615,12625), 22:(14390,14400), 23:(14405,14415),
+                       24:(14415,14425), 25:(16190,16200), 26:(16205,16215), 27:(16215,16225),
+                       28:(17700,17710)}
+
+FPS = 25
+BLUELIGHT_TIMEPOINTS_MINUTES = [30,60,90,120,150,180,210,240]
+VIDEO_LENGTH_SECONDS = 300*60
+
+motion_modes = ['forwards','stationary','backwards']
 
 #%% Functions
 
@@ -180,13 +188,6 @@ def analyse_fast_effect(features, metadata, window_list, args):
             Q3 = grouped_strain[FEATURE].quantile(0.75)
             IQR = Q3 - Q1
             plt.ylim(-0.02, max(y_bar) + 3 * max(IQR))
-
-        # # add bluelight windows to plot
-        # if ALL_WINDOWS:
-        #     bluelight_times = [WINDOW_FRAME_DICT[w] for w in WINDOW_LIST]
-        #     # rescale window times to box plot positions: (xi – min(x)) / (max(x) – min(x)) * n_boxes
-        #     n_boxes = len(WINDOW_FRAME_DICT.keys())
-        #     ax = add_bluelight_to_plot(ax, bluelight_times, alpha=0.5)
             
         # load t-test results + annotate p-values on plot
         for ii, window in enumerate(window_list):
@@ -208,7 +209,7 @@ def analyse_fast_effect(features, metadata, window_list, args):
                     rotation=(0 if len(window_list) <= 20 else 90))
             
         ax.set_xticks(range(len(window_list)+1))
-        xlabels = [str(int(WINDOW_FRAME_DICT[w][0]/60)) for w in window_list]
+        xlabels = [str(int(WINDOW_DICT_SECONDS[w][0]/60)) for w in window_list]
         ax.set_xticklabels(xlabels)
         x_text = 'Time (minutes)' if ALL_WINDOWS else 'Time of bluelight 10-second burst (minutes)'
         ax.set_xlabel(x_text, fontsize=15, labelpad=10)
@@ -220,6 +221,136 @@ def analyse_fast_effect(features, metadata, window_list, args):
 
     return
     
+def fast_effect_timeseries(metadata, project_dir, save_dir, bluelight_windows_separately=False,
+                           smoothing=120):
+    """ Timeseries plots of repeated bluelight stimulation of BW and fepD
+        (10 seconds BL delivered every 30 minutes, for 5 hours total)
+    """
+        
+    # get timeseries for BW
+    BW_ts = get_strain_timeseries(metadata[metadata['gene_name']=='wild_type'], 
+                                  project_dir=project_dir, 
+                                  strain='wild_type',
+                                  group_by='gene_name',
+                                  n_wells=6,
+                                  save_dir=save_dir / 'Data' / 'wild_type',
+                                  verbose=False)
+    
+    # get timeseries for fepD
+    fepD_ts = get_strain_timeseries(metadata[metadata['gene_name']=='fepD'], 
+                                    project_dir=project_dir, 
+                                    strain='fepD',
+                                    group_by='gene_name',
+                                    n_wells=6,
+                                    save_dir=save_dir / 'Data' / 'fepD',
+                                    verbose=False)
+ 
+    col_dict = dict(zip(['wild_type', 'fepD'], sns.color_palette("pastel", 2)))
+    bluelight_frames = [(i*60*FPS, i*60*FPS+10*FPS) for i in BLUELIGHT_TIMEPOINTS_MINUTES]
+
+    for mode in motion_modes:
+        print("Plotting timeseries '%s' fraction for BW vs fepD..." % mode)
+
+        if bluelight_windows_separately:
+            
+            for pulse, timepoint in enumerate(tqdm(BLUELIGHT_TIMEPOINTS_MINUTES), start=1):
+
+                plt.close('all')
+                fig, ax = plt.subplots(figsize=(15,5), dpi=150)
+        
+                ax = plot_timeseries_motion_mode(df=BW_ts,
+                                                 window=smoothing*FPS,
+                                                 error=True,
+                                                 mode=mode,
+                                                 max_n_frames=VIDEO_LENGTH_SECONDS*FPS,
+                                                 title=None,
+                                                 saveAs=None,
+                                                 ax=ax,
+                                                 bluelight_frames=bluelight_frames,
+                                                 colour=col_dict['wild_type'],
+                                                 alpha=0.25)
+                
+                ax = plot_timeseries_motion_mode(df=fepD_ts,
+                                                 window=smoothing*FPS,
+                                                 error=True,
+                                                 mode=mode,
+                                                 max_n_frames=VIDEO_LENGTH_SECONDS*FPS,
+                                                 title=None,
+                                                 saveAs=None,
+                                                 ax=ax,
+                                                 bluelight_frames=bluelight_frames,
+                                                 colour=col_dict['fepD'],
+                                                 alpha=0.25)
+            
+                xticks = np.linspace(0, VIDEO_LENGTH_SECONDS*FPS, int(VIDEO_LENGTH_SECONDS/60)+1)
+                ax.set_xticks(xticks)
+                ax.set_xticklabels([str(int(x/FPS/60)) for x in xticks])   
+                
+                # -30secs before to +2mins after each pulse
+                xlim_range = (timepoint*60-30, timepoint*60+120)
+                ax.set_xlim([xlim_range[0]*FPS, xlim_range[1]*FPS])
+
+                ax.set_xlabel('Time (minutes)', fontsize=12, labelpad=10)
+                ax.set_ylabel('Fraction {}'.format(mode), fontsize=12, labelpad=10)
+                ax.set_title('BW vs fepD (bluelight pulse {0} = {1} min)'.format(pulse,
+                    timepoint), fontsize=12, pad=10)
+                ax.legend(['BW', 'fepD'], fontsize=12, frameon=False, loc='best')
+        
+                # save plot
+                ts_plot_dir = save_dir / 'Plots' / 'timeseries' / 'BW_vs_fepD'
+                ts_plot_dir.mkdir(exist_ok=True, parents=True)
+                save_path = ts_plot_dir /\
+                    'motion_mode_{0}_bluelight_pulse{1}_{2}min.pdf'.format(mode, pulse, timepoint)
+                print("Saving to: %s" % save_path)
+                plt.savefig(save_path)  
+                
+        else:                    
+            print("Plotting timeseries '%s' fraction for BW vs fepD..." % mode)
+    
+            plt.close('all')
+            fig, ax = plt.subplots(figsize=(30,5), dpi=150)
+    
+            ax = plot_timeseries_motion_mode(df=BW_ts,
+                                             window=smoothing*FPS,
+                                             error=True,
+                                             mode=mode,
+                                             max_n_frames=VIDEO_LENGTH_SECONDS*FPS,
+                                             title=None,
+                                             saveAs=None,
+                                             ax=ax,
+                                             bluelight_frames=bluelight_frames,
+                                             colour=col_dict['wild_type'],
+                                             alpha=0.25)
+            
+            ax = plot_timeseries_motion_mode(df=fepD_ts,
+                                             window=smoothing*FPS,
+                                             error=True,
+                                             mode=mode,
+                                             max_n_frames=VIDEO_LENGTH_SECONDS*FPS,
+                                             title=None,
+                                             saveAs=None,
+                                             ax=ax,
+                                             bluelight_frames=bluelight_frames,
+                                             colour=col_dict['fepD'],
+                                             alpha=0.25)
+        
+            xticks = np.linspace(0, VIDEO_LENGTH_SECONDS*FPS, int(VIDEO_LENGTH_SECONDS/60)+1)
+            ax.set_xticks(xticks)
+            ax.set_xticklabels([str(int(x/FPS/60)) for x in xticks])   
+            ax.set_xlabel('Time (minutes)', fontsize=12, labelpad=10)
+            ax.set_ylabel('Fraction {}'.format(mode), fontsize=12, labelpad=10)
+            ax.set_title('BW vs fepD', fontsize=12, pad=10)
+            ax.legend(['BW', 'fepD'], fontsize=12, frameon=False, loc='best')
+    
+            # save plot
+            ts_plot_dir = save_dir / 'Plots' / 'timeseries' / 'BW_vs_fepD'
+            ts_plot_dir.mkdir(exist_ok=True, parents=True)
+            save_path = ts_plot_dir / 'motion_mode_{}.pdf'.format(mode)
+            print("Saving to: %s" % save_path)
+            plt.savefig(save_path)  
+
+    return
+
 #%% Main
 
 if __name__ == '__main__':   
@@ -279,12 +410,23 @@ if __name__ == '__main__':
     assert not (features.std(axis=1) == 0).any()
     
     if ALL_WINDOWS:
-        WINDOW_LIST = list(WINDOW_FRAME_DICT.keys())
+        WINDOW_LIST = list(WINDOW_DICT_SECONDS.keys())
         args.save_dir = Path(args.save_dir) / 'all_windows'
     
     perform_fast_effect_stats(features, metadata, WINDOW_LIST, args)
     
     analyse_fast_effect(features, metadata, WINDOW_LIST, args)
     
+    fast_effect_timeseries(metadata=metadata.query("window == 0"), # avoid plotting multiple times
+                           project_dir=Path(args.project_dir),
+                           save_dir=Path(args.save_dir),
+                           bluelight_windows_separately=False,
+                           smoothing=120) # moving window of 2 minutes for smoothing
+
+    fast_effect_timeseries(metadata=metadata, # plot for each window in turn
+                           project_dir=Path(args.project_dir),
+                           save_dir=Path(args.save_dir),
+                           bluelight_windows_separately=True,
+                           smoothing=10) # moving window of 10 seconds for smoothing
     
     
