@@ -765,7 +765,6 @@ if __name__ == "__main__":
     metadata = pd.read_csv(METADATA_PATH, dtype={'comments':str, 'source_plate_id':str})
 
     # Subset for desired imaging dates
-    
     if args.dates is not None:
         assert type(args.dates) == list
         metadata = metadata.loc[metadata['date_yyyymmdd'].astype(str).isin(args.dates)]
