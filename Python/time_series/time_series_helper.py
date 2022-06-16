@@ -16,7 +16,6 @@ def get_strain_timeseries(metadata,
                           group_by='bacteria_strain', 
                           save_dir=None,
                           n_wells=96,
-                          only_wells=None,
                           verbose=True,
                           return_error_log=False):
     """ Load saved timeseries reults for strain, or compile from featuresN timeseries data """

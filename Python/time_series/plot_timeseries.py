@@ -169,7 +169,9 @@ def get_motion_mode_timestamp_stats(frac_mode, mode='stationary'):
                 
         return frame_mode_df
     
-def plot_timeseries_motion_mode(df, window=None, error=False, mode=None, max_n_frames=None,
+def plot_timeseries_motion_mode(df,
+                                fraction_timeseries_path=None,
+                                window=None, error=False, mode=None, max_n_frames=None,
                                 title=None, figsize=(12,6), ax=None, saveAs=None,
                                 sns_colour_palette='pastel', colour=None, 
                                 bluelight_frames=None,
@@ -215,7 +217,7 @@ def plot_timeseries_motion_mode(df, window=None, error=False, mode=None, max_n_f
         ax : matplotlib AxesSubplot
             For iterative plotting   
     """
- 
+
     # discrete data mapping
     motion_modes = ['stationary','forwards','backwards']
     motion_dict = dict(zip([0,1,-1], motion_modes))
@@ -240,7 +242,7 @@ def plot_timeseries_motion_mode(df, window=None, error=False, mode=None, max_n_f
     # total number of worms in each motion mode in each timestamp of each video
     video_mode_count = df.groupby(['filename','timestamp','motion_name'])['well_name'].count().reset_index()
     video_mode_count = video_mode_count.rename(columns={'well_name':'mode_count'})
-    
+        
     # total number of worms in each timestamp in each video
     total_video_count = df.groupby(['filename','timestamp'])['well_name'].agg(['count']).reset_index()
     
@@ -249,7 +251,72 @@ def plot_timeseries_motion_mode(df, window=None, error=False, mode=None, max_n_f
                           right_on=['filename','timestamp'], how='outer')
     
     frac_video['fraction'] = frac_video['mode_count'] / frac_video['count']
+    frac_video = frac_video.drop(columns=['count','mode_count'])
+
+    assert all(frac_video.groupby(['filename','timestamp'])['fraction'].sum().round(9) == 1)
     
+    # TODO: where missing data for motion mode in any video/timestamp, replace with zero
+    # Find a faster way!
+    def fill_zero_mode(df):
+        video_timestamp_list = []
+        grouped_video = df.groupby('filename')
+        for video in tqdm(df['filename'].unique()):
+            video_df = grouped_video.get_group(video)
+            timestamp_grouped = video_df.groupby('timestamp')
+            for timestamp in video_df['timestamp'].unique():
+                timestamp_df = timestamp_grouped.get_group(timestamp)
+                for mode in motion_modes:
+                    if mode not in timestamp_df['motion_name'].unique():
+                        timestamp_df = timestamp_df.append({'filename': video,
+                                                            'timestamp': timestamp,
+                                                            'motion_name': mode,
+                                                            'fraction': 0}, 
+                                                           ignore_index=True)
+                video_timestamp_list.append(timestamp_df)
+        return pd.concat(video_timestamp_list, axis=0)
+                        
+    frac_video = fill_zero_mode(frac_video)
+
+    # TODO: Save to file/load from file?
+    frac_video.to_csv('/Users/sm5911/Documents/Keio_Conf_Screen/timeseries/Data/bluelight/wild_type/wild_type_ts_frac.csv', 
+                      header=True, index=False)
+    
+############################       
+    
+# =============================================================================
+#     #1 - convert to categorical and groupby
+#     frac_video['motion_name'] = pd.Categorical(frac_video['motion_name'], 
+#                                                categories=frac_video['motion_name'].unique())
+#     _frac_video = frac_video.groupby(['filename','timestamp'], as_index=False).first()
+#     
+#     #2 - multi-indexing
+#     mux = pd.MultiIndex.from_product([frac_video['filename'].unique(), frac_video['timestamp'].unique()])
+#     _frac_video = (frac_video.set_index(['filename', 'timestamp']).reindex(mux).reset_index().set_axis(frac_video.columns, axis=1))
+#     
+#     #3 - pivot then stack
+#     _frac_video = frac_video.pivot(*frac_video).stack(dropna=False).reset_index(name='fraction')
+#     
+#     #4
+#     import janitor
+#     frac_video = frac_video.complete('timestamp','motion_name').fillna(0, downcast='infer')
+# 
+#     def _fill_zero_mode(x):
+#         print(x.head(3))
+#         
+#         x['motion_name'] = pd.Categorical(x['motion_name'], categories=x['motion_name'].unique())
+#         x = x.groupby('timestamp', as_index=False).first()
+# 
+#         #x.complete('timestamp','motion_name').fillna(0, downcast='infer')
+#         print(x.head(3))
+#         return x
+# 
+#     frac_video.groupby('filename').apply(fill_zero_mode)
+#     frac_video.groupby(['filename','timestamp']).apply(fill_zero_mode)
+# =============================================================================
+    
+############################       
+        
+
     frac_video_mode = frac_video[frac_video['motion_name']==mode]
 
     grouped_timestamp_mode = frac_video_mode.groupby(['timestamp'])['fraction']
@@ -283,9 +350,9 @@ def plot_timeseries_motion_mode(df, window=None, error=False, mode=None, max_n_f
 
     # motion_ls_dict = dict(zip(motion_modes, ['-','--','-.']))                
     sns.lineplot(data=plot_df, 
-                 x='timestamp', 
-                 y='fraction', 
-                 ax=ax, 
+                 x='timestamp',
+                 y='fraction',
+                 ax=ax,
                  ls='-', # motion_ls_dict[mode] if len(mode_list) > 1 else '-',
                  hue=None, #'motion_name' if colour is None else None, 
                  palette=None, #palette if colour is None else None,

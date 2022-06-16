@@ -739,7 +739,7 @@ def selected_strains_timeseries(metadata,
 #%% MAIN
 if __name__ == "__main__":
     tic = time()
-    parser = argparse.ArgumentParser(description="Read clean features and etadata and find 'hit' \
+    parser = argparse.ArgumentParser(description="Read clean features and metadata and find 'hit' \
                                                   Keio knockout strains that alter worm behaviour")
     parser.add_argument('-j', '--json', help="Path to JSON parameters file", 
                         default=JSON_PARAMETERS_PATH, type=str)
@@ -784,13 +784,13 @@ if __name__ == "__main__":
                                 smoothing=10)
     # pre-stimulus time-series
     selected_strains_timeseries(metadata, 
-                            project_dir=Path(args.project_dir), 
-                            save_dir=Path(args.save_dir), 
-                            strain_list=TIMESERIES_STRAIN_LIST,
-                            n_wells=96,
-                            bluelight_stim_type='prestim',
-                            video_length_seconds=5*60,
-                            smoothing=10)
+                                project_dir=Path(args.project_dir), 
+                                save_dir=Path(args.save_dir), 
+                                strain_list=TIMESERIES_STRAIN_LIST,
+                                n_wells=96,
+                                bluelight_stim_type='prestim',
+                                video_length_seconds=5*60,
+                                smoothing=10)
     
     toc = time()
     print("\nDone in %.1f seconds (%.1f minutes)" % (toc - tic, (toc - tic) / 60))  
