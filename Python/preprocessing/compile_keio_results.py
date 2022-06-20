@@ -22,9 +22,10 @@ from filter_data.clean_feature_summaries import clean_summary_results
 
 #%% GLOBALS
 
-#JSON_PARAMETERS_PATH = "analysis/20210914_parameters_keio_screen.json"
-#JSON_PARAMETERS_PATH = "analysis/20211102_parameters_keio_rescue.json"
-JSON_PARAMETERS_PATH = "analysis/20211109_parameters_keio_dead.json"
+#JSON_PARAMETERS_PATH = "analysis/20210406_parameters_keio_screen.json" # Initial Keio Screen
+JSON_PARAMETERS_PATH = "analysis/20210914_parameters_keio_screen.json" # Confirmation Keio Screen 2
+#JSON_PARAMETERS_PATH = "analysis/20211102_parameters_keio_rescue.json" # Keio Fast Effect
+#JSON_PARAMETERS_PATH = "analysis/20211109_parameters_keio_dead.json" # Keio Dead
 
 RENAME_DICT = {"BW" : "wild_type",
                "FECE" : "fecE",
@@ -156,13 +157,21 @@ if __name__ == "__main__":
     
     features, metadata = compile_keio_results(json_args)
     
-    # Save features to file
+    # Save clean features to file (local)
     features_path = Path(args.save_dir) / 'features.csv'
     features.to_csv(features_path, index=False) 
 
-    # Save metadata to file
+    # Save clean metadata to file (local)
     metadata_path = Path(args.save_dir) / 'metadata.csv'
     metadata.to_csv(metadata_path, index=False)
+    
+    # # Save clean features to file (hermes shared drive)
+    # features_path = Path(json_args.project_dir) / 'Analysis' / 'clean_features.csv'
+    # features.to_csv(features_path, index=False) 
+
+    # # Save clean metadata to file (hermes shared drive)
+    # metadata_path = Path(json_args.project_dir) / 'Analysis' / 'clean_metadata.csv'
+    # metadata.to_csv(metadata_path, index=False)
     
     toc = time()
     print("\nDone in %.1f seconds (%.1f minutes)" % (toc - tic, (toc - tic) / 60))

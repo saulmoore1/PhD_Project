@@ -26,7 +26,7 @@ from matplotlib import pyplot as plt
 from scipy.stats import zscore # levene, ttest_ind, f_oneway, kruskal
 
 from read_data.paths import get_save_dir
-from read_data.read import load_json, load_topfeats
+from read_data.read import load_json
 from write_data.write import write_list_to_file
 from analysis.compare_strains.control_variation import control_variation
 from filter_data.clean_feature_summaries import clean_summary_results, subset_results
@@ -41,9 +41,11 @@ from visualisation.plotting_helper import errorbar_sigfeats, boxplots_sigfeats
 # from visualisation.plotting_helper import boxplots_grouped, barplot_sigfeats, plot_day_variation
 # from visualisation.super_plots import superplot
 
+from tierpsytools.preprocessing.filter_data import select_feat_set
+
 #%% GLOBALS
 
-#JSON_PARAMETERS_PATH = "analysis/20210406_parameters_keio_screen.json"
+# JSON_PARAMETERS_PATH = "analysis/20210406_parameters_keio_screen.json"
 JSON_PARAMETERS_PATH = "analysis/20210914_parameters_keio_screen.json"
 
 N_LOWEST_PVAL = 100
@@ -52,8 +54,6 @@ TOP_N_HITS = 10
 
 METHOD = 'complete' # 'complete','linkage','average','weighted','centroid'
 METRIC = 'euclidean' # 'euclidean','cosine','correlation'
-
-# TODO: dendrogram cut-off dict: 1800 vs 4000 strains, settle on complete / euclidean
 
 COG_category_dict = {'J' : 'Translation, ribosomal structure, and biogenesis',
                      'K' : 'Transcription',
@@ -77,12 +77,12 @@ COG_category_dict = {'J' : 'Translation, ribosomal structure, and biogenesis',
                      'V' : 'Function unknown',
                      'Unknown' : 'Function unknown'}
 
-TIMESERIES_STRAIN_LIST = ['fepD','fepB','fepC','fepG','fes',
-                          'nuoA','nuoB','nuoC','nuoF','nuoG','nuoH','nuoK','nuoL','nuoM','nuoN',
-                          'cyoA','cyoC','cyoD','cyoE',
-                          'sdhA','sdhB','sdhC','sdhD',
-                          'atpA','atpB','atpC','atpD','atpE','atpF','atpH',
-                          'entA','entB','entC','entE','entF']
+SELECTED_STRAIN_LIST = ['fepD','fepB','fepC','fepG','fes',
+                        'nuoA','nuoB','nuoC','nuoF','nuoG','nuoH','nuoK','nuoL','nuoM','nuoN',
+                        'cyoA','cyoC','cyoD','cyoE',
+                        'sdhA','sdhB','sdhC','sdhD',
+                        'atpA','atpB','atpC','atpD','atpE','atpF','atpH',
+                        'entA','entB','entC','entE','entF']
 FPS = 25
 
 #%% FUNCTIONS
@@ -136,13 +136,10 @@ def compare_strains_keio(features, metadata, args):
 
     # Load Tierpsy Top feature set + subset (columns) for top feats only
     if args.n_top_feats is not None:
-        top_feats_path = Path(args.tierpsy_top_feats_dir) / "tierpsy_{}.csv".format(str(args.n_top_feats))
-        topfeats = load_topfeats(top_feats_path, add_bluelight=True, 
-                                 remove_path_curvature=True, header=None)
-
-        # Drop features that are not in results
-        top_feats_list = [feat for feat in list(topfeats) if feat in features.columns]
-        features = features[top_feats_list]
+        assert args.n_top_feats in [8,16,256,'2k']
+        features = select_feat_set(features, 
+                                   tierpsy_set_name='tierpsy_{}'.format(args.n_top_feats), 
+                                   append_bluelight=True)
             
     ##### Control variation #####
 
@@ -151,9 +148,9 @@ def compare_strains_keio(features, metadata, args):
 
     # Clean data after subset - to remove features with zero std
     control_features, control_metadata = clean_summary_results(control_features, 
-                                                                   control_metadata, 
-                                                                   max_value_cap=False,
-                                                                   imputeNaN=False)                  
+                                                               control_metadata, 
+                                                               max_value_cap=False,
+                                                               imputeNaN=False)                  
     if args.analyse_control:
         control_variation(control_features, control_metadata, args,
                           variables=[k for k in args.control_dict.keys() if k != grouping_var],
@@ -174,6 +171,9 @@ def compare_strains_keio(features, metadata, args):
     stats_dir =  save_dir / grouping_var / "Stats" / args.fdr_method
     plot_dir = save_dir / grouping_var / "Plots" / args.fdr_method
        
+    # TODO: Check initial keio cleaning and stats - I think its ok, but re-run and double check
+    # TODO: Check that investigate control variation works
+    
 # =============================================================================
 #     ##### Pairplot Tierpsy Features - Pairwise correlation matrix #####
 #     if args.n_top_feats == 16:
@@ -259,42 +259,48 @@ def compare_strains_keio(features, metadata, args):
         ranked_pval = pvals_t.min(axis=0).sort_values(ascending=True)
         # Select top 100 hit strains by lowest p-value for any feature
         hit_strains_pval = ranked_pval[ranked_pval < args.pval_threshold].index.to_list()
-        hit_strains_pval = ranked_pval.index[:N_LOWEST_PVAL].to_list()
-        write_list_to_file(hit_strains_pval, stats_dir / 'lowest{}_pval.txt'.format(N_LOWEST_PVAL))
+        hit_strains_pval = ranked_pval.index.to_list()
+        assert all(s in hit_strains_pval for s in hit_strains_nsig)
+        write_list_to_file(hit_strains_pval[:N_LOWEST_PVAL], stats_dir /\
+                           'lowest{}_pval.txt'.format(N_LOWEST_PVAL))
         
         print("\nPlotting ranked strains by number of significant features")
         ranked_nsig_path = plot_dir / ('ranked_number_sigfeats' + '_' + 
                                        ('uncorrected' if args.fdr_method is None else 
-                                        args.fdr_method) + '.png')
-        plt.ioff()
+                                        args.fdr_method) + '.pdf')
         plt.close('all')
-        fig, ax = plt.subplots(figsize=(20,6))
-        ax.plot(ranked_nsig)
         if len(ranked_nsig.index) > 250:
-            ax.set_xticklabels([])
+            fig, ax = plt.subplots(figsize=(50,3), dpi=900)
+            ax.plot(ranked_nsig)
+            ax.set_xticklabels(ranked_nsig.index.to_list(), rotation=90, fontsize=1)
         else:
+            fig, ax = plt.subplots(figsize=(30,5), dpi=600)
+            ax.plot(ranked_nsig)
             ax.set_xticklabels(ranked_nsig.index.to_list(), rotation=90, fontsize=5)
         plt.xlabel("Strains (ranked)", fontsize=12, labelpad=10)
         plt.ylabel("Number of significant features", fontsize=12, labelpad=10)
-        plt.subplots_adjust(left=0.08, right=0.98, bottom=0.15)
-        plt.savefig(ranked_nsig_path, dpi=600)
+        plt.subplots_adjust(left=0.03, right=0.99, bottom=0.15)
+        plt.savefig(ranked_nsig_path)
         
         print("Plotting ranked strains by lowest p-value of any feature")
         lowest_pval_path = plot_dir / ('ranked_lowest_pval' + '_' + 
                                        ('uncorrected' if args.fdr_method is None else 
-                                        args.fdr_method) + '.png')
+                                        args.fdr_method) + '.pdf')
         plt.close('all')
-        fig, ax = plt.subplots(figsize=(20,6))
-        ax.plot(ranked_pval)
-        plt.axhline(y=args.pval_threshold, c='dimgray', ls='--')
         if len(ranked_nsig.index) > 250:
-            ax.set_xticklabels([])
+            fig, ax = plt.subplots(figsize=(50,3), dpi=900)
+            ax.plot(ranked_pval)
+            plt.axhline(y=args.pval_threshold, c='dimgray', ls='--')
+            ax.set_xticklabels(ranked_nsig.index.to_list(), rotation=90, fontsize=1)
         else:
+            fig, ax = plt.subplots(figsize=(30,5), dpi=600)
+            ax.plot(ranked_pval)
+            plt.axhline(y=args.pval_threshold, c='dimgray', ls='--')
             ax.set_xticklabels(ranked_nsig.index.to_list(), rotation=90, fontsize=5)
         plt.xlabel("Strains (ranked)", fontsize=12, labelpad=10)
         plt.ylabel("Lowest p-value by t-test", fontsize=12, labelpad=10)
-        plt.subplots_adjust(left=0.08, right=0.98, bottom=0.15)
-        plt.savefig(lowest_pval_path, dpi=600)
+        plt.subplots_adjust(left=0.03, right=0.99, bottom=0.15)
+        plt.savefig(lowest_pval_path)
         plt.close()
 
         print("\nMaking errorbar plots")
@@ -344,10 +350,20 @@ def compare_strains_keio(features, metadata, args):
                           control=control,
                           pvals=pvals_t, 
                           z_class=metadata['date_yyyymmdd'],
-                          feature_set=None,
-                          saveDir=plot_dir / 'paired_boxplots',
+                          feature_set=fset, #None
+                          # feature_set=['motion_mode_forward_fraction_prestim',
+                          #              'motion_mode_forward_fraction_bluelight',
+                          #              'motion_mode_forward_fraction_poststim',
+                          #              'speed_50th_prestim',
+                          #              'speed_50th_bluelight',
+                          #              'speed_50th_poststim',
+                          #              'curvature_midbody_norm_abs_50th_prestim',
+                          #              'curvature_midbody_norm_abs_50th_bluelight',
+                          #              'curvature_midbody_norm_abs_50th_poststim'],
+                          # append_ranking_fname=False,
+                          saveDir=plot_dir / 'paired_boxplots_nsig', # pval
                           p_value_threshold=args.pval_threshold,
-                          drop_insignificant=False, #True if len(hit_strains) > 0 else False,
+                          drop_insignificant=True if len(hit_strains) > 0 else False,
                           max_sig_feats=args.n_sig_features,
                           max_strains=N_LOWEST_PVAL if len(hit_strains_nsig) == 0 else None,
                           sns_colour_palette="tab10",
@@ -590,6 +606,27 @@ def compare_strains_keio(features, metadata, args):
                  legend_loc=[1.02,0.6],
                  sns_colour_palette="plasma")
 
+    # # PCA of lowest 100 pval strains only
+    # lowest100_pca_strain_list = [control] + hit_strains_pval
+    # lowest100_meta = metadata[metadata[grouping_var].isin(lowest100_pca_strain_list)]
+    # lowest100_feat = features.reindex(lowest100_meta.index)
+    # lowest100_featZ = lowest100_feat.apply(zscore, axis=0)
+    # _ = plot_pca(lowest100_featZ, lowest100_meta,
+    #              group_by='COG_category',
+    #              control=None,
+    #              var_subset=None,
+    #              saveDir=pca_dir / 'COG' / 'lowest100',
+    #              PCs_to_keep=10,
+    #              n_feats2print=10,
+    #              kde=False,
+    #              sns_colour_palette='plasma',
+    #              n_dims=2,
+    #              label_size=8,
+    #              sub_adj={'bottom':0.13,'left':0.13,'top':0.95,'right':0.88},
+    #              legend_loc=[1.02,0.6]
+    #              # n_colours=len(lowest100_pca_strain_list)
+    #              )
+
     ##### t-distributed Stochastic Neighbour Embedding #####   
     
     print("\nPerforming tSNE")
@@ -640,6 +677,8 @@ def compare_strains_keio(features, metadata, args):
 def selected_strains_timeseries(metadata, 
                                 project_dir, 
                                 save_dir, 
+                                group_by='gene_name',
+                                control='wild_type',
                                 strain_list=['fepD'],
                                 n_wells=96,
                                 bluelight_stim_type='bluelight',
@@ -654,33 +693,33 @@ def selected_strains_timeseries(metadata,
     """
             
     if strain_list is None:
-        strain_list = list(metadata['gene_name'].unique())
+        strain_list = list(metadata[group_by].unique())
     else:
         assert isinstance(strain_list, list)
-        assert all(s in metadata['gene_name'].unique() for s in strain_list)
-        strain_list = [s for s in strain_list if s != 'wild_type']
+        assert all(s in metadata[group_by].unique() for s in strain_list)
+        strain_list = [s for s in strain_list if s != control]
     
     metadata['imgstore_name'] = metadata['imgstore_name_{}'.format(bluelight_stim_type)]
     
     bluelight_frames = [(i*FPS, j*FPS) for (i, j) in bluelight_timepoints_seconds]
     
     # get timeseries for BW
-    BW_ts = get_strain_timeseries(metadata[metadata['gene_name']=='wild_type'], 
+    BW_ts = get_strain_timeseries(metadata[metadata[group_by]==control], 
                                   project_dir=project_dir, 
-                                  strain='wild_type',
-                                  group_by='gene_name',
+                                  strain=control,
+                                  group_by=group_by,
                                   n_wells=n_wells,
                                   save_dir=Path(save_dir) / 'timeseries' / 'Data' /\
-                                      bluelight_stim_type / 'wild_type')
+                                      bluelight_stim_type / control)
     
     for strain in tqdm(strain_list):
-        col_dict = dict(zip(['wild_type', strain], sns.color_palette("pastel", 2)))
+        col_dict = dict(zip([control, strain], sns.color_palette("pastel", 2)))
 
         # get timeseries for strain
-        strain_ts = get_strain_timeseries(metadata[metadata['gene_name']==strain], 
+        strain_ts = get_strain_timeseries(metadata[metadata[group_by]==strain], 
                                           project_dir=project_dir, 
                                           strain=strain,
-                                          group_by='gene_name',
+                                          group_by=group_by,
                                           n_wells=n_wells,
                                           save_dir=Path(save_dir) / 'timeseries' / 'Data' /\
                                               bluelight_stim_type / strain)
@@ -702,7 +741,7 @@ def selected_strains_timeseries(metadata,
                                              bluelight_frames=(bluelight_frames if 
                                                                bluelight_stim_type == 'bluelight'
                                                                else None),
-                                             colour=col_dict['wild_type'],
+                                             colour=col_dict[control],
                                              alpha=0.25)
             
             ax = plot_timeseries_motion_mode(df=strain_ts,
@@ -724,8 +763,9 @@ def selected_strains_timeseries(metadata,
             ax.set_xticklabels([str(int(x/FPS/60)) for x in xticks])   
             ax.set_xlabel('Time (minutes)', fontsize=12, labelpad=10)
             ax.set_ylabel('Fraction {}'.format(mode), fontsize=12, labelpad=10)
-            ax.set_title('BW vs {}'.format(strain), fontsize=12, pad=10)
-            ax.legend(['BW', strain], fontsize=12, frameon=False, loc='best')
+            ax.set_title('{0} vs {1}'.format(control, strain), fontsize=12, pad=10)
+            ax.legend([control, strain], fontsize=12, frameon=False, loc='best')
+            #TODO: plt.subplots_adjust(left=0.01,top=0.9,bottom=0.1,left=0.2)
     
             # save plot
             ts_plot_dir = save_dir / 'timeseries' / 'Plots' / '{0}'.format(strain)
@@ -776,21 +816,30 @@ if __name__ == "__main__":
     selected_strains_timeseries(metadata, 
                                 project_dir=Path(args.project_dir), 
                                 save_dir=Path(args.save_dir), 
-                                strain_list=TIMESERIES_STRAIN_LIST,
+                                strain_list=SELECTED_STRAIN_LIST,
                                 n_wells=96,
                                 bluelight_stim_type='bluelight',
                                 video_length_seconds=6*60,
                                 smoothing=10)
-    # pre-stimulus time-series
-    selected_strains_timeseries(metadata, 
-                                project_dir=Path(args.project_dir), 
-                                save_dir=Path(args.save_dir), 
-                                strain_list=TIMESERIES_STRAIN_LIST,
+    # prestim time-series
+    selected_strains_timeseries(metadata,
+                                project_dir=Path(args.project_dir),
+                                save_dir=Path(args.save_dir),
+                                strain_list=SELECTED_STRAIN_LIST,
                                 n_wells=96,
                                 bluelight_stim_type='prestim',
                                 video_length_seconds=5*60,
                                 smoothing=10)
-    
+
+    # poststim time-series
+    selected_strains_timeseries(metadata,
+                                project_dir=Path(args.project_dir),
+                                save_dir=Path(args.save_dir),
+                                strain_list=SELECTED_STRAIN_LIST,
+                                n_wells=96,
+                                bluelight_stim_type='poststim',
+                                video_length_seconds=5*60,
+                                smoothing=10)
     toc = time()
     print("\nDone in %.1f seconds (%.1f minutes)" % (toc - tic, (toc - tic) / 60))  
 

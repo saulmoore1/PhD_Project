@@ -779,108 +779,32 @@ def supernatants_timeseries(metadata,
                                       'is_dead','solvent']].agg('-'.join, axis=1) 
     metadata['treatment'] = [s.replace('/',':') for s in metadata['treatment']]
     # https://stackoverflow.com/questions/13298434/colon-appears-as-forward-slash-when-creating-file-name
-    
-    # treatment_order = sorted(metadata['treatment'].unique(), reverse=True)
-    # treatment_order = [t for t in treatment_order if t != all_treatment_control]
-
-    # # get timeseries for control data
-    # control_timeseries = get_strain_timeseries(metadata[metadata['treatment']==all_treatment_control], 
-    #                                            project_dir=project_dir, 
-    #                                            strain=all_treatment_control,
-    #                                            group_by='treatment',
-    #                                            n_wells=6,
-    #                                            save_dir=Path(save_dir) / 'Data' / all_treatment_control,
-    #                                            verbose=False)
-
-    # for treatment in tqdm(treatment_order):
         
-    #     test_treatments = [all_treatment_control, treatment]
-
-    #     for mode in motion_modes:
-                    
-    #         # get timeseries data for treatment data
-    #         strain_metadata = metadata[metadata['treatment']==treatment]
-    #         strain_timeseries = get_strain_timeseries(strain_metadata, 
-    #                                                   project_dir=project_dir, 
-    #                                                   strain=treatment,
-    #                                                   group_by='treatment',
-    #                                                   n_wells=6,
-    #                                                   save_dir=Path(save_dir) / 'Data' / treatment,
-    #                                                   verbose=False)
-
-    #         print("Plotting timeseries '%s' fraction for '%s' vs '%s'..." %\
-    #               (mode, treatment, all_treatment_control))
-
-    #         plt.close('all')
-    #         fig, ax = plt.subplots(figsize=(15,5), dpi=200)
-    #         col_dict = dict(zip(test_treatments, sns.color_palette("pastel", len(test_treatments))))
-    #         bluelight_frames = [(i*60*FPS, i*60*FPS+10*FPS) for i in BLUELIGHT_TIMEPOINTS_MINUTES]
-
-    #         ax = plot_timeseries_motion_mode(df=control_timeseries,
-    #                                          window=SMOOTH_WINDOW_SECONDS*FPS,
-    #                                          error=True,
-    #                                          mode=mode,
-    #                                          max_n_frames=VIDEO_LENGTH_SECONDS*FPS,
-    #                                          title=None,
-    #                                          saveAs=None,
-    #                                          ax=ax,
-    #                                          bluelight_frames=bluelight_frames,
-    #                                          colour=col_dict[all_treatment_control],
-    #                                          alpha=0.25)
-            
-    #         ax = plot_timeseries_motion_mode(df=strain_timeseries,
-    #                                          window=SMOOTH_WINDOW_SECONDS*FPS,
-    #                                          error=True,
-    #                                          mode=mode,
-    #                                          max_n_frames=VIDEO_LENGTH_SECONDS*FPS,
-    #                                          title=None,
-    #                                          saveAs=None,
-    #                                          ax=ax,
-    #                                          bluelight_frames=bluelight_frames,
-    #                                          colour=col_dict[treatment],
-    #                                          alpha=0.25)
-        
-    #         xticks = np.linspace(0, VIDEO_LENGTH_SECONDS*FPS, int(VIDEO_LENGTH_SECONDS/60)+1)
-    #         ax.set_xticks(xticks)
-    #         ax.set_xticklabels([str(int(x/FPS/60)) for x in xticks])   
-    #         ax.set_xlabel('Time (minutes)', fontsize=12, labelpad=10)
-    #         ax.set_ylabel('Fraction {}'.format(mode), fontsize=12, labelpad=10)
-    #         ax.legend(test_treatments, fontsize=12, frameon=False, loc='best')
-    
-    #         if BLUELIGHT_WINDOWS_ONLY_TS:
-    #             ts_plot_dir = Path(save_dir) / 'Plots' / 'timeseries_bluelight' / treatment
-    #             ax.set_xlim([min(BLUELIGHT_TIMEPOINTS_MINUTES)*60*FPS-60*FPS, 
-    #                          max(BLUELIGHT_TIMEPOINTS_MINUTES)*60*FPS+70*FPS])
-    #         else:
-    #             ts_plot_dir = Path(save_dir) / 'Plots' / 'timeseries' / treatment
-    
-    #         plt.tight_layout()
-    #         ts_plot_dir.mkdir(exist_ok=True, parents=True)
-    #         plt.savefig(ts_plot_dir / '{0}_{1}.pdf'.format(treatment, mode))  
-    
-    
     ### Each treatment vs control: BW vs BW + lysate // BW vs BW + supernatant
-    control_list = list(np.concatenate([np.repeat('none-none-none-N-PBS', 2),
-                                        np.repeat('none-none-none-N-none', 6),
-                                        np.repeat('none-none-none-Y-none', 4)]))
+    control_list = ['none-none-none-N-PBS','none-none-none-N-DMSO',
+                    'none-none-none-N-none','none-none-none-N-none',
+                    'none-none-none-N-PBS','none-none-none-N-PBS:DMSO',
+                    'none-none-none-N-PBS','none-none-none-N-NGM:DMSO',
+                    'none-none-none-Y-none','none-none-none-Y-DMSO',
+                    'none-none-none-Y-none','none-none-none-Y-DMSO']
     treatment_list = ['none-none-none-N-PBS:DMSO','none-none-none-N-NGM:DMSO',
                       'none-none-none-N-PBS','none-none-none-N-DMSO',
                       'fepD-lysate-solid-N-PBS','fepD-supernatant-solid-N-PBS:DMSO',
                       'fepD-lysate-liquid-N-NGM:PBS','fepD-supernatant-liquid-N-NGM:DMSO',
                       'fepD-lysate-solid-Y-PBS','fepD-supernatant-solid-Y-PBS:DMSO',
                       'fepD-lysate-liquid-Y-NGM:PBS','fepD-supernatant-liquid-Y-NGM:DMSO']
-    title_list = ['Addition of PBS and DMSO (BW control)','Addition of NGM and DMSO (BW control)',
-                  'Addition of PBS (BW control)','Addition of DMSO (BW control)',
+    title_list = ['Addition of PBS and DMSO','Addition of NGM and DMSO',
+                  'Addition of PBS','Addition of DMSO',
                   'fepD lysate (solid)','fepD supernatant (solid)',
                   'fepD lysate (liquid)','fepD supernatant (liquid)',
                   'fepD lysate (solid) on dead BW','fepD supernatant (solid) on dead BW',
                   'fepD lysate (liquid) on dead BW','fepD supernatant (liquid) on dead BW']
-    labs = [('BW + PBS', 'BW + PBS/DMSO'),('BW + PBS', 'BW + NGM/DMSO'),
+    labs = [('BW + PBS', 'BW + PBS/DMSO'),('BW + DMSO', 'BW + NGM/DMSO'),
             ('BW', 'BW + PBS'),('BW', 'BW + DMSO'),
-            ('BW', 'BW + fepD lysate'),('BW', 'BW + fepD supernatant'),
-            ('BW', 'BW + fepD lysate'),('BW', 'BW + fepD supernatant'),
-            ('dead BW', 'dead BW + fepD lysate'),('dead BW', 'dead BW + fepD supernatant'),
-            ('dead BW', 'dead BW + fepD lysate'),('dead BW', 'dead BW + fepD supernatant')]
+            ('BW + PBS', 'BW + fepD lysate solid + PBS'),('BW + PBS/DMSO', 'BW + fepD supernatant solid + PBS/DMSO'),
+            ('BW + PBS', 'BW + fepD lysate liquid + NGM/PBS'),('BW + NGM/DMSO', 'BW + fepD supernatant liquid + NGM/DMSO'),
+            ('dead BW', 'dead BW + fepD lysate solid + PBS'),('dead BW + DMSO', 'dead BW + fepD supernatant solid + PBS/DMSO'),
+            ('dead BW', 'dead BW + fepD lysate liquid + NGM/PBS'),('dead BW + DMSO', 'dead BW + fepD supernatant liquid + NGM/DMSO')]
     
     for control, treatment, title, lab in zip(control_list, treatment_list, title_list, labs):
         
@@ -907,7 +831,7 @@ def supernatants_timeseries(metadata,
     
             plt.close('all')
             fig, ax = plt.subplots(figsize=(15,5), dpi=200)
-            col_dict = dict(zip([control, treatment], sns.color_palette("pastel", 2)))
+            colour_dict = dict(zip([control, treatment], sns.color_palette("pastel", 2)))
             bluelight_frames = [(i*60*FPS, i*60*FPS+10*FPS) for i in BLUELIGHT_TIMEPOINTS_MINUTES]
     
             ax = plot_timeseries_motion_mode(df=control_ts,
@@ -919,7 +843,7 @@ def supernatants_timeseries(metadata,
                                              saveAs=None,
                                              ax=ax,
                                              bluelight_frames=bluelight_frames,
-                                             colour=col_dict[control],
+                                             colour=colour_dict[control],
                                              alpha=0.25)
             
             ax = plot_timeseries_motion_mode(df=treatment_ts,
@@ -931,7 +855,7 @@ def supernatants_timeseries(metadata,
                                              saveAs=None,
                                              ax=ax,
                                              bluelight_frames=bluelight_frames,
-                                             colour=col_dict[treatment],
+                                             colour=colour_dict[treatment],
                                              alpha=0.25)
         
             xticks = np.linspace(0, VIDEO_LENGTH_SECONDS*FPS, int(VIDEO_LENGTH_SECONDS/60)+1)

@@ -19,6 +19,7 @@ import argparse
 import numpy as np
 import pandas as pd
 import seaborn as sns
+from tqdm import tqdm
 from pathlib import Path
 from matplotlib import transforms
 from matplotlib import pyplot as plt
@@ -29,12 +30,13 @@ from read_data.paths import get_save_dir
 from preprocessing.compile_hydra_data import process_metadata, process_feature_summaries
 from filter_data.clean_feature_summaries import clean_summary_results
 from statistical_testing.stats_helper import pairwise_ttest
-from statistical_testing.perform_keio_stats import df_summary_stats
 from visualisation.plotting_helper import sig_asterix
 from clustering.hierarchical_clustering import plot_clustermap, plot_barcode_heatmap
 from feature_extraction.decomposition.pca import plot_pca, plot_pca_2var, remove_outliers_pca
 from feature_extraction.decomposition.tsne import plot_tSNE
 from feature_extraction.decomposition.umap import plot_umap
+from time_series.time_series_helper import get_strain_timeseries
+from time_series.plot_timeseries import plot_timeseries_motion_mode
 
 from tierpsytools.preprocessing.filter_data import select_feat_set
 from tierpsytools.analysis.statistical_tests import univariate_tests, get_effect_sizes
@@ -42,6 +44,7 @@ from tierpsytools.analysis.statistical_tests import univariate_tests, get_effect
 #%% Globals
 
 JSON_PARAMETERS_PATH = 'analysis/20220111_parameters_keio_acute_rescue.json'
+N_WELLS = 6
 
 FEATURE = 'motion_mode_paused_fraction'
 
@@ -59,6 +62,12 @@ WINDOW_FRAME_DICT = {0:(290,300), 1:(305,315), 2:(315,325),
                      15:(1790,1800), 16:(1805,1815), 17:(1815,1825), 
                      18:(2090,2100), 19:(2105,2115), 20:(2115,2125), 
                      21:(2390,2400), 22:(2405,2415), 23:(2415,2425)}
+
+BLUELIGHT_TIMEPOINTS_MINUTES = [5,10,15,20,25,30,35,40]
+FPS = 25
+VIDEO_LENGTH_SECONDS = 45*60
+
+motion_modes = ['forwards']
 
 #%% Functions
 
@@ -114,11 +123,6 @@ def acute_rescue_stats(features,
     print("\nInvestigating difference in fraction of worms paused between hit strain and control " +
           "(for each window), in the presence/absence of antioxidants:\n")    
 
-    # print mean sample size
-    sample_size = df_summary_stats(metadata, columns=['gene_name', 'antioxidant', 'window'])
-    print("Mean sample size of strain/antioxidant for each window: %d" %\
-          (int(sample_size['n_samples'].mean())))
-      
     # For each strain separately...
     for strain in strain_list:
         strain_meta = metadata[metadata['gene_name']==strain]
@@ -376,15 +380,10 @@ def analyse_acute_rescue(features,
     # categorical variables to investigate: 'gene_name', 'antioxidant' and 'window'
     print("\nInvestigating difference in fraction of worms paused between hit strain and control " +
           "(for each window), in the presence/absence of antioxidants:\n")    
-
-    # print mean sample size
-    sample_size = df_summary_stats(metadata, columns=['gene_name', 'antioxidant', 'window'])
-    print("Mean sample size of strain/antioxidant for each window: %d" %\
-          (int(sample_size['n_samples'].mean())))
             
     # plot dates as different colours (in loop)
     date_lut = dict(zip(list(metadata['date_yyyymmdd'].unique()), 
-                        sns.color_palette('Set1', n_colors=len(metadata['date_yyyymmdd'].unique()))))
+                        sns.color_palette('tab10', n_colors=len(metadata['date_yyyymmdd'].unique()))))
         
     for strain in strain_list[1:]: # skip control_strain at first index postion        
         plot_meta = metadata[np.logical_or(metadata['gene_name']==strain, 
@@ -454,7 +453,7 @@ def analyse_acute_rescue(features,
         plt.close('all')
         fig, ax = plt.subplots(figsize=(10,8))
         ax = sns.boxplot(x='antioxidant', y=FEATURE, hue='gene_name', hue_order=strain_list, data=plot_df,
-                          palette='Set3', dodge=True, order=antiox_list)
+                          palette='tab10', dodge=True, order=antiox_list)
         ax = sns.swarmplot(x='antioxidant', y=FEATURE, hue='gene_name', hue_order=strain_list, data=plot_df,
                           color='k', alpha=0.7, size=4, dodge=True, order=antiox_list)
         n_labs = len(plot_df['gene_name'].unique())
@@ -721,6 +720,142 @@ def analyse_acute_rescue(features,
                       sub_adj={'bottom':0,'left':0,'top':1,'right':1})
 
     return
+
+def acute_rescue_timeseries(metadata, 
+                            project_dir, 
+                            save_dir, 
+                            group_by='treatment',
+                            control='wild_type_None',
+                            bluelight_windows_separately=False,
+                            n_wells=N_WELLS,
+                            smoothing=10):
+    """ Timeseries plots of repeated bluelight stimulation of BW and fepD
+        (10 seconds BL delivered every 30 minutes, for 5 hours total)
+    """
+        
+    # get timeseries for BW
+    control_ts = get_strain_timeseries(metadata[metadata[group_by]==control], 
+                                       project_dir=project_dir, 
+                                       strain=control,
+                                       group_by=group_by,
+                                       n_wells=n_wells,
+                                       save_dir=save_dir,
+                                       verbose=False)
+    
+    treatment_list = list(t for t in metadata['treatment'].unique() if t != control)
+
+    bluelight_frames = [(i*60*FPS, i*60*FPS+10*FPS) for i in BLUELIGHT_TIMEPOINTS_MINUTES]
+
+    for treatment in tqdm(treatment_list):
+        
+        colour_dict = dict(zip([control, treatment], sns.color_palette("pastel", 2)))
+
+        # get timeseries for treatment
+        treatment_ts = get_strain_timeseries(metadata[metadata[group_by]==treatment], 
+                                             project_dir=project_dir, 
+                                             strain=treatment,
+                                             group_by=group_by,
+                                             n_wells=n_wells,
+                                             save_dir=save_dir,
+                                             verbose=False)
+
+        for mode in motion_modes:
+            print("Plotting timeseries %s fraction for %s vs %s..." % (mode, control, treatment))
+    
+            if bluelight_windows_separately:
+                
+                for pulse, timepoint in enumerate(tqdm(BLUELIGHT_TIMEPOINTS_MINUTES), start=1):
+    
+                    plt.close('all')
+                    fig, ax = plt.subplots(figsize=(15,5), dpi=150)
+            
+                    ax = plot_timeseries_motion_mode(df=control_ts,
+                                                     window=smoothing*FPS,
+                                                     error=True,
+                                                     mode=mode,
+                                                     max_n_frames=VIDEO_LENGTH_SECONDS*FPS,
+                                                     title=None,
+                                                     saveAs=None,
+                                                     ax=ax,
+                                                     bluelight_frames=bluelight_frames,
+                                                     colour=colour_dict[control],
+                                                     alpha=0.25)
+                    
+                    ax = plot_timeseries_motion_mode(df=treatment_ts,
+                                                     window=smoothing*FPS,
+                                                     error=True,
+                                                     mode=mode,
+                                                     max_n_frames=VIDEO_LENGTH_SECONDS*FPS,
+                                                     title=None,
+                                                     saveAs=None,
+                                                     ax=ax,
+                                                     bluelight_frames=bluelight_frames,
+                                                     colour=colour_dict[treatment],
+                                                     alpha=0.25)
+                
+                    xticks = np.linspace(0, VIDEO_LENGTH_SECONDS*FPS, int(VIDEO_LENGTH_SECONDS/60)+1)
+                    ax.set_xticks(xticks)
+                    ax.set_xticklabels([str(int(x/FPS/60)) for x in xticks])   
+                    
+                    # -30secs before to +2mins after each pulse
+                    xlim_range = (timepoint*60-30, timepoint*60+120)
+                    ax.set_xlim([xlim_range[0]*FPS, xlim_range[1]*FPS])
+    
+                    ax.set_xlabel('Time (minutes)', fontsize=12, labelpad=10)
+                    ax.set_ylabel('Fraction {}'.format(mode), fontsize=12, labelpad=10)
+                    ax.set_title('{0} vs {1} (bluelight pulse {2} = {3} min)'.format(
+                        control, treatment, pulse, timepoint), fontsize=12, pad=10)
+                    ax.legend([control, treatment], fontsize=12, frameon=False, loc='upper right')
+            
+                    # save plot
+                    save_path = save_dir / treatment /\
+                        'motion_mode_{0}_bluelight_pulse{1}_{2}min.pdf'.format(mode,pulse,timepoint)
+                    print("Saving to: %s" % save_path)
+                    plt.savefig(save_path)  
+                    
+            else:    
+                plt.close('all')
+                fig, ax = plt.subplots(figsize=(30,5), dpi=150)
+        
+                ax = plot_timeseries_motion_mode(df=control_ts,
+                                                 window=smoothing*FPS,
+                                                 error=True,
+                                                 mode=mode,
+                                                 max_n_frames=VIDEO_LENGTH_SECONDS*FPS,
+                                                 title=None,
+                                                 saveAs=None,
+                                                 ax=ax,
+                                                 bluelight_frames=bluelight_frames,
+                                                 colour=colour_dict[control],
+                                                 alpha=0.25)
+                
+                ax = plot_timeseries_motion_mode(df=treatment_ts,
+                                                 window=smoothing*FPS,
+                                                 error=True,
+                                                 mode=mode,
+                                                 max_n_frames=VIDEO_LENGTH_SECONDS*FPS,
+                                                 title=None,
+                                                 saveAs=None,
+                                                 ax=ax,
+                                                 bluelight_frames=bluelight_frames,
+                                                 colour=colour_dict[treatment],
+                                                 alpha=0.25)
+            
+                xticks = np.linspace(0, VIDEO_LENGTH_SECONDS*FPS, int(VIDEO_LENGTH_SECONDS/60)+1)
+                ax.set_xticks(xticks)
+                ax.set_xticklabels([str(int(x/FPS/60)) for x in xticks])   
+                ax.set_xlabel('Time (minutes)', fontsize=12, labelpad=10)
+                ax.set_ylabel('Fraction {}'.format(mode), fontsize=12, labelpad=10)
+                ax.set_title('{0} vs {1}'.format(control, treatment), fontsize=12, pad=10)
+                ax.legend([control, treatment], fontsize=12, frameon=False, loc='upper right')
+        
+                # save plot
+                save_path = save_dir / treatment / 'motion_mode_{}.pdf'.format(mode)
+                save_path.parent.mkdir(exist_ok=True, parents=True)
+                print("Saving to: %s" % save_path)
+                plt.savefig(save_path)  
+
+    return
     
 #%% Main
 
@@ -738,7 +873,7 @@ if __name__ == '__main__':
     metadata, metadata_path = process_metadata(aux_dir, 
                                                imaging_dates=args.dates, 
                                                add_well_annotations=args.add_well_annotations, 
-                                               n_wells=6)
+                                               n_wells=N_WELLS)
     
     features, metadata = process_feature_summaries(metadata_path, 
                                                    results_dir, 
@@ -746,7 +881,7 @@ if __name__ == '__main__':
                                                    imaging_dates=args.dates, 
                                                    align_bluelight=args.align_bluelight, 
                                                    window_summaries=True,
-                                                   n_wells=6)
+                                                   n_wells=N_WELLS)
  
     # Subset results (rows) to remove entries for wells with unknown strain data for 'gene_name'
     n = metadata.shape[0]
@@ -814,5 +949,28 @@ if __name__ == '__main__':
                          pval_threshold=args.pval_threshold,
                          remove_outliers=args.remove_outliers)
     
+    # full timeseries plots - BW vs fepD for each motion mode
+    metadata['treatment'] = metadata['gene_name'] + '_' + metadata['antioxidant']
+    mean_sample_size = metadata.groupby('treatment')['well_name'].count().mean()
+    print("Mean sample size per treatment: %d" % round(mean_sample_size))
+    
+    acute_rescue_timeseries(metadata, 
+                            project_dir=Path(args.project_dir), 
+                            save_dir=Path(args.save_dir) / 'timeseries',
+                            n_wells=N_WELLS,
+                            control='wild_type_None',
+                            group_by='treatment',
+                            bluelight_windows_separately=False,
+                            smoothing=10)
+
+    # timeseries plots BW vs fepD around each blue light window
+    acute_rescue_timeseries(metadata, 
+                            project_dir=Path(args.project_dir), 
+                            save_dir=Path(args.save_dir) / 'timeseries',
+                            n_wells=N_WELLS,
+                            control='wild_type_None',
+                            group_by='treatment',
+                            bluelight_windows_separately=True,
+                            smoothing=5)    
     
     

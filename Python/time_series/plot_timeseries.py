@@ -207,6 +207,8 @@ def plot_timeseries_motion_mode(df,
             List of tuples for (start, end) frame numbers of each bluelight stimulus (optional)
         cols : list
             List of cols to group_by
+        alpha : float
+            Bluelight window transparency
             
         Returns
         -------
@@ -263,9 +265,9 @@ def plot_timeseries_motion_mode(df,
                                           frac_video.columns, axis=1).sort_values(
                                               by=['filename','timestamp'], ascending=True)
     
-    _tmp = frac_video.groupby(['filename','timestamp']).mean()['fraction'].isna().reset_index()
-    _tmp = _tmp.rename(columns={'fraction':'drop'})
-    frac_video = pd.merge(frac_video, _tmp, on=['filename','timestamp'], how='outer')    
+    NaN_mask = frac_video.groupby(['filename','timestamp']).mean()['fraction'].isna().reset_index()
+    NaN_mask = NaN_mask.rename(columns={'fraction':'drop'})
+    frac_video = pd.merge(frac_video, NaN_mask, on=['filename','timestamp'], how='outer')    
     frac_video = frac_video[~frac_video['drop']][frac_video.columns[:-1]].fillna(0, axis=1)
 
     assert all(frac_video.groupby(['filename','timestamp'])['fraction'].sum().round(9) == 1)
@@ -281,7 +283,7 @@ def plot_timeseries_motion_mode(df,
     if error:
         conf_ints = grouped_timestamp_mode.apply(_bootstrapped_ci, 
                                                  function=np.mean, 
-                                                 n_boot=10)#TODO:100
+                                                 n_boot=100)
          
         conf_ints = pd.concat([pd.Series([x[0] for x in conf_ints], index=conf_ints.index), 
                                pd.Series([x[1] for x in conf_ints], index=conf_ints.index)], axis=1)

@@ -4,6 +4,11 @@
 Nearest neighbour analysis of hit strain selected from Top100 strains ranked by lowest p-value of 
 any feature by t-test (Tierpsy 16, fdr_bh)
 
+Loads the 59 hit strains curated from lowest ranked 100 strains by p-value for any feature 
+(t-test, p<0.05, fdr_bh, Tierpsy 16) from the initial screen, computes the Euclidean distance 
+between strains in phenotype space, and finds the 3 nearest neighbours to each hit strain to expand 
+the candidate strain list and increase the chance of finding interesting behaviour-modifying strains
+
 @author: sm5911
 @date: 12/07/2021
 
@@ -20,26 +25,29 @@ from scipy.stats import zscore
 from scipy.spatial.distance import pdist, squareform
 from scipy.cluster.hierarchy import linkage, cophenet
 
-from read_data.read import load_topfeats, read_list_from_file
+from read_data.read import read_list_from_file
 from write_data.write import write_list_to_file
 from clustering.hierarchical_clustering import plot_clustermap
+from tierpsytools.preprocessing.filter_data import select_feat_set
 
 #%% Globals
 
-FEATURES_PATH = "/Users/sm5911/Documents/Keio_Screen/features.csv"
-METADATA_PATH = "/Users/sm5911/Documents/Keio_Screen/metadata.csv"
+PROJECT_DIR = Path("/Users/sm5911/Documents/Keio_Screen")
+FEATURES_PATH = PROJECT_DIR / "features.csv"
+METADATA_PATH = PROJECT_DIR / "metadata.csv"
 
-TOP_FEATS_DIR = '/Users/sm5911/Tierpsy_Versions/tierpsy-tools-python/tierpsytools/extras/feat_sets'
-N_TOP_FEATS = 256
+# Load 59 hit strains curated from lowest ranked 100 strains by pvalue from initial screen
+# for nearest neighbour analysis too expand gene set
+CONF_STRAIN_LIST_PATH = PROJECT_DIR /\
+    "59_selected_strains_from_initial_keio_top100_lowest_pval_tierpsy16_fdr_bh.txt"
+SAVE_DIR = PROJECT_DIR / "nearest_neighbours"
 
-# Load n=52 hit strains chosen from top100 strains ranked lowest pvalue from initial screen 
-# (Tierpsy 16, fdr_bh) for nearest neighbour analysis too expand gene set
-CONF_STRAIN_LIST_PATH = "/Users/sm5911/Documents/Keio_Screen2/Top256/hit_strains.txt"
-STRAIN_LIST_SAVE_DIR = "/Users/sm5911/Documents/Keio_Screen2/strain_list"
+N_NEIGHBOURS = 3 # Number of neighbours to record
 
 LINKAGE_METHOD = 'average' # 'ward' - see docs for options: ?scipy.cluster.hierarchy.linkage
 DISTANCE_METRIC = 'euclidean' # 'cosine' - see docs for options: ?scipy.spatial.distance.pdist
-N_NEIGHBOURS = 3 # Number of neighbours to record
+
+N_TIERPSY_FEATURES = 256
 
 #%% Functions
 
@@ -182,15 +190,19 @@ def nearest_neighbours(X,
     
     if strain_list is None:
         strain_list = X.index.to_list()
- 
+
+    if saveDir is not None:
+        saveDir.mkdir(exist_ok=True, parents=True)
+        
+    # compute squareform euclidean distances between each strain
     sq_dist = plot_squareform(X=X, metric=distance_metric, 
-                              saveAs=(save_path / 'squareform_pdist.png' if save_path is not None 
+                              saveAs=(saveDir / 'squareform_pdist.png' if saveDir is not None 
                                       else None))
     # sq_dist_sorted = np.sort(sq_dist, axis=1) # add [:,::-1] to sort in descending order
    
     # Convert squareform distance matrix to dataframe and subset rows for hit strains only
     sq_dist_df = pd.DataFrame(sq_dist, index=X.index, columns=X.index)
-    hit_distances_df = sq_dist_df.loc[sq_dist_df.index.isin(strain_list)]
+    hit_distances_df = sq_dist_df.loc[sq_dist_df.index.isin(strain_list),:]
     
     # For each hit strain, rank all other strains by distance from it 
     # and store nearest neighbour gene names and distances separately
@@ -204,9 +216,8 @@ def nearest_neighbours(X,
     names_df = pd.DataFrame.from_dict(names_dict).T
     distances_df = pd.DataFrame.from_dict(distances_dict).T
         
-    # save ranked nearest neighbours gene names and corresponding distances to file
+    # save ranked nearest neighbour names along with corresponding distances to file
     if saveDir is not None:
-        saveDir.mkdir(exist_ok=True, parents=True)
         names_df.to_csv(saveDir / 'nearest_neighbours_names.csv', index=True, header=True)
         distances_df.to_csv(saveDir / 'nearest_neighbours_distances.csv', index=True, header=True)
         
@@ -223,21 +234,19 @@ if __name__ == "__main__":
     metadata = pd.read_csv(METADATA_PATH, dtype={'comments':str, 'source_plate_id':str})
         
     # Load Tierpsy Top feature set + subset (columns) for top feats only
-    if N_TOP_FEATS is not None:
-        top_feats_path = Path(TOP_FEATS_DIR) / "tierpsy_{}.csv".format(str(N_TOP_FEATS))        
-        topfeats = load_topfeats(top_feats_path, add_bluelight=True, remove_path_curvature=True, 
-                                 header=None) #TODO: check tierpsytools for equiv func
-
-        # Drop features that are not in results
-        top_feats_list = [feat for feat in list(topfeats) if feat in features.columns]
-        features = features[top_feats_list]
-
-    n_strains, n_feats = len(metadata['gene_name'].unique()), len(features.columns)
-    save_path = Path(STRAIN_LIST_SAVE_DIR) / ("%d_strains_%d_features" % (n_strains, n_feats))
+    if N_TIERPSY_FEATURES is not None:
+        assert N_TIERPSY_FEATURES in [8,16,256,'2k']
+        features = select_feat_set(features, 
+                                   tierpsy_set_name='tierpsy_{}'.format(N_TIERPSY_FEATURES), 
+                                   append_bluelight=True)
+        
+    n_strains, n_feats = metadata['gene_name'].nunique(), len(features.columns)
+    save_path = Path(SAVE_DIR) / ("%d_strains_%d_features" % (n_strains, n_feats))
          
     ##### Hierarchical clustering #####
 
     # Cluster linkage array
+    print("Computing cluster linkage array...")
     Z, X = cluster_linkage_seaborn(features, 
                                    metadata, 
                                    groupby='gene_name', 
@@ -251,9 +260,8 @@ if __name__ == "__main__":
                                    method=LINKAGE_METHOD, 
                                    metric=DISTANCE_METRIC)
     
-    # Assert that the two methods are identical (within limits of machine precision)
-    assert (np.round(Z, 6) == np.round(_Z, 6)).all() # TODO: use np.allclose(arr1, arr2)
-    assert (X == _X).all().all()
+    # Assert that the two methods are identical
+    assert np.allclose(Z, _Z)
 
     # Compare pairwise distances between all samples to hierarchical clustering distances 
     # The closer the value to 1 the better the clustering preserves original distances
@@ -261,43 +269,41 @@ if __name__ == "__main__":
 
     # Find nearest neighbours by ranking the computed sqaureform distance matrix between all strains
     names_df, distances_df = nearest_neighbours(X=X,
-                                                strain_list=None, 
+                                                strain_list=None,
                                                 distance_metric=DISTANCE_METRIC, 
-                                                saveDir=save_path / 'nearest_neighbours')
+                                                saveDir=save_path)
     
     # Load cherry-picked hit strains list (n=59) from top100 lowest p-value (any Tierpsy 16 feature, 
     # fdr_bh) selected for confirmation screening
-    conf_strain_list = read_list_from_file(CONF_STRAIN_LIST_PATH)
-    conf_strain_list.remove('AroP'); conf_strain_list.insert(0,'aroP') # correct capitalisation error # TODO: apply function to whole df
-    conf_strain_list.remove('TnaB'); conf_strain_list.insert(0,'tnaB')
-    write_list_to_file(conf_strain_list, Path(STRAIN_LIST_SAVE_DIR) / "hit_strains.txt")
-
-    # Record confirmation screen hit strains in/not in initial hit strain list
-    conf_strain_initial_list = [s for s in conf_strain_list if s in names_df.index]
-    conf_strain_not_initial_list = [s for s in conf_strain_list if s not in names_df.index]
-    neighbours_df = names_df.loc[conf_strain_initial_list, 1:N_NEIGHBOURS]
-    neighbours_df.to_excel(Path(STRAIN_LIST_SAVE_DIR) / "nearest_{}_neighbours.xlsx".format(N_NEIGHBOURS))
+    selected_strain_list = read_list_from_file(CONF_STRAIN_LIST_PATH)
     
-    # Save N nearest neighbours list. Extract elements of 2nd through 5th columns for selected 
-    # rows + flatten into list
-    neighbour_list = list(np.unique(names_df.loc[conf_strain_initial_list, 1:N_NEIGHBOURS].values.flatten()))
-    neighbour_list = [n for n in neighbour_list if n not in conf_strain_list]
-    write_list_to_file(neighbour_list, Path(STRAIN_LIST_SAVE_DIR) / "neighbour_strains.txt")
+    # Record confirmation screen hit strains in/not in initial hit strain list
+    conf_strain_initial_list = [s for s in selected_strain_list if s in names_df.index]
+    conf_strain_not_initial_list = [s for s in selected_strain_list if s not in names_df.index]
+    neighbour_names_df = names_df.loc[conf_strain_initial_list, 1:N_NEIGHBOURS]
+    neighbour_names_df.to_excel(Path(save_path) / "nearest_{}_neighbours.xlsx".format(N_NEIGHBOURS))
+    
+    # Save N nearest neighbours list
+    neighbour_list = np.unique(np.asmatrix(neighbour_names_df).flatten().tolist())
+    neighbour_list = sorted(set(neighbour_list) - set(selected_strain_list))
+    write_list_to_file(neighbour_list, Path(save_path) / "neighbour_strains.txt")
 
-    new_strain_list = conf_strain_list + neighbour_list
+    new_strain_list = sorted(set(neighbour_list).union(set(selected_strain_list)))
     atp_genes = [s for s in names_df.index if s.startswith('atp') and s not in new_strain_list]
     nuo_genes = [s for s in names_df.index if s.startswith('nuo') and s not in new_strain_list]
     extra_strains = ['fiu','fhuE','fhuA','tonB','exbD','exbB','entA','entB','entC','entE','entF',
                      'fes','cirA']
     extra_strain_list = atp_genes + nuo_genes + extra_strains
-    write_list_to_file(extra_strain_list, Path(STRAIN_LIST_SAVE_DIR) / "extra_strains.txt")
+    assert not any(s in new_strain_list for s in extra_strain_list)
+    write_list_to_file(extra_strain_list, Path(save_path) / "extra_strains_added.txt")
+
+    new_strain_list.extend(extra_strain_list)
 
     # Save expanded list of hit strains for confirmational screen, including the N closest strains 
     # to each hit strain selected from the initial screen
-    new_strain_list.extend(extra_strain_list)
-    new_strain_list = sorted(list(np.unique(new_strain_list)))
     print("Saving new hit strain list of %d genes to file" % len(new_strain_list))
-    write_list_to_file(new_strain_list, Path(STRAIN_LIST_SAVE_DIR) / "new_hit_strains.txt")
+    write_list_to_file(sorted(new_strain_list), Path(save_path) /\
+                       "{}_selected_strains_for_confirmation_screen.txt".format(len(new_strain_list)))
        
     print("Done in %.1f seconds" % (time()-tic))
     

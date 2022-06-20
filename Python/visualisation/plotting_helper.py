@@ -362,7 +362,8 @@ def boxplots_sigfeats(features,
                       max_strains=None,
                       sns_colour_palette="tab10",
                       verbose=True,
-                      scale_outliers=True):
+                      scale_outliers=True,
+                      append_ranking_fname=True):
     """ Box plots of most significantly different features between each strain and the control 
     
         Inputs
@@ -459,7 +460,7 @@ def boxplots_sigfeats(features,
         for f, feature in enumerate(strain_pvals.index.to_list()[:max_sig_feats]):
             
             plot_path = saveDir / ('{0}_'.format(s + 1) + str(strain)) /\
-                        ('{0}_'.format(f + 1) + feature + '.pdf')
+                        (('{0}_'.format(f + 1) if append_ranking_fname else '') + feature + '.pdf')
             if plot_path.exists():
                 continue
             else:

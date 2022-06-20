@@ -17,9 +17,9 @@ import seaborn as sns
 from tqdm import tqdm
 from pathlib import Path
 from matplotlib import pyplot as plt
-from analysis.keio_screen.check_keio_screen_worm_trajectories import check_tracked_objects
 from time_series.time_series_helper import get_strain_timeseries
 from time_series.plot_timeseries import plot_timeseries_motion_mode
+from analysis.keio_screen.check_keio_screen_worm_trajectories import check_tracked_objects
 
 #%% Globals
 
@@ -89,7 +89,7 @@ def antioxidants_timeseries(metadata, project_dir=PROJECT_DIR, save_dir=SAVE_DIR
                                              save_dir=Path(save_dir) / 'Data' / treatment,
                                              verbose=False)
  
-        col_dict = dict(zip([control, treatment], sns.color_palette("pastel", 2)))
+        colour_dict = dict(zip([control, treatment], sns.color_palette("pastel", 2)))
         bluelight_frames = [(i*60*FPS, i*60*FPS+10*FPS) for i in BLUELIGHT_TIMEPOINTS_MINUTES]
 
         for mode in motion_modes:
@@ -109,7 +109,7 @@ def antioxidants_timeseries(metadata, project_dir=PROJECT_DIR, save_dir=SAVE_DIR
                                              saveAs=None,
                                              ax=ax,
                                              bluelight_frames=bluelight_frames,
-                                             colour=col_dict[control],
+                                             colour=colour_dict[control],
                                              alpha=0.25)
             
             ax = plot_timeseries_motion_mode(df=treatment_ts,
@@ -121,7 +121,7 @@ def antioxidants_timeseries(metadata, project_dir=PROJECT_DIR, save_dir=SAVE_DIR
                                              saveAs=None,
                                              ax=ax,
                                              bluelight_frames=bluelight_frames,
-                                             colour=col_dict[treatment],
+                                             colour=colour_dict[treatment],
                                              alpha=0.25)
         
             xticks = np.linspace(0, VIDEO_LENGTH_SECONDS*FPS, int(VIDEO_LENGTH_SECONDS/60)+1)

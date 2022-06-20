@@ -28,7 +28,6 @@ from read_data.paths import get_save_dir
 from preprocessing.compile_hydra_data import process_metadata, process_feature_summaries
 from filter_data.clean_feature_summaries import clean_summary_results
 from statistical_testing.stats_helper import pairwise_ttest
-from statistical_testing.perform_keio_stats import df_summary_stats
 from time_series.time_series_helper import get_strain_timeseries
 from time_series.plot_timeseries import plot_timeseries_motion_mode
 
@@ -36,7 +35,7 @@ from time_series.plot_timeseries import plot_timeseries_motion_mode
 
 JSON_PARAMETERS_PATH = 'analysis/20211102_parameters_keio_fast_effect.json'
 
-FEATURE = 'motion_mode_paused_fraction'
+FEATURE = 'motion_mode_forward_fraction'
 
 scale_outliers_box = True
 
@@ -80,10 +79,6 @@ def perform_fast_effect_stats(features, metadata, window_list, args):
 
     control_strain = args.control_dict['gene_name']
     strain_list = list([s for s in metadata['gene_name'].unique() if s != control_strain])    
-
-    # print mean sample size
-    sample_size = df_summary_stats(metadata, columns=['gene_name', 'window'])
-    print("Mean sample size of strain/window: %d" % (int(sample_size['n_samples'].mean())))
     
     # construct save paths (args.save_dir / topfeats? etc)
     save_dir = get_save_dir(args)
@@ -143,10 +138,6 @@ def analyse_fast_effect(features, metadata, window_list, args):
     control_strain = args.control_dict['gene_name']
     strain_list = list([s for s in metadata['gene_name'].unique() if s != control_strain])    
 
-    # print mean sample size
-    sample_size = df_summary_stats(metadata, columns=['gene_name', 'window'])
-    print("Mean sample size of strain/window: %d" % (int(sample_size['n_samples'].mean())))
-    
     # construct save paths (args.save_dir / topfeats? etc)
     save_dir = get_save_dir(args)
     stats_dir =  save_dir / "Stats" / args.fdr_method
@@ -154,7 +145,7 @@ def analyse_fast_effect(features, metadata, window_list, args):
         
     # plot dates as different colours (in loop)
     date_lut = dict(zip(list(metadata['date_yyyymmdd'].unique()), 
-                        sns.color_palette('Set1', n_colors=len(metadata['date_yyyymmdd'].unique()))))
+                        sns.color_palette('pastel', n_colors=len(metadata['date_yyyymmdd'].unique()))))
     
     for strain in strain_list:
         print("Plotting windows for %s vs control" % strain)
@@ -168,7 +159,7 @@ def analyse_fast_effect(features, metadata, window_list, args):
         plt.close('all')
         fig, ax = plt.subplots(figsize=((len(window_list) if len(window_list) >= 20 else 12),8))
         ax = sns.boxplot(x='window', y=FEATURE, hue='gene_name', hue_order=[control_strain, strain],
-                         data=plot_df, palette='Set3', dodge=True, ax=ax)
+                         data=plot_df, palette='tab10', dodge=True, ax=ax)
         for date in date_lut.keys():
             date_df = plot_df[plot_df['date_yyyymmdd']==date]   
             ax = sns.stripplot(x='window', y=FEATURE, hue='gene_name', 
@@ -177,7 +168,7 @@ def analyse_fast_effect(features, metadata, window_list, args):
                                alpha=0.7, size=4, dodge=True, ax=ax)
         n_labs = len(plot_df['gene_name'].unique())
         handles, labels = ax.get_legend_handles_labels()
-        ax.legend(handles[:n_labs], labels[:n_labs], fontsize=15, frameon=False, loc='upper right')
+        ax.legend(handles[:n_labs], labels[:n_labs], fontsize=15, frameon=False, loc='lower left')
                 
         # scale plot to omit outliers (>2.5*IQR from mean)
         if scale_outliers_box:
@@ -187,7 +178,7 @@ def analyse_fast_effect(features, metadata, window_list, args):
             Q1 = grouped_strain[FEATURE].quantile(0.25)
             Q3 = grouped_strain[FEATURE].quantile(0.75)
             IQR = Q3 - Q1
-            plt.ylim(-0.02, max(y_bar) + 3 * max(IQR))
+            plt.ylim(-0.01, (max(y_bar) + 3 * max(IQR) if max(y_bar) + 3 * max(IQR) < 1 else 1.05))
             
         # load t-test results + annotate p-values on plot
         for ii, window in enumerate(window_list):
@@ -245,7 +236,7 @@ def fast_effect_timeseries(metadata, project_dir, save_dir, bluelight_windows_se
                                     save_dir=save_dir / 'Data' / 'fepD',
                                     verbose=False)
  
-    col_dict = dict(zip(['wild_type', 'fepD'], sns.color_palette("pastel", 2)))
+    colour_dict = dict(zip(['wild_type', 'fepD'], sns.color_palette("pastel", 2)))
     bluelight_frames = [(i*60*FPS, i*60*FPS+10*FPS) for i in BLUELIGHT_TIMEPOINTS_MINUTES]
 
     for mode in motion_modes:
@@ -267,7 +258,7 @@ def fast_effect_timeseries(metadata, project_dir, save_dir, bluelight_windows_se
                                                  saveAs=None,
                                                  ax=ax,
                                                  bluelight_frames=bluelight_frames,
-                                                 colour=col_dict['wild_type'],
+                                                 colour=colour_dict['wild_type'],
                                                  alpha=0.25)
                 
                 ax = plot_timeseries_motion_mode(df=fepD_ts,
@@ -279,7 +270,7 @@ def fast_effect_timeseries(metadata, project_dir, save_dir, bluelight_windows_se
                                                  saveAs=None,
                                                  ax=ax,
                                                  bluelight_frames=bluelight_frames,
-                                                 colour=col_dict['fepD'],
+                                                 colour=colour_dict['fepD'],
                                                  alpha=0.25)
             
                 xticks = np.linspace(0, VIDEO_LENGTH_SECONDS*FPS, int(VIDEO_LENGTH_SECONDS/60)+1)
@@ -304,9 +295,7 @@ def fast_effect_timeseries(metadata, project_dir, save_dir, bluelight_windows_se
                 print("Saving to: %s" % save_path)
                 plt.savefig(save_path)  
                 
-        else:                    
-            print("Plotting timeseries '%s' fraction for BW vs fepD..." % mode)
-    
+        else:    
             plt.close('all')
             fig, ax = plt.subplots(figsize=(30,5), dpi=150)
     
@@ -319,7 +308,7 @@ def fast_effect_timeseries(metadata, project_dir, save_dir, bluelight_windows_se
                                              saveAs=None,
                                              ax=ax,
                                              bluelight_frames=bluelight_frames,
-                                             colour=col_dict['wild_type'],
+                                             colour=colour_dict['wild_type'],
                                              alpha=0.25)
             
             ax = plot_timeseries_motion_mode(df=fepD_ts,
@@ -331,7 +320,7 @@ def fast_effect_timeseries(metadata, project_dir, save_dir, bluelight_windows_se
                                              saveAs=None,
                                              ax=ax,
                                              bluelight_frames=bluelight_frames,
-                                             colour=col_dict['fepD'],
+                                             colour=colour_dict['fepD'],
                                              alpha=0.25)
         
             xticks = np.linspace(0, VIDEO_LENGTH_SECONDS*FPS, int(VIDEO_LENGTH_SECONDS/60)+1)

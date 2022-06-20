@@ -24,7 +24,7 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.model_selection import cross_val_score
 
 from read_data.paths import get_save_dir
-from read_data.read import load_json, load_topfeats
+from read_data.read import load_json
 from write_data.write import write_list_to_file
 from filter_data.clean_feature_summaries import subset_results
 from visualisation.plotting_helper import sig_asterix
@@ -33,28 +33,13 @@ from statistical_testing.stats_helper import levene_f_test
 from tierpsytools.analysis.significant_features import k_significant_feat, mRMR_feature_selection
 from tierpsytools.analysis.statistical_tests import univariate_tests, get_effect_sizes, _multitest_correct
 from tierpsytools.drug_screenings.filter_compounds import compounds_with_low_effect_univariate
+from tierpsytools.preprocessing.filter_data import select_feat_set
 
 #%% GLOBALS
 
 JSON_PARAMETERS_PATH = "analysis/20210914_parameters_keio_screen.json"
 
 #%% MAIN
-
-def df_summary_stats(df, columns=None):
-    """ Print N samples per group for given column(s), or all columns if none given """
-    
-    if type(columns) == str:
-        columns = [columns]
-    elif columns is None:
-        columns = list(df.columns)
-    elif type(columns) != list:
-        raise TypeError("'columns' must be a list!")
-    assert all(c in df.columns for c in columns)  
-                    
-    stats_df = df.groupby(columns).size().reset_index(drop=False)
-    stats_df = stats_df.rename(columns={stats_df.columns[-1]: 'n_samples'})
-
-    return stats_df
 
 def average_plate_control_data(features, metadata, control='wild_type', grouping_var='gene_name', 
                                plate_var='imaging_plate_id'):
@@ -150,14 +135,11 @@ def keio_stats(features, metadata, args):
 
     # Load Tierpsy Top feature set + subset (columns) for top feats only
     if args.n_top_feats is not None:
-        top_feats_path = Path(args.tierpsy_top_feats_dir) / "tierpsy_{}.csv".format(str(args.n_top_feats))
-        topfeats = load_topfeats(top_feats_path, add_bluelight=args.align_bluelight, 
-                                 remove_path_curvature=True, header=None)
-        
-        # Drop features that are not in results
-        top_feats_list = [feat for feat in list(topfeats) if feat in features.columns]
-        features = features[top_feats_list]
-    
+        assert args.n_top_feats in [8,16,256,'2k']
+        features = select_feat_set(features, 
+                                   tierpsy_set_name='tierpsy_{}'.format(args.n_top_feats), 
+                                   append_bluelight=args.align_bluelight)
+            
     assert not features.isna().any().any()
     
     strain_list = list(metadata[grouping_var].unique())
@@ -171,8 +153,6 @@ def keio_stats(features, metadata, args):
                                                         control=control, 
                                                         grouping_var=grouping_var, 
                                                         plate_var='imaging_plate_id')
-
-    _ = df_summary_stats(metadata) # summary df # TODO: plot from?
 
     # Record mean sample size per group
     mean_sample_size = int(np.round(metadata.join(features).groupby([grouping_var], 
@@ -220,7 +200,7 @@ def keio_stats(features, metadata, args):
                                                         comparison_type='multiclass',
                                                         multitest_correction=None, # uncorrected
                                                         alpha=args.pval_threshold,
-                                                        n_permutation_test='all')
+                                                        n_permutation_test=None)
 
                 # get effect sizes
                 effect_sizes = get_effect_sizes(X=features, 

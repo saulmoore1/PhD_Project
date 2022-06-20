@@ -167,7 +167,7 @@ def ubiC_timeseries(metadata, project_dir=PROJECT_DIR, save_dir=SAVE_DIR, window
 
             plt.close('all')
             fig, ax = plt.subplots(figsize=(15,5), dpi=200)
-            col_dict = dict(zip(test_treatments, sns.color_palette("pastel", len(test_treatments))))
+            colour_dict = dict(zip(test_treatments, sns.color_palette("pastel", len(test_treatments))))
             bluelight_frames = [(i*60*FPS, i*60*FPS+10*FPS) for i in BLUELIGHT_TIMEPOINTS_MINUTES]
 
             ax = plot_timeseries_motion_mode(df=control_timeseries,
@@ -179,7 +179,7 @@ def ubiC_timeseries(metadata, project_dir=PROJECT_DIR, save_dir=SAVE_DIR, window
                                              saveAs=None,
                                              ax=ax,
                                              bluelight_frames=bluelight_frames,
-                                             colour=col_dict[control],
+                                             colour=colour_dict[control],
                                              alpha=0.25)
             
             ax = plot_timeseries_motion_mode(df=strain_timeseries,
@@ -191,7 +191,7 @@ def ubiC_timeseries(metadata, project_dir=PROJECT_DIR, save_dir=SAVE_DIR, window
                                              saveAs=None,
                                              ax=ax,
                                              bluelight_frames=bluelight_frames,
-                                             colour=col_dict[treatment],
+                                             colour=colour_dict[treatment],
                                              alpha=0.25)
         
             xticks = np.linspace(0, VIDEO_LENGTH_SECONDS*FPS, int(VIDEO_LENGTH_SECONDS/60)+1)

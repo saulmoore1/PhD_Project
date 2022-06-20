@@ -17,11 +17,12 @@ approached the bacterial lawn
 import numpy as np
 import pandas as pd
 import seaborn as sns
+from tqdm import tqdm
 from pathlib import Path
 from matplotlib import pyplot as plt
 from preprocessing.compile_hydra_data import compile_metadata
 from time_series.time_series_helper import get_strain_timeseries
-from time_series.plot_timeseries import plot_timeseries_motion_mode, add_bluelight_to_plot
+from time_series.plot_timeseries import plot_timeseries_motion_mode
 
 #%% Globals
 
@@ -48,131 +49,140 @@ THRESHOLD_N_SECONDS = 10
 BLUELIGHT_TIMEPOINTS_MINUTES = [5,10,15,20,25]
 N_WELLS = 6
 
-#%% Function 
+motion_modes = ['forwards','stationary','backwards']
 
-def plot_timeseries_motion_mode_single_worm(df, window=None, mode=None, max_n_frames=None,
-                                            title=None, figsize=(12,6), ax=None, saveAs=None,
-                                            sns_colour_palette='pastel', colour=None, 
-                                            bluelight_frames=None,
-                                            cols = ['motion_mode','filename','well_name','timestamp'], 
-                                            alpha=0.5):
-    """ Plot motion mode timeseries from 'timeseries_data' for a given treatment (eg. strain) 
-    
-        Inputs
-        ------
-        df : pd.DataFrame
-            Compiled dataframe of 'timeseries_data' from all featuresN HDF5 files for a given 
-            treatment (eg. strain) 
-        window : int
-            Moving average window of n frames
-        error : bool
-            Add error to timeseries plots
-        mode : str
-            The motion mode you would like to plot (choose from: ['stationary','forwards','backwards'])
-        max_n_frames : int
-            Maximum number of frames in video (x axis limit)
-        title : str
-            Title of figure (optional, ax is returned so title and other plot params can be added later)
-        figsize : tuple
-            Size of figure to be passed to plt.subplots figsize param
-        ax : matplotlib AxesSubplot, None
-            Axis of figure subplot
-        saveAs : str
-            Path to save directory
-        sns_colour_palette : str
-            Name of seaborn colour palette
-        colour : str, None
-            Plot single colour for plot (if plotting a single strain or a single motion mode)
-        bluelight_frames : list
-            List of tuples for (start, end) frame numbers of each bluelight stimulus (optional)
-        cols : list
-            List of cols to group_by
-            
-        Returns
-        -------
-        fig : matplotlib Figure 
-            If ax is None, so the figure may be saved
-            
-        ax : matplotlib AxesSubplot
-            For iterative plotting   
+#%% Functions
+
+def acute_single_worm_timeseries(metadata, 
+                                 project_dir, 
+                                 save_dir, 
+                                 group_by='bacteria_strain',
+                                 control='BW',
+                                 bluelight_windows_separately=False,
+                                 n_wells=N_WELLS,
+                                 smoothing=120):
+    """ Timeseries plots of repeated bluelight stimulation of BW and fepD
+        (10 seconds BL delivered every 30 minutes, for 5 hours total)
     """
+        
+    # get timeseries for BW
+    BW_ts = get_strain_timeseries(metadata[metadata[group_by]==control], 
+                                  project_dir=project_dir, 
+                                  strain=control,
+                                  group_by=group_by,
+                                  n_wells=n_wells,
+                                  save_dir=save_dir,
+                                  verbose=False)
+    
+    # get timeseries for fepD
+    fepD_ts = get_strain_timeseries(metadata[metadata[group_by]=='fepD'], 
+                                    project_dir=project_dir, 
+                                    strain='fepD',
+                                    group_by=group_by,
+                                    n_wells=n_wells,
+                                    save_dir=save_dir,
+                                    verbose=False)
  
-    # discrete data mapping
-    motion_modes = ['stationary','forwards','backwards']
-    motion_dict = dict(zip([0,1,-1], motion_modes))
+    colour_dict = dict(zip([control, 'fepD'], sns.color_palette("pastel", 2)))
+    bluelight_frames = [(i*60*FPS, i*60*FPS+10*FPS) for i in BLUELIGHT_TIMEPOINTS_MINUTES]
 
-    if mode is not None:
-        if type(mode) == int or type(mode) == float:
-            mode = motion_dict[mode]     
-        else:
-            assert type(mode) == str 
-            mode = 'stationary' if mode == 'paused' else mode
-            assert mode in motion_modes
-    
-    assert all(c in df.columns for c in cols)
+    for mode in motion_modes:
+        print("Plotting timeseries '%s' fraction for BW vs fepD..." % mode)
 
-    # drop NaN data
-    df = df.loc[~df['motion_mode'].isna(), cols]
-     
-    # map whether forwards, backwards or stationary motion in each frame
-    df['motion_name'] = df['motion_mode'].map(motion_dict)
-    assert not df['motion_name'].isna().any()
+        if bluelight_windows_separately:
+            
+            for pulse, timepoint in enumerate(tqdm(BLUELIGHT_TIMEPOINTS_MINUTES), start=1):
+
+                plt.close('all')
+                fig, ax = plt.subplots(figsize=(15,5), dpi=150)
         
-    # total number of worms recorded at each timestamp (across all videos)
-    total_timestamp_count = df.groupby(['timestamp'])['filename'].count()
-    
-    # total number of worms in each motion mode at each timestamp
-    motion_mode_count = df.groupby(['timestamp','motion_name'])['filename'].count().reset_index()
-    motion_mode_count = motion_mode_count.rename(columns={'filename':'count'})
+                ax = plot_timeseries_motion_mode(df=BW_ts,
+                                                 window=smoothing*FPS,
+                                                 error=True,
+                                                 mode=mode,
+                                                 max_n_frames=VIDEO_LENGTH_SECONDS*FPS,
+                                                 title=None,
+                                                 saveAs=None,
+                                                 ax=ax,
+                                                 bluelight_frames=bluelight_frames,
+                                                 colour=colour_dict[control],
+                                                 alpha=0.25)
+                
+                ax = plot_timeseries_motion_mode(df=fepD_ts,
+                                                 window=smoothing*FPS,
+                                                 error=True,
+                                                 mode=mode,
+                                                 max_n_frames=VIDEO_LENGTH_SECONDS*FPS,
+                                                 title=None,
+                                                 saveAs=None,
+                                                 ax=ax,
+                                                 bluelight_frames=bluelight_frames,
+                                                 colour=colour_dict['fepD'],
+                                                 alpha=0.25)
+            
+                xticks = np.linspace(0, VIDEO_LENGTH_SECONDS*FPS, int(VIDEO_LENGTH_SECONDS/60)+1)
+                ax.set_xticks(xticks)
+                ax.set_xticklabels([str(int(x/FPS/60)) for x in xticks])   
+                
+                # -30secs before to +2mins after each pulse
+                xlim_range = (timepoint*60-30, timepoint*60+120)
+                ax.set_xlim([xlim_range[0]*FPS, xlim_range[1]*FPS])
+
+                ax.set_xlabel('Time (minutes)', fontsize=12, labelpad=10)
+                ax.set_ylabel('Fraction {}'.format(mode), fontsize=12, labelpad=10)
+                ax.set_title('BW vs fepD (bluelight pulse {0} = {1} min)'.format(pulse,
+                    timepoint), fontsize=12, pad=10)
+                ax.legend(['BW', 'fepD'], fontsize=12, frameon=False, loc='upper right')
         
-    frac_mode = pd.merge(motion_mode_count, total_timestamp_count, 
-                          left_on='timestamp', right_on=total_timestamp_count.index, 
-                          how='left')
+                # save plot
+                save_path = save_dir /\
+                    'motion_mode_{0}_bluelight_pulse{1}_{2}min.pdf'.format(mode, pulse, timepoint)
+                print("Saving to: %s" % save_path)
+                plt.savefig(save_path)  
+                
+        else:    
+            plt.close('all')
+            fig, ax = plt.subplots(figsize=(30,5), dpi=150)
+    
+            ax = plot_timeseries_motion_mode(df=BW_ts,
+                                             window=smoothing*FPS,
+                                             error=True,
+                                             mode=mode,
+                                             max_n_frames=VIDEO_LENGTH_SECONDS*FPS,
+                                             title=None,
+                                             saveAs=None,
+                                             ax=ax,
+                                             bluelight_frames=bluelight_frames,
+                                             colour=colour_dict[control],
+                                             alpha=0.25)
+            
+            ax = plot_timeseries_motion_mode(df=fepD_ts,
+                                             window=smoothing*FPS,
+                                             error=True,
+                                             mode=mode,
+                                             max_n_frames=VIDEO_LENGTH_SECONDS*FPS,
+                                             title=None,
+                                             saveAs=None,
+                                             ax=ax,
+                                             bluelight_frames=bluelight_frames,
+                                             colour=colour_dict['fepD'],
+                                             alpha=0.25)
         
-    # divide by total filename count
-    frac_mode['fraction'] = frac_mode['count'] / frac_mode['filename']
+            xticks = np.linspace(0, VIDEO_LENGTH_SECONDS*FPS, int(VIDEO_LENGTH_SECONDS/60)+1)
+            ax.set_xticks(xticks)
+            ax.set_xticklabels([str(int(x/FPS/60)) for x in xticks])   
+            ax.set_xlabel('Time (minutes)', fontsize=12, labelpad=10)
+            ax.set_ylabel('Fraction {}'.format(mode), fontsize=12, labelpad=10)
+            ax.set_title('BW vs fepD', fontsize=12, pad=10)
+            ax.legend(['BW', 'fepD'], fontsize=12, frameon=False, loc='upper right')
     
-    # subset for motion mode
-    plot_df = frac_mode[frac_mode['motion_name']==mode][['timestamp','fraction']]
-     
-    # crop timeseries data to standard video length (optional)
-    if max_n_frames:
-        plot_df = plot_df[plot_df['timestamp'] <= max_n_frames]
-    
-    # moving average (optional)
-    if window:
-        plot_df = plot_df.set_index('timestamp').rolling(window=window, 
-                                                         center=True).mean().reset_index()
+            # save plot
+            save_path = save_dir / 'motion_mode_{}.pdf'.format(mode)
+            print("Saving to: %s" % save_path)
+            plt.savefig(save_path)  
 
-    if ax is None:
-        fig, ax = plt.subplots(figsize=(15,6))
+    return
 
-    # motion_ls_dict = dict(zip(motion_modes, ['-','--','-.']))                
-    sns.lineplot(data=plot_df, 
-                 x='timestamp', 
-                 y='fraction', 
-                 ax=ax, 
-                 ls='-', # motion_ls_dict[mode] if len(mode_list) > 1 else '-',
-                 hue=None, #'motion_name' if colour is None else None, 
-                 palette=None, #palette if colour is None else None,
-                 color=colour)
-
-    # add decorations
-    if bluelight_frames is not None:
-        ax = add_bluelight_to_plot(ax, bluelight_frames=bluelight_frames, alpha=alpha)
-
-    if title:
-        plt.title(title, pad=10)
-
-    if saveAs is not None:
-        Path(saveAs).parent.mkdir(parents=True, exist_ok=True)
-        plt.savefig(saveAs)
-    
-    if ax is None:
-        return fig, ax
-    else:
-        return ax
-    
     
 #%% Main
 
@@ -232,9 +242,7 @@ if __name__ == '__main__':
         
     mean_delay_seconds = int(metadata['first_food_frame'].mean()) / FPS
     print("Worms took %.1f seconds on average to reach food" % mean_delay_seconds)
-    
-    # Timeseries plots
-    
+        
     strain_list = sorted(list(metadata['bacteria_strain'].unique()))
     colours = sns.color_palette(palette="tab10", n_colors=len(strain_list))
     bluelight_frames = [(i*60*FPS, i*60*FPS+10*FPS) for i in BLUELIGHT_TIMEPOINTS_MINUTES]
@@ -242,32 +250,36 @@ if __name__ == '__main__':
     plot_dir = save_dir / 'motion_mode_plots_max_delay={}s'.format(THRESHOLD_N_SECONDS)
     plot_dir.mkdir(exist_ok=True)
 
-    # both strains together, for each motion mode
-    for mode in ['forwards','backwards','stationary']:
+    # Full timeseries plots - both strains together, for each motion mode
+    for mode in motion_modes:
+        print("Plotting motion mode %s fraction timeseries" % mode)
 
         plt.close('all')
         fig, ax = plt.subplots(figsize=(15,5))
-
+        
         for s, strain in enumerate(strain_list):
-            print("Plotting motion mode %s timeseries for %s..." % (mode, strain))
 
             strain_timeseries = get_strain_timeseries(metadata,
                                                       project_dir=PROJECT_DIR, 
                                                       strain=strain,
+                                                      n_wells=N_WELLS,
                                                       group_by='bacteria_strain',
                                                       save_dir=save_dir / 'data')
             
-            # TODO: Fix plot for single worm timeseries fraction
-            ax = plot_timeseries_motion_mode_single_worm(df=strain_timeseries,
-                                                         window=SMOOTH_WINDOW_SECONDS*FPS,
-                                                         mode=mode,
-                                                         max_n_frames=VIDEO_LENGTH_SECONDS*FPS,
-                                                         title=None,
-                                                         saveAs=None,
-                                                         ax=ax,
-                                                         bluelight_frames=bluelight_frames,
-                                                         colour=colours[s],
-                                                         alpha=0.75)
+            ax = plot_timeseries_motion_mode(df=strain_timeseries,
+                                             window=SMOOTH_WINDOW_SECONDS*FPS, 
+                                             error=True, 
+                                             mode=mode, 
+                                             max_n_frames=VIDEO_LENGTH_SECONDS*FPS,
+                                             title=None, 
+                                             figsize=(12,6), 
+                                             ax=ax, 
+                                             saveAs=None,
+                                             sns_colour_palette='pastel', 
+                                             colour=colours[s], 
+                                             bluelight_frames=bluelight_frames,
+                                             cols = ['motion_mode','filename','well_name','timestamp'], 
+                                             alpha=0.5)
             
         ax.axvspan(mean_delay_seconds*FPS-FPS, mean_delay_seconds*FPS+FPS, facecolor='k', alpha=1)
         ax.axvspan(THRESHOLD_N_SECONDS*FPS-FPS, THRESHOLD_N_SECONDS*FPS+FPS, facecolor='r', alpha=1)
@@ -282,5 +294,28 @@ if __name__ == '__main__':
         # save plot
         plt.savefig(plot_dir / '{}.png'.format(mode), dpi=300)  
         plt.close()
+
+    # full timeseries plots - BW vs fepD for each motion mode
+    acute_single_worm_timeseries(metadata, 
+                                 project_dir=None, 
+                                 save_dir=save_dir / 'data',
+                                 n_wells=N_WELLS,
+                                 control='BW',
+                                 group_by='bacteria_strain',
+                                 bluelight_windows_separately=False,
+                                 smoothing=10)
+
+    # timeseries plots BW vs fepD around each blue light window
+    acute_single_worm_timeseries(metadata, 
+                                 project_dir=None, 
+                                 save_dir=save_dir / 'data',
+                                 n_wells=N_WELLS,
+                                 control='BW',
+                                 group_by='bacteria_strain',
+                                 bluelight_windows_separately=True,
+                                 smoothing=5)
         
-        
+    
+    
+    
+    

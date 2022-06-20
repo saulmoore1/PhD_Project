@@ -22,10 +22,9 @@ from time import time
 from pathlib import Path
 
 from read_data.paths import get_save_dir
-from read_data.read import load_json #load_topfeats
+from read_data.read import load_json
 from write_data.write import write_list_to_file
 from visualisation.plotting_helper import sig_asterix
-from statistical_testing.perform_keio_stats import df_summary_stats
 
 from tierpsytools.analysis.statistical_tests import univariate_tests, get_effect_sizes, _multitest_correct
 from tierpsytools.preprocessing.filter_data import select_feat_set
@@ -77,8 +76,9 @@ def dead_keio_stats(features, metadata, args):
     assert all(type(b) == np.bool_ for b in metadata[TREATMENT_COLNAME].unique())
     
     # Load Tierpsy feature set + subset (columns) for selected features only
-    features = select_feat_set(features, 'tierpsy_{}'.format(args.n_top_feats), append_bluelight=True)
-    features = features[[f for f in features.columns if 'path_curvature' not in f]]
+    if args.n_top_feats is not None:
+        features = select_feat_set(features, 'tierpsy_{}'.format(args.n_top_feats), append_bluelight=True)
+        features = features[[f for f in features.columns if 'path_curvature' not in f]]
     
     assert not features.isna().any().any()
     #n_feats = features.shape[1]
@@ -86,10 +86,6 @@ def dead_keio_stats(features, metadata, args):
     strain_list = list(metadata[STRAIN_COLNAME].unique())
     assert CONTROL_STRAIN in strain_list
 
-    # print mean sample size
-    sample_size = df_summary_stats(metadata, columns=[STRAIN_COLNAME, TREATMENT_COLNAME])
-    print("Mean sample size of %s: %d" % (STRAIN_COLNAME, int(sample_size['n_samples'].mean())))
-    
     # construct save paths (args.save_dir / topfeats? etc)
     save_dir = get_save_dir(args)
     stats_dir =  save_dir / "Stats" / args.fdr_method 

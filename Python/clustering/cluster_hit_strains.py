@@ -3,7 +3,10 @@
 """
 Hierarchical clustering of Keio (hit) strains for GO enrichment analysis
 
-THRESHOLD MAX DISTANCE FOR CLUSTERING: 8 (Tierpsy16, fdr_bh, all strains)
+Settled on 1860 strains with at least 1 significant feature for Tierpsy256 feature set by t-test 
+(p<0.05, fdr_bh) and computing complete euclidean distance for clustering
+
+THRESHOLD MAX DISTANCE FOR CLUSTERS: 30
 
 @author: sm5911
 @date: 12/07/2021
@@ -24,37 +27,37 @@ from scipy.cluster.hierarchy import dendrogram, linkage, cophenet, fcluster
 from sklearn.decomposition import PCA
 from sklearn.cluster._dbscan import DBSCAN
 
-from read_data.read import load_topfeats, read_list_from_file
+from read_data.read import read_list_from_file
 from write_data.write import write_list_to_file
 from filter_data.clean_feature_summaries import subset_results
 from clustering.hierarchical_clustering import plot_clustermap
 
+from tierpsytools.preprocessing.filter_data import select_feat_set
+
 #%% Globals
 
-FEATURES_PATH = "/Users/sm5911/Documents/Keio_Screen/features.csv"
-METADATA_PATH = "/Users/sm5911/Documents/Keio_Screen/metadata.csv"
+PROJECT_DIR = Path("/Users/sm5911/Documents/Keio_Screen")
+FEATURES_PATH = PROJECT_DIR / "features.csv"
+METADATA_PATH = PROJECT_DIR / "metadata.csv"
 
 # Load n=1860 hit strains from initial screen (Tierpsy 256, fdr_bh) for cluster analysis
-HIT_STRAINS_256_BH_PATH = "/Users/sm5911/Documents/Keio_Screen/Top256/gene_name/Stats/fdr_bh/hit_strains.txt"
+HIT_STRAINS_256_BH_PATH = PROJECT_DIR / "Top256/gene_name/Stats/fdr_bh/hit_strains.txt"
 HIT_STRAINS_ONLY = True # compare distances to all other strains OR just hit strains only
 
-TOP_FEATS_DIR = '/Users/sm5911/Tierpsy_Versions/tierpsy-tools-python/tierpsytools/extras/feat_sets'
-N_TOP_FEATS = 256 # TODO: Use select_feat_set
-
-# TODO: check nearest neighbour function scipy
+N_TIERPSY_FEATURES = 256
 
 # Clustering parameters
-LINKAGE_METHOD = 'average' # 'ward' - see docs for options: ?scipy.cluster.hierarchy.linkage
+LINKAGE_METHOD = 'complete' # 'average', 'ward' - see docs for options: ?scipy.cluster.hierarchy.linkage
 DISTANCE_METRIC = 'euclidean' # 'cosine' - see docs for options: ?scipy.spatial.distance.pdist
 
-CLUSTERING_SAVE_DIR = ('/Users/sm5911/Documents/Keio_Screen/clustering/' + LINKAGE_METHOD + '_' + 
-                       DISTANCE_METRIC)
+CLUSTERING_SAVE_DIR = PROJECT_DIR / 'clustering' / (LINKAGE_METHOD + '_' +  DISTANCE_METRIC)
 
 DBSCAN_CLUSTERING = False
 
 # Estimate EITHER distance OR number of clusters from looking at the dendrogram/heatmap
 # METHOD 1 - distance cut-off chosen from visual inspection of dendrogram
-MAX_DISTANCE = 21
+MAX_DISTANCE = 30
+# ...OR...
 # METHOD 2 - number of clusters chosen from visual inspection of heatmap/elbow plot
 N_CLUSTERS = None
 # I decided to choose a max d that will yield approx 10-20 clusters with >1 strains in each cluster, 
@@ -165,7 +168,7 @@ def cluster_linkage_pdist(features,
 
     return Z, mean_featZ
   
-def plot_dendrogram(Z, figsize=(15,7), color_threshold=None, saveAs=None, **kwargs):
+def plot_dendrogram(Z, figsize=(30,5), dpi=600, color_threshold=None, saveAs=None, **kwargs):
     """ Plot dendrogram from cluster linkage array (contains the hierarchical clustering information) 
         Z -  cluster linkage array
         colour_threshold -  dendrogram 'clusters' are coloured based on this distance cut-off 
@@ -173,21 +176,30 @@ def plot_dendrogram(Z, figsize=(15,7), color_threshold=None, saveAs=None, **kwar
     
     plt.close('all')
     plt.subplots(figsize=figsize)
-    sns.set_style("whitegrid")
-    den = dendrogram(Z, color_threshold=color_threshold, **kwargs)
+    sns.set_style("white")
+    
+    with plt.rc_context({'lines.linewidth': 0.75}):
+        den = dendrogram(Z, color_threshold=color_threshold, **kwargs)
 
+    plt.grid(False)
+    plt.rcParams['axes.linewidth'] = 0
+    
     if color_threshold is not None:
         # plot a horizontal cut-off line
         plt.axhline(y=color_threshold, c='gray', ls='--')
 
     plt.subplots_adjust(top=0.95, bottom=0.1, left=0.05, right=0.95)
-
+    
+    # fig = plt.gca()
+    # fig.axes.get_yaxis().set_visible(False)
+    
     if saveAs is not None:
         Path(saveAs).parent.mkdir(exist_ok=True, parents=True)
-        plt.savefig(saveAs, dpi=300)
+        plt.savefig(saveAs, dpi=dpi)
         plt.close()
     else:
         plt.show()
+    
         
     return den
        
@@ -296,7 +308,7 @@ def plot_cluster_histogram(clusters, saveAs=None):
     else:
         plt.show()
         
-def plot_clusters_pca(X, clusters, kde=False, saveAs=None, figsize=(9,8)):
+def plot_clusters_pca(X, clusters, kde=False, saveAs=None, figsize=(9,8), palette=None):
     """ Scatterplot of clusters in principal component space 
     
         Inputs
@@ -322,16 +334,17 @@ def plot_clusters_pca(X, clusters, kde=False, saveAs=None, figsize=(9,8)):
     # Store the results for first few PCs in dataframe
     projected_df = pd.DataFrame(data=projected, columns=['PC1','PC2'], index=featZ.index)
     
-    # Create colour palette for cluster labels
     cluster_labels = list(np.unique(clusters))
-    colours = sns.color_palette('gist_rainbow', len(cluster_labels))
-    palette = dict(zip(cluster_labels, colours))           
-    # cm = plt.get_cmap('gist_rainbow')
+    
+    # colour palette for cluster labels
+    if palette is None:
+        palette = dict(zip(cluster_labels, sns.color_palette('rainbow_r', len(cluster_labels))))           
+        # cm = plt.get_cmap('gist_rainbow')
 
     # group data by clusters for plotting
     data = pd.DataFrame(clusters, columns=['cluster'], index=projected_df.index).join(projected_df)
     grouped = data.groupby('cluster')
-            
+    
     # Plot PCA + colour clusters
     plt.close('all')
     sns.set_style('ticks')
@@ -346,7 +359,7 @@ def plot_clusters_pca(X, clusters, kde=False, saveAs=None, figsize=(9,8)):
     ax.set_xlabel('Principal Component 1 (%.1f%%)' % (ex_var_ratio[0]*100), fontsize=20, labelpad=12)
     ax.set_ylabel('Principal Component 2 (%.1f%%)' % (ex_var_ratio[1]*100), fontsize=20, labelpad=12)
     
-    k = len(np.unique(clusters))
+    k = len(cluster_labels)
     ax.set_title("2-component PCA (n={} clusters)".format(k), fontsize=20)
     
     plt.tight_layout(rect=[0, 0, 0.9, 0.95])
@@ -415,23 +428,24 @@ if __name__ == "__main__":
         strain_list = list(metadata['gene_name'].unique())
 
     # Load Tierpsy Top feature set + subset (columns) for top feats only
-    if N_TOP_FEATS is not None:
-        top_feats_path = Path(TOP_FEATS_DIR) / "tierpsy_{}.csv".format(str(N_TOP_FEATS))        
-        topfeats = load_topfeats(top_feats_path, add_bluelight=True, remove_path_curvature=True, 
-                                 header=None)
-
-        # Drop features that are not in results
-        top_feats_list = [feat for feat in list(topfeats) if feat in features.columns]
-        features = features[top_feats_list]
+    if N_TIERPSY_FEATURES is not None:
+        assert N_TIERPSY_FEATURES in [8,16,256,'2k']
+        features = select_feat_set(features, 
+                                   tierpsy_set_name='tierpsy_{}'.format(N_TIERPSY_FEATURES), 
+                                   append_bluelight=True)
 
     n_strains, n_feats = len(strain_list), len(features.columns)
-    save_path = Path(CLUSTERING_SAVE_DIR) /\
-                     ("%d_strains_%d_features_maxd=%d" % (n_strains, n_feats, MAX_DISTANCE))
+    save_path = Path(CLUSTERING_SAVE_DIR) / ("%d_strains_%d_features" % (n_strains, n_feats) + 
+                     ("_maxd=%d" % MAX_DISTANCE if MAX_DISTANCE is not None else 
+                      "_nclust=%d" % N_CLUSTERS))
+    # save_path = Path(CLUSTERING_SAVE_DIR) /\
+    #                  ("%d_strains_%d_features_maxd=%d" % (n_strains, n_feats, MAX_DISTANCE))
     save_path.mkdir(exist_ok=True, parents=True)
          
     ##### Hierarchical clustering #####
 
     # Cluster linkage array
+    print("Computing cluster linkage array...")
     Z, X = cluster_linkage_seaborn(features, 
                                    metadata, 
                                    groupby='gene_name', 
@@ -445,9 +459,8 @@ if __name__ == "__main__":
                                    method=LINKAGE_METHOD, 
                                    metric=DISTANCE_METRIC)
     
-    # Assert that the two methods are identical (within limits of machine precision)
-    assert (np.round(Z, 6) == np.round(_Z, 6)).all()
-    assert (X == _X).all().all()
+    # Assert that the two methods are identical
+    assert np.allclose(Z, _Z)
 
     # Compare pairwise distances between all samples to hierarchical clustering distances 
     # The closer the value to 1 the better the clustering preserves original distances
@@ -459,23 +472,29 @@ if __name__ == "__main__":
     #   2. By estimating the greatest decline in the rate of change of an 'elbow' plot -- the 'elbow' method
 
     # Plot dendrogram (optional: with max distance cut-off)
-    truncate_mode = 'lastp' if Z.shape[0] > 2000 else None
-    p = 500 if Z.shape[0] > 2000 else 50
-    show_contracted = True if Z.shape[0] > 2000 else False
+    truncate_mode = None #'lastp' if Z.shape[0] > 2000 else None
+    p = 1 #500 if Z.shape[0] > 2000 else 1
+    show_contracted = False #True if Z.shape[0] > 2000 else False
     
-    den = plot_dendrogram(Z, saveAs=save_path / 'dendrogram.pdf', 
-                          color_threshold=MAX_DISTANCE if MAX_DISTANCE is not None else None,
+    den = plot_dendrogram(Z, 
+                          saveAs=save_path / 'dendrogram.pdf', 
+                          figsize=(50,5) if Z.shape[0] > 2000 else (30,5),
+                          dpi=600,
+                          #truncate_mode=truncate_mode, # 'lastp', 'level'
+                          #p=p,
+                          color_threshold=(MAX_DISTANCE if MAX_DISTANCE is not None else None),
+                          get_leaves=True,
+                          show_leaf_counts=True,
                           labels=X.index, 
-                          truncate_mode=truncate_mode, # 'lastp', 'level'
-                          p=p,
-                          show_contracted=show_contracted,
+                          leaf_font_size=(0.5 if Z.shape[0] > 2000 else 1),
                           leaf_rotation=90,
-                          leaf_font_size=2,
+                          show_contracted=show_contracted,
                           orientation='top')
 
     # METHOD 1 - Maximum distance cut-off (inferred from dendrogram)
     if MAX_DISTANCE is not None:
         clusters = fcluster(Z, t=MAX_DISTANCE, criterion='distance')
+        assert len(clusters) == X.shape[0]
         N_CLUSTERS = len(np.unique(clusters))
         print("N clusters from dendrogram: %d (distance: %.1f)" % (N_CLUSTERS, MAX_DISTANCE))
     
@@ -490,16 +509,9 @@ if __name__ == "__main__":
         clusters = clustering.labels_
         
     # Create mask to omit clusters with only a single gene
-    single_clusters = []
-    multi_clusters = []
-    for i in range(1, N_CLUSTERS+1):
-        count = (clusters == i).sum()  
-        if count <= 1:
-            single_clusters.append(i)
-        else:
-            multi_clusters.append(i)
-    clusters_mask = [False if i in single_clusters else True for i in clusters]
-    # TODO: Try this!  pd.Series(clusters).value_counts() == 1
+    cluster_frequnecy = pd.Series(clusters).value_counts()
+    multi_clusters = sorted(cluster_frequnecy[cluster_frequnecy > 1].index)
+    clusters_mask = [i in multi_clusters for i in clusters]
      
     # Update n clusters for clusters with >1 sample (drop singletons)
     N_CLUSTERS = len(np.unique(clusters[clusters_mask]))
@@ -508,20 +520,60 @@ if __name__ == "__main__":
     # Elbow plot (return suggested number of clusters)
     k = plot_elbow(Z, saveAs=save_path / 'elbow_plot.png', n_chosen=N_CLUSTERS)
     
-    # Plot histogram of n strains in each cluster
-    plot_cluster_histogram(clusters[clusters_mask], saveAs=save_path / 'clusters_histogram.png')
-
-    # Plot clusters as scatter plot in PCA space
-    plot_clusters_pca(X[clusters_mask], clusters[clusters_mask], kde=False, 
-                      saveAs=save_path / 'PCA_clusters={}.pdf'.format(N_CLUSTERS))
-
     # Get list of groups in each cluster
     cluster_classes = get_cluster_classes(X[clusters_mask], 
                                           clusters[clusters_mask], 
                                           saveDir=save_path / 'cluster_classes_n={}'.format(N_CLUSTERS))
 
-    print("Done in %.1f seconds" % (time()-tic))
+    assert set(cluster_classes.keys()) == set(multi_clusters)
+
+    # Plot histogram of n strains in each cluster
+    plot_cluster_histogram(clusters[clusters_mask], saveAs=save_path / 'clusters_histogram.png')
     
+    big_clusters = [k for k in multi_clusters if len(cluster_classes[k]) > 500]
+    
+    # colour palette for clusters
+    multi_cluster_colours = dict(zip(multi_clusters, 
+                                     sns.color_palette('rainbow_r', n_colors=len(multi_clusters)))) 
+    colour_dict = dict(zip(np.unique(clusters), [multi_cluster_colours[c] if c in multi_clusters 
+                                                 and c not in big_clusters else 'lightgray' for c in 
+                                                 np.unique(clusters)]))
+
+    # Plot clusters as scatter plot in PCA space
+    plot_clusters_pca(X[clusters_mask], 
+                      clusters[clusters_mask],
+                      kde=False, 
+                      palette=colour_dict,
+                      saveAs=save_path / 'PCA_clusters={}.pdf'.format(N_CLUSTERS))
+
+    # Plot dendrogram (optional: with max distance cut-off)
+    truncate_mode = None #'lastp' if Z.shape[0] > 2000 else None
+    p = 1 #500 if Z.shape[0] > 2000 else 1
+    show_contracted = False #True if Z.shape[0] > 2000 else False
+    
+    # # TODO: Set dendrogram leaf colour to PCA cluster colours
+    
+    # colour_dict = dict(zip(X.index, [colour_dict[c] for c in clusters])) 
+    # colour_dict = dict(zip(den.get('leaves'), [colour_dict[s] for s in den.get('ivl')]))
+
+    # den = plot_dendrogram(Z, 
+    #                       saveAs=save_path / 'dendrogram.pdf', 
+    #                       figsize=(50,5) if Z.shape[0] > 2000 else (30,5),
+    #                       dpi=600,
+    #                       #truncate_mode=truncate_mode, # 'lastp', 'level'
+    #                       #p=p,
+    #                       color_threshold=(MAX_DISTANCE if MAX_DISTANCE is not None else None),
+    #                       get_leaves=True,
+    #                       show_leaf_counts=True,
+    #                       labels=X.index, 
+    #                       leaf_font_size=(0.5 if Z.shape[0] > 2000 else 1),
+    #                       leaf_rotation=90,
+    #                       show_contracted=show_contracted,
+    #                       orientation='top',
+    #                       link_color_func=lambda k: colour_dict[k])
+    
+    print("Done in %.1f seconds" % (time()-tic))
+        
 # =============================================================================
 #     # Test hierarchical purity
 #     from tierpsytools.analysis.clustering_tools import hierarchical_purity
@@ -564,3 +616,4 @@ if __name__ == "__main__":
 #     from sklearn.cluster import KMeans
 #     km = KMeans(n_clusters=N_CLUSTERS, init='k-means++', max_iter=100, n_init=1, verbose=True)
 # =============================================================================
+
