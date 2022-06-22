@@ -697,9 +697,16 @@ def selected_strains_timeseries(metadata,
     else:
         assert isinstance(strain_list, list)
         assert all(s in metadata[group_by].unique() for s in strain_list)
-        strain_list = [s for s in strain_list if s != control]
+    strain_list = [s for s in strain_list if s != control]
     
     metadata['imgstore_name'] = metadata['imgstore_name_{}'.format(bluelight_stim_type)]
+    
+    # remove entries with missing video filename info
+    n_nan = len([s for s in metadata['imgstore_name'].unique() if not isinstance(s, str)])
+    if n_nan > 1:
+        print("WARNING: Ignoring {} entries with missing ingstore_name_{} info".format(
+            n_nan, bluelight_stim_type))
+        metadata = metadata[~metadata['imgstore_name'].isna()]
     
     bluelight_frames = [(i*FPS, j*FPS) for (i, j) in bluelight_timepoints_seconds]
     
@@ -709,7 +716,7 @@ def selected_strains_timeseries(metadata,
                                   strain=control,
                                   group_by=group_by,
                                   n_wells=n_wells,
-                                  save_dir=Path(save_dir) / 'timeseries' / 'Data' /\
+                                  save_dir=Path(save_dir) / 'Data' /\
                                       bluelight_stim_type / control)
     
     for strain in tqdm(strain_list):
@@ -721,7 +728,7 @@ def selected_strains_timeseries(metadata,
                                           strain=strain,
                                           group_by=group_by,
                                           n_wells=n_wells,
-                                          save_dir=Path(save_dir) / 'timeseries' / 'Data' /\
+                                          save_dir=Path(save_dir) / 'Data' /\
                                               bluelight_stim_type / strain)
     
         for mode in motion_modes:
@@ -768,7 +775,7 @@ def selected_strains_timeseries(metadata,
             #TODO: plt.subplots_adjust(left=0.01,top=0.9,bottom=0.1,left=0.2)
     
             # save plot
-            ts_plot_dir = save_dir / 'timeseries' / 'Plots' / '{0}'.format(strain)
+            ts_plot_dir = save_dir / 'Plots' / '{0}'.format(strain)
             ts_plot_dir.mkdir(exist_ok=True, parents=True)
             save_path = ts_plot_dir / 'motion_mode_{0}_{1}.pdf'.format(mode, bluelight_stim_type)
             print("Saving to: %s" % save_path)
@@ -815,27 +822,32 @@ if __name__ == "__main__":
     # bluelight time-series
     selected_strains_timeseries(metadata, 
                                 project_dir=Path(args.project_dir), 
-                                save_dir=Path(args.save_dir), 
+                                save_dir=Path(args.save_dir) / 'timeseries', 
                                 strain_list=SELECTED_STRAIN_LIST,
                                 n_wells=96,
+                                group_by='gene_name',
+                                control='wild_type',
                                 bluelight_stim_type='bluelight',
                                 video_length_seconds=6*60,
                                 smoothing=10)
     # prestim time-series
     selected_strains_timeseries(metadata,
                                 project_dir=Path(args.project_dir),
-                                save_dir=Path(args.save_dir),
+                                save_dir=Path(args.save_dir) / 'timeseries',
                                 strain_list=SELECTED_STRAIN_LIST,
+                                group_by='gene_name',
+                                control='wild_type',
                                 n_wells=96,
                                 bluelight_stim_type='prestim',
                                 video_length_seconds=5*60,
                                 smoothing=10)
-
     # poststim time-series
     selected_strains_timeseries(metadata,
                                 project_dir=Path(args.project_dir),
-                                save_dir=Path(args.save_dir),
+                                save_dir=Path(args.save_dir) / 'timeseries',
                                 strain_list=SELECTED_STRAIN_LIST,
+                                group_by='gene_name',
+                                control='wild_type',
                                 n_wells=96,
                                 bluelight_stim_type='poststim',
                                 video_length_seconds=5*60,

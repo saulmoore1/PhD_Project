@@ -385,7 +385,7 @@ def analyse_acute_rescue(features,
     date_lut = dict(zip(list(metadata['date_yyyymmdd'].unique()), 
                         sns.color_palette('tab10', n_colors=len(metadata['date_yyyymmdd'].unique()))))
         
-    for strain in strain_list[1:]: # skip control_strain at first index postion        
+    for strain in strain_list[1:]: # skip control_strain
         plot_meta = metadata[np.logical_or(metadata['gene_name']==strain, 
                                            metadata['gene_name']==control_strain)]
         plot_feat = features.reindex(plot_meta.index)
@@ -396,7 +396,7 @@ def analyse_acute_rescue(features,
         plt.close('all')
         fig, ax = plt.subplots(figsize=((len(window_list) if len(window_list) >= 20 else 12),8))
         ax = sns.boxplot(x='window', y=FEATURE, hue='gene_name', hue_order=strain_list, order=window_list,
-                         data=plot_df, palette='Set3', dodge=True, ax=ax)
+                         data=plot_df, palette='tab10', dodge=True, ax=ax)
         for date in date_lut.keys():
             date_df = plot_df[plot_df['date_yyyymmdd']==date]   
             ax = sns.stripplot(x='window', y=FEATURE, hue='gene_name', order=window_list,

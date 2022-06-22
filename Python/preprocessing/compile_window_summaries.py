@@ -81,7 +81,7 @@ def find_window_summaries(results_dir, dates=None):
             windows_file_list.extend(windows_files)
     else:
         windows_files = list(results_dir.rglob('*summary*window*csv'))
-        windows_file_list.append()
+        windows_file_list.append(windows_files)
     
     filenames_summary_files = [f for f in windows_file_list if str(f.name).startswith('filenames')]  
     features_summary_files = [f for f in windows_file_list if str(f.name).startswith('features')]

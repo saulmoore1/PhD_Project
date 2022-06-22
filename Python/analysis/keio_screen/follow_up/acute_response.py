@@ -25,7 +25,7 @@ from matplotlib import transforms
 from matplotlib import pyplot as plt
 from read_data.read import load_json
 from read_data.paths import get_save_dir
-from preprocessing.compile_hydra_data import process_metadata, process_feature_summaries
+from preprocessing.compile_hydra_data import compile_metadata, process_feature_summaries
 from filter_data.clean_feature_summaries import clean_summary_results
 from statistical_testing.stats_helper import pairwise_ttest
 from time_series.time_series_helper import get_strain_timeseries
@@ -353,7 +353,7 @@ if __name__ == '__main__':
     results_dir =  Path(args.project_dir) / 'Results'
     
     # load metadata    
-    metadata, metadata_path = process_metadata(aux_dir, 
+    metadata, metadata_path = compile_metadata(aux_dir, 
                                                imaging_dates=args.dates, 
                                                add_well_annotations=args.add_well_annotations, 
                                                n_wells=6)

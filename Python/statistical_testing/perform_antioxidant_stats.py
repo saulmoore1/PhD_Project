@@ -10,6 +10,8 @@ and also each strain with/without antioxidant treatment
 - Significant features across samples/treatments by ANOVA/Kruskal
 - Significant features for each strain/treatment vs control using t-tests/Mann-Whitney
 
+Mean sample size = 18
+
 @author: sm5911
 @date: 12/11/2021
 """
@@ -19,13 +21,13 @@ and also each strain with/without antioxidant treatment
 import argparse
 import pandas as pd
 from time import time
+from tqdm import tqdm
 from pathlib import Path
 
 from read_data.paths import get_save_dir
 from read_data.read import load_json #load_topfeats
 #from write_data.write import write_list_to_file
 from visualisation.plotting_helper import sig_asterix
-from statistical_testing.perform_keio_stats import df_summary_stats
 from statistical_testing.stats_helper import pairwise_ttest
 
 from tierpsytools.analysis.statistical_tests import univariate_tests, get_effect_sizes, _multitest_correct
@@ -40,7 +42,7 @@ STRAIN_COLNAME = 'gene_name'
 CONTROL_TREATMENT = 'None'
 TREATMENT_COLNAME = 'antioxidant'
     
-FEATURE = 'motion_mode_paused_fraction_bluelight'
+FEATURE = 'motion_mode_forward_fraction_bluelight'
 
 #%% FUNCTIONS
 
@@ -86,8 +88,9 @@ def antioxidant_stats(features, metadata, args):
     assert CONTROL_STRAIN in strain_list and CONTROL_TREATMENT in antioxidant_list
 
     # print mean sample size
-    sample_size = df_summary_stats(metadata, columns=[STRAIN_COLNAME, TREATMENT_COLNAME])
-    print("Mean sample size of %s: %d" % (STRAIN_COLNAME, int(sample_size['n_samples'].mean())))
+    sample_size = metadata.groupby([STRAIN_COLNAME, TREATMENT_COLNAME]).count().reset_index()
+    print("Mean sample size of %s: %d" % (STRAIN_COLNAME, 
+                                          int(sample_size['imgstore_name_bluelight'].mean())))
     
     # construct save paths (args.save_dir / topfeats? etc)
     save_dir = get_save_dir(args)
@@ -95,7 +98,7 @@ def antioxidant_stats(features, metadata, args):
 
     ### For each antioxidant treatment in turn...
     
-    for antiox in antioxidant_list:
+    for antiox in tqdm(antioxidant_list):
         print("\n%s" % antiox)
         meta_antiox = metadata[metadata[TREATMENT_COLNAME]==antiox]
         feat_antiox = features.reindex(meta_antiox.index)
@@ -169,7 +172,8 @@ def antioxidant_stats(features, metadata, args):
                                                           test=t_test,
                                                           comparison_type='binary_each_group',
                                                           multitest_correction=None, 
-                                                          alpha=0.05)
+                                                          alpha=0.05,
+                                                          n_permutation_test=None)
             # get effect sizes for comparisons
             effect_sizes_t =  get_effect_sizes(X=feat_antiox, 
                                                y=meta_antiox[STRAIN_COLNAME], 
@@ -203,7 +207,7 @@ def antioxidant_stats(features, metadata, args):
     
     ### For each strain in turn...
     
-    for strain in strain_list:
+    for strain in tqdm(strain_list):
         print("\n%s" % strain)
         meta_strain = metadata[metadata[STRAIN_COLNAME]==strain]
         feat_strain = features.reindex(meta_strain.index)
@@ -276,7 +280,8 @@ def antioxidant_stats(features, metadata, args):
                                                           test=t_test,
                                                           comparison_type='binary_each_group',
                                                           multitest_correction=None, 
-                                                          alpha=0.05)
+                                                          alpha=0.05,
+                                                          n_permutation_test=None)
             # get effect sizes for comparisons
             effect_sizes_t =  get_effect_sizes(X=feat_strain, 
                                                y=meta_strain[TREATMENT_COLNAME], 
@@ -315,7 +320,7 @@ def antioxidant_stats(features, metadata, args):
     control_strain_feat = features.reindex(control_strain_meta.index)
     control_df = control_strain_meta.join(control_strain_feat)
 
-    for strain in strain_list:
+    for strain in tqdm(strain_list):
         if strain == CONTROL_STRAIN:
             continue
                 

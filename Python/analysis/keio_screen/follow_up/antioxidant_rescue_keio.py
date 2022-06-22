@@ -34,8 +34,7 @@ from clustering.hierarchical_clustering import plot_clustermap, plot_barcode_hea
 from feature_extraction.decomposition.pca import plot_pca, remove_outliers_pca
 from feature_extraction.decomposition.tsne import plot_tSNE
 from feature_extraction.decomposition.umap import plot_umap
-from analysis.compare_strains.run_keio_analysis import COG_category_dict
-from statistical_testing.perform_keio_stats import df_summary_stats
+from analysis.keio_screen.initial.run_keio_analysis import COG_category_dict
 
 from tierpsytools.preprocessing.filter_data import select_feat_set
 
@@ -45,11 +44,12 @@ JSON_PARAMETERS_PATH = "analysis/20211102_parameters_keio_rescue.json"
 
 STRAIN_COLNAME = 'gene_name'
 TREATMENT_COLNAME = 'antioxidant'
+
 CONTROL_STRAIN = 'wild_type'
 CONTROL_TREATMENT = 'None'
+CONTROL = CONTROL_STRAIN + '_' + CONTROL_TREATMENT
 
-FEATURE = 'motion_mode_paused_fraction_bluelight'
-scale_outliers_box = True
+FEATURE = 'motion_mode_forward_fraction_bluelight'
 
 METHOD = 'complete' # 'complete','linkage','average','weighted','centroid'
 METRIC = 'euclidean' # 'euclidean','cosine','correlation'
@@ -87,6 +87,8 @@ def compare_keio_rescue(features, metadata, args):
             - n_sig_features : int
     """
 
+    # TODO: all strains/treatments together - treatment combination
+
     assert set(features.index) == set(metadata.index)
 
     strain_list = list(metadata[STRAIN_COLNAME].unique())
@@ -111,7 +113,7 @@ def compare_keio_rescue(features, metadata, args):
     plot_dir.mkdir(exist_ok=True, parents=True)
 
     # Print mean sample size
-    sample_size = df_summary_stats(metadata, columns=[STRAIN_COLNAME, TREATMENT_COLNAME])
+    sample_size = metadata.groupby([STRAIN_COLNAME, TREATMENT_COLNAME]).count().reset_index()
     ss_savepath = save_dir / 'sample_sizes.csv'
     sample_size.to_csv(ss_savepath, index=False)  
 
@@ -153,7 +155,7 @@ def compare_keio_rescue(features, metadata, args):
     ##### FOR EACH STRAIN #####
     
     for strain in tqdm(strain_list[1:]):
-        print("\nPlotting results for %s:" % strain)
+        print("Plotting results for %s..." % strain)
         strain_meta = metadata[metadata[STRAIN_COLNAME]==strain]
         strain_feat = features.reindex(strain_meta.index)
         
@@ -242,14 +244,13 @@ def compare_keio_rescue(features, metadata, args):
                 ax.set_ylabel(feature.replace('_',' '), fontsize=15, labelpad=10)
                 
                 # scale plot to omit outliers (>2.5*IQR from mean)
-                if scale_outliers_box:
-                    grouped_strain = plot_df.groupby('antioxidant')
-                    y_bar = grouped_strain[feature].median() # median is less skewed by outliers
-                    # Computing IQR
-                    Q1 = grouped_strain[feature].quantile(0.25)
-                    Q3 = grouped_strain[feature].quantile(0.75)
-                    IQR = Q3 - Q1
-                    plt.ylim(min(y_bar) - 2.5 * max(IQR), max(y_bar) + 2.5 * max(IQR))
+                grouped_strain = plot_df.groupby('antioxidant')
+                y_bar = grouped_strain[feature].median() # median is less skewed by outliers
+                # Computing IQR
+                Q1 = grouped_strain[feature].quantile(0.25)
+                Q3 = grouped_strain[feature].quantile(0.75)
+                IQR = Q3 - Q1
+                plt.ylim(min(y_bar) - 2.5 * max(IQR), max(y_bar) + 2.5 * max(IQR))
                     
                 # annotate p-values
                 for ii, antiox in enumerate(antioxidant_list):
@@ -276,7 +277,7 @@ def compare_keio_rescue(features, metadata, args):
     ##### FOR EACH ANTIOXIDANT #####
     
     for antiox in antioxidant_list:
-        print("\nPlotting results for %s:" % antiox)
+        print("\nPlotting results for %s..." % antiox)
         #antiox_meta = metadata[metadata[TREATMENT_COLNAME]==antiox]
         #antiox_feat = features.reindex(antiox_meta.index)
 
@@ -416,9 +417,7 @@ def compare_keio_rescue(features, metadata, args):
     control_clustered_features = np.array(control_strain_featZ.columns)[cg.dendrogram_col.reordered_ind]
 
     # ### Full clustermap 
-    # TODO: all strains, for each treatment
-    # TODO: all treatments, for each strain
-    # all strains/treatments together
+    # TODO: all strains/treatments together - treatment combination
     
     # Z-normalise data for all strains
     featZ = features.apply(zscore, axis=0)
@@ -502,7 +501,7 @@ def compare_keio_rescue(features, metadata, args):
     treatment_subset = [i for i in treatment_list if i.split('_')[0] in ['fes','fepD','entA','wild']]
     _ = plot_pca(featZ, metadata, 
                  group_by='treatment_combination', 
-                 control=CONTROL_STRAIN + '_' + CONTROL_TREATMENT,
+                 control=CONTROL,
                  var_subset=treatment_subset, 
                  saveDir=pca_dir,
                  PCs_to_keep=10,
@@ -628,3 +627,5 @@ if __name__ == "__main__":
     
     toc = time()
     print("\nDone in %.1f seconds (%.1f minutes)" % (toc - tic, (toc - tic) / 60))  
+    
+
