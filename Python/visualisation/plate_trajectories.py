@@ -83,25 +83,27 @@ def plot_trajectory(featurefilepath,
         # FOVsplitter = FOVMultiWellsSplitter(maskedfilepath)
         # FOVsplitter.plot_wells(is_rotate180=rotate, ax=ax, line_thickness=10)
 
-    if annotate_lawns:
-        # TODO: Update for compatibility with Tierpsy videos - new food coords path
-        from manual_labelling.label_lawns import plot_polygon
-        
-        # Plot food region (from coords)
-        coordfilepath = featurefilepath.replace("_featuresN.hdf5", "_FoodCoords.txt")
-        coordfilepath = coordfilepath.replace("Priota/Data/FoodChoiceAssay/Results/",\
-                                              "Saul/FoodChoiceAssay/Results/FoodCoords/") 
-        print(coordfilepath)
-        if Path(coordfilepath).exists():
-            # Read food coordinates
-            f = open(coordfilepath, 'r').read()
-            poly_dict = eval(f)
-                    
-            # Overlay food regions
-            ax = plot_polygon(poly_dict, ax, colour=False)
-        else:
-            print("WARNING: Could not find lawn annotations:\n\t%s\n" % coordfilepath) 
-            
+# =============================================================================
+#     if annotate_lawns:
+#         # TODO: Update for compatibility with Tierpsy videos - new food coords path
+#         from manual_labelling.label_lawns import plot_polygon
+#         
+#         # Plot food region (from coords)
+#         coordfilepath = featurefilepath.replace("_featuresN.hdf5", "_FoodCoords.txt")
+#         coordfilepath = coordfilepath.replace("Priota/Data/FoodChoiceAssay/Results/",\
+#                                               "Saul/FoodChoiceAssay/Results/FoodCoords/") 
+#         print(coordfilepath)
+#         if Path(coordfilepath).exists():
+#             # Read food coordinates
+#             f = open(coordfilepath, 'r').read()
+#             poly_dict = eval(f)
+#                     
+#             # Overlay food regions
+#             ax = plot_polygon(poly_dict, ax, colour=False)
+#         else:
+#             print("WARNING: Could not find lawn annotations:\n\t%s\n" % coordfilepath) 
+# =============================================================================
+
     # Rotate trajectories if necessary (for tiling 96-well plate)
     if rotate:
         # TODO: Update for compatibility with Phenix videos - rotate food coords polygon

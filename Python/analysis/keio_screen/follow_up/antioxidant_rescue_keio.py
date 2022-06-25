@@ -5,7 +5,7 @@ Analyse Keio antioxidant rescue experiment results
 
 Please run the following scripts beforehand:
 1. preprocessing/compile_keio_results.py
-2. statistical_testing/perform_rescue_stats.py
+2. statistical_testing/perform_antioxidant_rescue_stats.py
 
 Main feature we are using as an indicator for the rescue: 'motion_mode_paused_fraction_bluelight'
 
@@ -30,6 +30,7 @@ from read_data.paths import get_save_dir
 from read_data.read import load_json #load_topfeats
 #from analysis.control_variation import control_variation
 #from filter_data.clean_feature_summaries import clean_summary_results, subset_results
+from visualisation.plotting_helper import boxplots_sigfeats
 from clustering.hierarchical_clustering import plot_clustermap, plot_barcode_heatmap
 from feature_extraction.decomposition.pca import plot_pca, remove_outliers_pca
 from feature_extraction.decomposition.tsne import plot_tSNE
@@ -49,12 +50,45 @@ CONTROL_STRAIN = 'wild_type'
 CONTROL_TREATMENT = 'None'
 CONTROL = CONTROL_STRAIN + '_' + CONTROL_TREATMENT
 
-FEATURE = 'motion_mode_forward_fraction_bluelight'
+feature_set = ['motion_mode_forward_fraction_bluelight']
 
 METHOD = 'complete' # 'complete','linkage','average','weighted','centroid'
 METRIC = 'euclidean' # 'euclidean','cosine','correlation'
 
 #%% FUNCTIONS
+
+def antioxidant_boxplots(metadata,
+                         features,
+                         control,
+                         group_by='treatment',
+                         stats_dir=None,
+                         save_dir=None,
+                         feature_set=None,
+                         pvalue_threshold=0.05,
+                         fdr_method='fdr_by'):
+    
+    feature_set = features.columns.tolist() if feature_set is None else feature_set
+    assert isinstance(feature_set, list) and all(f in features.columns for f in feature_set)
+                    
+    # load t-test results for window
+    if stats_dir is not None:
+        ttest_path = Path(stats_dir) / 't-test' / 't-test_results.csv'
+        ttest_df = pd.read_csv(ttest_path, header=0, index_col=0)
+        pvals = ttest_df[[c for c in ttest_df.columns if 'pval' in c]]
+        pvals.columns = [c.replace('pvals_','') for c in pvals.columns]
+    
+    boxplots_sigfeats(features,
+                      y_class=metadata[group_by],
+                      control=control,
+                      pvals=pvals if stats_dir is not None else None,
+                      z_class=None,
+                      feature_set=feature_set,
+                      saveDir=Path(save_dir),
+                      drop_insignificant=True if feature_set is None else False,
+                      p_value_threshold=pvalue_threshold,
+                      scale_outliers=True)
+    
+    return
 
 def compare_keio_rescue(features, metadata, args):
     """ Compare Keio single-gene deletion mutants with wild-type BW25113 control under different 
@@ -616,15 +650,39 @@ if __name__ == "__main__":
         features = features.reindex(metadata.index)
 
     # Single feature only, or tierpsy feature set?
-    if FEATURE is not None:
-        features = features[[FEATURE]]
+    if feature_set is not None:
+        features = features[feature_set]
     else:
         # Load Tierpsy feature set + subset (columns) for selected features only
         features = select_feat_set(features, 'tierpsy_{}'.format(args.n_top_feats), append_bluelight=True)
         features = features[[f for f in features.columns if 'path_curvature' not in f]]
 
-    compare_keio_rescue(features, metadata, args)
-    
+    #compare_keio_rescue(features, metadata, args)
+  
+    control_strain = args.control_dict['gene_name']
+    control_antioxidant = args.control_dict['antioxidant']
+    control = control_strain + '-' + control_antioxidant
+    metadata['treatment'] = metadata[['gene_name','antioxidant']].agg('-'.join, axis=1)
+        
+    save_dir = Path(args.save_dir) / ('All_features' if feature_set is not None 
+                                         else 'Top{}'.format(args.n_top_feats))
+    antioxidant_boxplots(metadata,
+                         features,
+                         group_by='treatment',
+                         control=control,
+                         stats_dir=save_dir / 'Stats',
+                         save_dir=save_dir / 'Plots',
+                         feature_set=feature_set,
+                         pvalue_threshold=args.pval_threshold,
+                         fdr_method=args.fdr_method)
+
+    # TODO: timeseries
+    # antioxidants_timeseries(metadata, 
+    #                         control=control_treatment,
+    #                         group_by='treatment',
+    #                         project_dir=Path(PROJECT_DIR),
+    #                         save_dir=Path(SAVE_DIR) / 'timeseries')
+
     toc = time()
     print("\nDone in %.1f seconds (%.1f minutes)" % (toc - tic, (toc - tic) / 60))  
     

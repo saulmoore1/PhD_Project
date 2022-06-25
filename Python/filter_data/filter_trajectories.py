@@ -69,10 +69,11 @@ def filter_worm_trajectories(trajectory_df, threshold_move=10, threshold_time=25
     if verbose:
         print("%d worm IDs filtered that moved less than %d pixels (%d microns)." %\
               (n_worms_time - n_worms_alive, threshold_move, threshold_move * microns_per_pixel))
-        print("%d/%d worm IDs filtered in total." % (n_worms - n_worms_alive, n_worms))
+        print("%d/%d (%.1f%%) worm IDs filtered in total." % (n_worms-n_worms_alive, n_worms,
+                                                              (n_worms-n_worms_alive)/n_worms*100))
         
     stats = {"short_worm_trajectories" : (n_worms - n_worms_time),
              "stationary_worm_trajectories" : (n_worms_time - n_worms_alive),
              "total_worm_trajectories" : n_worms}
 
-    return(trajectory_df, stats)
+    return (trajectory_df, stats)

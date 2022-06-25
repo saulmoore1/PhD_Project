@@ -32,7 +32,7 @@ SAVE_DIR = "/Users/sm5911/Documents/Keio_Mutant_Worm"
 IMAGING_DATES = ['20220305','20220314','20220321']
 N_WELLS = 6
 
-FEATURE = 'motion_mode_paused_fraction'
+FEATURE = 'motion_mode_forward_fraction'
 
 NAN_THRESHOLD_ROW = 0.8
 NAN_THRESHOLD_COL = 0.05
@@ -61,7 +61,7 @@ def single_feature_window_mutant_worm_stats(metadata,
                                             features,
                                             save_dir,
                                             window=2,
-                                            feature='motion_mode_paused_fraction',
+                                            feature='motion_mode_forward_fraction',
                                             pvalue_threshold=0.05,
                                             fdr_method='fdr_by'):
     """ T-tests comparing BW vs fepD for each mutant worm """
@@ -119,7 +119,7 @@ def single_feature_window_mutant_worm_stats(metadata,
 
 def plot_1window_fepD_vs_BW(metadata, 
                             features, 
-                            feat='motion_mode_paused_fraction', 
+                            feat='motion_mode_forward_fraction', 
                             window=2,
                             save_dir=None):
     """ Plot paired boxplots of BW vs fepD for each worm strain side-by-side """
@@ -210,7 +210,7 @@ def plot_1window_fepD_vs_BW(metadata,
     
 def plot_1worm_fepD_vs_BW(metadata, 
                           features, 
-                          feat='motion_mode_paused_fraction',
+                          feat='motion_mode_forward_fraction',
                           worm_strain='N2',
                           save_dir=None):
     
@@ -382,7 +382,7 @@ if __name__ == '__main__':
     for window in window_list:
         plot_1window_fepD_vs_BW(metadata, 
                                 features, 
-                                feat='motion_mode_paused_fraction', 
+                                feat=FEATURE, 
                                 window=window,
                                 save_dir=plot_dir / 'boxplots_BW_vs_fepD' / 'window_{}'.format(window))
         

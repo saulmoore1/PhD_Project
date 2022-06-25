@@ -100,6 +100,9 @@ def get_trajectory_data(featuresfilepath):
         and extract the following info as a dataframe:
         ['coord_x', 'coord_y', 'frame_number', 'worm_index_joined'] """
 
+    # TODO: deprecated replace with tierpsytools
+    # from tierpsytools.read_data.get_timeseries import read_timeseries
+    
     import h5py
     import pandas as pd
 

@@ -6,7 +6,7 @@
 "align_bluelight": false,
 "omit_strains": null,
 "dates": ["20220111"],
-"n_top_feats": 16,
+"n_top_feats": null,
 "percentile_to_use": null,
 "drop_size_features": false,
 "norm_features_only": false,

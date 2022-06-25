@@ -30,13 +30,14 @@ from read_data.paths import get_save_dir
 from preprocessing.compile_hydra_data import process_metadata, process_feature_summaries
 from filter_data.clean_feature_summaries import clean_summary_results
 from statistical_testing.stats_helper import pairwise_ttest
-from visualisation.plotting_helper import sig_asterix
+from visualisation.plotting_helper import sig_asterix, boxplots_sigfeats
 from clustering.hierarchical_clustering import plot_clustermap, plot_barcode_heatmap
 from feature_extraction.decomposition.pca import plot_pca, plot_pca_2var, remove_outliers_pca
 from feature_extraction.decomposition.tsne import plot_tSNE
 from feature_extraction.decomposition.umap import plot_umap
 from time_series.time_series_helper import get_strain_timeseries
 from time_series.plot_timeseries import plot_timeseries_motion_mode
+from statistical_testing.perform_antioxidant_rescue_stats import antioxidants_stats
 
 from tierpsytools.preprocessing.filter_data import select_feat_set
 from tierpsytools.analysis.statistical_tests import univariate_tests, get_effect_sizes
@@ -46,12 +47,12 @@ from tierpsytools.analysis.statistical_tests import univariate_tests, get_effect
 JSON_PARAMETERS_PATH = 'analysis/20220111_parameters_keio_acute_rescue.json'
 N_WELLS = 6
 
-FEATURE = 'motion_mode_paused_fraction'
+FEATURE = 'motion_mode_forward_fraction'
 
 scale_outliers_box = True
 
 ALL_WINDOWS = False
-WINDOW_LIST = [2,5,8,11,14,17,20,23] # if ALL_WINDOWS is False
+WINDOW_LIST = [17] # if ALL_WINDOWS is False
 
 # mapping dictionary - windows summary window number to corresponding timestamp (seconds)
 WINDOW_FRAME_DICT = {0:(290,300), 1:(305,315), 2:(315,325), 
@@ -383,7 +384,7 @@ def analyse_acute_rescue(features,
             
     # plot dates as different colours (in loop)
     date_lut = dict(zip(list(metadata['date_yyyymmdd'].unique()), 
-                        sns.color_palette('tab10', n_colors=len(metadata['date_yyyymmdd'].unique()))))
+                        sns.color_palette('Greys', n_colors=len(metadata['date_yyyymmdd'].unique()))))
         
     for strain in strain_list[1:]: # skip control_strain
         plot_meta = metadata[np.logical_or(metadata['gene_name']==strain, 
@@ -470,7 +471,7 @@ def analyse_acute_rescue(features,
             Q1 = grouped_strain[FEATURE].quantile(0.25)
             Q3 = grouped_strain[FEATURE].quantile(0.75)
             IQR = Q3 - Q1
-            plt.ylim(min(y_bar) - 2.5 * max(IQR), max(y_bar) + 2.5 * max(IQR))
+            plt.ylim(min(y_bar) - 2 * max(IQR), max(y_bar) + 2 * max(IQR))
             
         # annotate p-values
         for ii, antiox in enumerate(antiox_list):
@@ -519,7 +520,7 @@ def analyse_acute_rescue(features,
             Q1 = grouped_strain[FEATURE].quantile(0.25)
             Q3 = grouped_strain[FEATURE].quantile(0.75)
             IQR = Q3 - Q1
-            plt.ylim(min(y_bar) - 1 * max(IQR), max(y_bar) + 2.5 * max(IQR))
+            plt.ylim(min(y_bar) - 2 * max(IQR), max(y_bar) + 2 * max(IQR))
             
         # annotate p-values
         for ii, antiox in enumerate(antiox_list):
@@ -719,6 +720,39 @@ def analyse_acute_rescue(features,
                       figsize=[9,8],
                       sub_adj={'bottom':0,'left':0,'top':1,'right':1})
 
+    return
+
+def acute_rescue_boxplots(metadata,
+                          features,
+                          control,
+                          group_by='treatment',
+                          feature_set=None,
+                          save_dir=None,
+                          stats_dir=None,
+                          pvalue_threshold=0.05,
+                          fdr_method='fdr_by'):
+    
+    feature_set = features.columns.tolist() if feature_set is None else feature_set
+    assert isinstance(feature_set, list) and all(f in features.columns for f in feature_set)
+                    
+    # load t-test results for window
+    if stats_dir is not None:
+        ttest_path = Path(stats_dir) / 't-test' / 't-test_results.csv'
+        ttest_df = pd.read_csv(ttest_path, header=0, index_col=0)
+        pvals = ttest_df[[c for c in ttest_df.columns if 'pval' in c]]
+        pvals.columns = [c.replace('pvals_','') for c in pvals.columns]
+    
+    boxplots_sigfeats(features,
+                      y_class=metadata[group_by],
+                      control=control,
+                      pvals=pvals if stats_dir is not None else None,
+                      z_class=None,
+                      feature_set=feature_set,
+                      saveDir=Path(save_dir),
+                      drop_insignificant=True if feature_set is None else False,
+                      p_value_threshold=pvalue_threshold,
+                      scale_outliers=True)
+    
     return
 
 def acute_rescue_timeseries(metadata, 
@@ -926,28 +960,57 @@ if __name__ == '__main__':
     assert all(w in metadata['window'] for w in WINDOW_LIST)
     metadata = metadata[metadata['window'].isin(WINDOW_LIST)]
     features = features.reindex(metadata.index)
+     
+    # TODO: deprecated
+    # acute_rescue_stats(features,
+    #                    metadata, 
+    #                    save_dir=save_dir, 
+    #                    control_strain=args.control_dict['gene_name'],
+    #                    control_antioxidant=args.control_dict['antioxidant'],
+    #                    control_window=args.control_dict['window'],
+    #                    fdr_method='fdr_by',
+    #                    pval_threshold=args.pval_threshold)
 
-    # statistics save path
-    save_dir = get_save_dir(args)
-    
-    acute_rescue_stats(features, 
-                       metadata, 
-                       save_dir=save_dir, 
-                       control_strain=args.control_dict['gene_name'],
-                       control_antioxidant=args.control_dict['antioxidant'],
-                       control_window=args.control_dict['window'],
-                       fdr_method='fdr_by',
-                       pval_threshold=args.pval_threshold)
-    
-    analyse_acute_rescue(features, 
-                         metadata, 
-                         save_dir=save_dir,
-                         control_strain=args.control_dict['gene_name'],
-                         control_antioxidant=args.control_dict['antioxidant'],
-                         control_window=args.control_dict['window'],
-                         fdr_method='fdr_by',
-                         pval_threshold=args.pval_threshold,
-                         remove_outliers=args.remove_outliers)
+    control_strain = args.control_dict['gene_name']
+    control_antioxidant = args.control_dict['antioxidant']
+    control = control_strain + '-' + control_antioxidant
+    metadata['treatment'] = metadata[['gene_name','antioxidant']].agg('-'.join, axis=1)
+        
+    for window in tqdm(WINDOW_LIST):
+        window_meta = metadata[metadata['window']==window]
+        window_feat = features.reindex(window_meta.index)
+        
+        # statistics save path
+        stats_dir = get_save_dir(args) / 'Stats' / args.fdr_method / 'window_{}'.format(window)
+        antioxidants_stats(metadata=window_meta,
+                           features=window_feat,
+                           group_by='treatment',
+                           control=control,
+                           save_dir=stats_dir,
+                           feature_set=[FEATURE],
+                           pvalue_threshold=args.pval_threshold,
+                           fdr_method=args.fdr_method)
+        
+        plots_dir = get_save_dir(args) / 'Plots' / args.fdr_method / 'window_{}'.format(window)
+        acute_rescue_boxplots(metadata=window_meta,
+                              features=window_feat,
+                              group_by='treatment',
+                              control=control,
+                              stats_dir=stats_dir,
+                              save_dir=plots_dir,
+                              feature_set=[FEATURE],
+                              pvalue_threshold=args.pval_threshold,
+                              fdr_method=args.fdr_method)
+        
+        # analyse_acute_rescue(features, 
+        #                      metadata, 
+        #                      save_dir=plots_dir,
+        #                      control_strain=args.control_dict['gene_name'],
+        #                      control_antioxidant=args.control_dict['antioxidant'],
+        #                      control_window=args.control_dict['window'],
+        #                      fdr_method='fdr_by',
+        #                      pval_threshold=args.pval_threshold,
+        #                      remove_outliers=args.remove_outliers)
     
     # full timeseries plots - BW vs fepD for each motion mode
     metadata['treatment'] = metadata['gene_name'] + '_' + metadata['antioxidant']

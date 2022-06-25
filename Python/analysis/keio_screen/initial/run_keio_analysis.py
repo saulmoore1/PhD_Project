@@ -170,9 +170,6 @@ def compare_strains_keio(features, metadata, args):
     save_dir = get_save_dir(args)
     stats_dir =  save_dir / grouping_var / "Stats" / args.fdr_method
     plot_dir = save_dir / grouping_var / "Plots" / args.fdr_method
-       
-    # TODO: Check initial keio cleaning and stats - I think its ok, but re-run and double check
-    # TODO: Check that investigate control variation works
     
 # =============================================================================
 #     ##### Pairplot Tierpsy Features - Pairwise correlation matrix #####

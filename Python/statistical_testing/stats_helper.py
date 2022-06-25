@@ -148,7 +148,7 @@ def levene_f_test(features,
             levene_stats = pd.read_csv(saveto, index_col=0)
 
     if levene_stats is None:
-        # TODO: Investigate inputs with partial here
+        # inputs with partial
         func = partial(stats_test, test=levene, vectorized=False)
         stats, pvals = func(X=features, 
                             y=metadata[grouping_var], 
@@ -608,7 +608,6 @@ def do_stats(metadata,
     import pandas as pd
     from pathlib import Path
     from tierpsytools.analysis.statistical_tests import univariate_tests, get_effect_sizes    
-    from statistical_testing.perform_keio_stats import df_summary_stats
     from visualisation.plotting_helper import sig_asterix
     from write_data.write import write_list_to_file
 
@@ -626,12 +625,6 @@ def do_stats(metadata,
     if isinstance(feat, str):
         feat = [feat]    
     assert isinstance(feat, list) and all(f in features.columns for f in feat)
-    
-    # print mean sample size
-    sample_size = df_summary_stats(metadata, columns=[group_by, 'window'])
-    if verbose:
-        print("Mean sample size of %s/window: %d" % (group_by, int(sample_size['n_samples'].mean())))
-
 
     ### perform ANOVA - is there variation in worm motion mode among solvents used?
         
@@ -771,7 +764,6 @@ def single_feature_window_stats(metadata,
     import pandas as pd
     from pathlib import Path
     from statistical_testing.stats_helper import pairwise_ttest
-    from statistical_testing.perform_keio_stats import df_summary_stats
     from visualisation.plotting_helper import sig_asterix
     from write_data.write import write_list_to_file
     from tierpsytools.analysis.statistical_tests import univariate_tests, get_effect_sizes
@@ -789,11 +781,18 @@ def single_feature_window_stats(metadata,
     else:
         assert all(w in sorted(metadata['window'].unique()) for w in windows)
         metadata = metadata[metadata['window'].isin(windows)]
-        features = features[[feat]].reindex(metadata.index)
+    
+    if feat is not None:
+        feat = [feat] if isinstance(feat, str) else feat
+        assert isinstance(feat, list)
+        assert(all(f in features.columns for f in feat))
+        
+    features = features[feat].reindex(metadata.index)
 
     # print mean sample size
-    sample_size = df_summary_stats(metadata, columns=[group_by, 'window'])
-    print("Mean sample size of %s/window: %d" % (group_by, int(sample_size['n_samples'].mean())))
+    sample_size = metadata.groupby([group_by, 'window']).count()
+    print("Mean sample size of %s/window: %d" % (group_by, 
+                                                 int(sample_size[sample_size.columns[-1]].mean())))
         
     control_meta = metadata[metadata[group_by]==control]
     control_feat = features.reindex(control_meta.index)
@@ -819,7 +818,7 @@ def single_feature_window_stats(metadata,
                                                 n_permutation_test=None)
 
         # get effect sizes
-        effect_sizes = get_effect_sizes(X=features, 
+        effect_sizes = get_effect_sizes(X=features,
                                         y=metadata[group_by],
                                         control=control,
                                         effect_type=None,
@@ -854,10 +853,10 @@ def single_feature_window_stats(metadata,
 
             strain_meta = metadata[metadata[group_by]==strain]
             strain_feat = features.reindex(strain_meta.index)
-            strain_df = strain_meta.join(strain_feat[[feat]])
+            strain_df = strain_meta.join(strain_feat[feat])
              
-            stats, pvals, reject = pairwise_ttest(control_df, 
-                                                  strain_df, 
+            stats, pvals, reject = pairwise_ttest(control_df,
+                                                  strain_df,
                                                   feature_list=[feat], 
                                                   group_by='window', 
                                                   fdr_method=fdr_method,

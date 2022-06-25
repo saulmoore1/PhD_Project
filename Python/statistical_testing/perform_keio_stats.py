@@ -164,7 +164,7 @@ def keio_stats(features, metadata, args):
     stats_dir =  save_dir / grouping_var / "Stats" / args.fdr_method
     plot_dir = save_dir / grouping_var / "Plots" / args.fdr_method              
 
-#%% F-test for equal variances
+    # F-test for equal variances
 
     # Compare variance in samples with control (and correct for multiple comparisons)
     # Sample size matters in that unequal variances don't pose a problem for a t-test with 
@@ -182,7 +182,7 @@ def keio_stats(features, metadata, args):
         prop_eqvar = (levene_stats['pval'] > args.pval_threshold).sum() / len(levene_stats['pval'])
         print("Percentage equal variance %.1f%%" % (prop_eqvar * 100))
           
-#%% ANOVA / Kruskal-Wallis tests for significantly different features across groups
+    # ANOVA / Kruskal-Wallis tests for significantly different features across groups
 
     test_path_unncorrected = stats_dir / '{}_results_uncorrected.csv'.format(args.test)
     test_path = stats_dir / '{}_results.csv'.format(args.test)
@@ -243,7 +243,8 @@ def keio_stats(features, metadata, args):
                 print("\nWARNING: Not enough groups for %s for '%s' (n=%d groups)" %\
                       (args.test, grouping_var, len(strain_list)))
                     
-#%% Linear Mixed Models (LMMs), accounting for day-to-day variation
+        # Linear Mixed Models (LMMs), accounting for day-to-day variation
+        
         # NB: Ideally report:  parameter | beta | lower-95 | upper-95 | random effect (SD)
         elif args.test == 'LMM':
             with warnings.catch_warnings():
@@ -286,7 +287,7 @@ def keio_stats(features, metadata, args):
         else:
             raise IOError("Test '{}' not recognised".format(args.test))
     
-#%% t-tests / Mann-Whitney tests
+    # t-tests / Mann-Whitney tests
     
     # t-test to use        
     t_test = 't-test' if args.test == 'ANOVA' else 'Mann-Whitney' # aka. Wilcoxon rank-sum      
@@ -342,7 +343,7 @@ def keio_stats(features, metadata, args):
                 ttest_sigfeats_path = stats_dir / '{}_sigfeats.txt'.format(t_test)
                 write_list_to_file(fset_ttest, ttest_sigfeats_path)
                                  
-#%% K significant features
+    # K significant features
     
     ksig_uncorrected_path = stats_dir / 'k_significant_features_uncorrected.csv'
     ksig_corrected_path = stats_dir / 'k_significant_features.csv'
@@ -375,7 +376,7 @@ def keio_stats(features, metadata, args):
         # save k-significant features (corrected)
         ksig_table.to_csv(ksig_corrected_path, header=True, index=True)   
 
-#%% mRMR feature selection: minimum Redunduncy, Maximum Relevance #####
+    # mRMR feature selection: minimum Redunduncy, Maximum Relevance #####
     
     mrmr_dir = plot_dir / 'mrmr'
     mrmr_dir.mkdir(exist_ok=True, parents=True)
@@ -449,3 +450,4 @@ if __name__ == "__main__":
     
     toc = time()
     print("\nDone in %.1f seconds (%.1f minutes)" % (toc - tic, (toc - tic) / 60))
+    
