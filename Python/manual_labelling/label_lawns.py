@@ -205,7 +205,7 @@ def annotate_lawns_from_metadata_6wp(metadata,
             maskedfilepath = maskedfilepath.replace('_featuresN.hdf5','.hdf5')
             try:
                 annotate_lawns(maskedfilepath, 
-                               save_dir=Path(save_dir) / group, 
+                               save_dir=save_dir, 
                                n_poly=1, 
                                skip=True)
             except Exception as error:
@@ -238,10 +238,16 @@ if __name__ == '__main__':
 
         ##### SUPPLEMENT ANALYSIS #####
         if 'Supplements' in str(args.metadata_path):
-            metadata = metadata[np.logical_or(metadata['drug_type']=='paraquat',
-                                              metadata['drug_type']=='none')]
+            # subset for metadata for a single window (so there are no duplicate filenames)
+            metadata = metadata[metadata['window']==0]
+    
+            # subset for paraquat results only
+            metadata = metadata[metadata['drug_type'].isin(['paraquat','none'])]
+            
+            # treatment names for experiment conditions
             metadata['treatment'] = metadata[['food_type','drug_type','imaging_plate_drug_conc']].astype(str).agg('-'.join, axis=1)
             
+            # user-label lawn regions in first frame image of each video
             annotate_lawns_from_metadata_6wp(metadata,
                                              save_dir=Path(args.save_dir) / 'lawn_leaving',
                                              group_by='treatment',
@@ -267,9 +273,10 @@ if __name__ == '__main__':
         # Interactive plotting (for user input when labelling plots)
         for i in range(len(maskedfilelist)):
             maskedfilepath = maskedfilelist[i]
+            
             # manually outline food regions, assign labels and save coordinates and trajectory overlay
             annotate_lawns(maskedfilepath,                       
-                           save_dir=args.save_dir / 'lawn_leaving', 
+                           save_dir=Path(args.save_dir) / 'lawn_leaving', 
                            n_poly=1, 
                            skip=SKIP)
             

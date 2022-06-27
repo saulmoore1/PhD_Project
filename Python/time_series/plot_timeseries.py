@@ -18,7 +18,6 @@ from matplotlib import pyplot as plt
 from matplotlib import patches
 
 from read_data.read import get_skeleton_data, read_list_from_file
-from preprocessing.compile_keio_results import RENAME_DICT
 
 #%% Globals
 
@@ -38,6 +37,10 @@ BLUELIGHT_FRAMES = [(1500,1751),(4000,4251),(6500,6751)]
 
 CONTROL = 'wild_type'
 
+RENAME_DICT = {"BW" : "wild_type",
+               "FECE" : "fecE",
+               "AroP" : "aroP",
+               "TnaB" : "tnaB"}
 WINDOW = 100
 MAX_N_FRAMES = 9000
 MULTI_STRAIN = True # plot multiple strains on the same plot?
@@ -577,21 +580,21 @@ def plot_timeseries_from_metadata(metadata_path,
             raise IOError("Only motion mode timeseries is supported!")
             
 # =============================================================================
-#         elif feature == 'turn':
-#             # discrete data
-#             #plot_timeseries_turn()
-#         else:
-#             # continuous data
-#             ax = plot_timeseries(df=timeseries_strain,
-#                                  x='timestamp',
-#                                  y=feature,
-#                                  window=WINDOW,
-#                                  max_n_frames=MAX_N_FRAMES,
-#                                  title=feature,
-#                                  ax=ax,
-#                                  saveAs=None,
-#                                  sns_colour_palette='Greens',
-#                                  colour=colour_dict[strain] if multi_strain else None)   
+# elif feature == 'turn':
+#     # discrete data
+#     #plot_timeseries_turn()
+# else:
+#     # continuous data
+#     ax = plot_timeseries(df=timeseries_strain,
+#                           x='timestamp',
+#                           y=feature,
+#                           window=WINDOW,
+#                           max_n_frames=MAX_N_FRAMES,
+#                           title=feature,
+#                           ax=ax,
+#                           saveAs=None,
+#                           sns_colour_palette='Greens',
+#                           colour=colour_dict[strain] if multi_strain else None)   
 # =============================================================================
 
 #%% Main

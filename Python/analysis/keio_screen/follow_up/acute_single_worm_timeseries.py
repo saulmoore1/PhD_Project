@@ -71,7 +71,7 @@ def acute_single_worm_timeseries(metadata,
                                   strain=control,
                                   group_by=group_by,
                                   n_wells=n_wells,
-                                  save_dir=save_dir,
+                                  save_dir=save_dir / 'data',
                                   verbose=False)
     
     # get timeseries for fepD
@@ -80,7 +80,7 @@ def acute_single_worm_timeseries(metadata,
                                     strain='fepD',
                                     group_by=group_by,
                                     n_wells=n_wells,
-                                    save_dir=save_dir,
+                                    save_dir=save_dir / 'data',
                                     verbose=False)
  
     colour_dict = dict(zip([control, 'fepD'], sns.color_palette("pastel", 2)))
@@ -192,19 +192,22 @@ if __name__ == '__main__':
     RES_DIR = Path(PROJECT_DIR) / 'Results'
 
     META_PATH = Path(SAVE_DIR) / 'metadata.csv'
-    FEAT_PATH = Path(SAVE_DIR) / 'features.csv'
     
-    # load/compile metadata
-    metadata, metadata_path = compile_metadata(aux_dir=AUX_DIR,
-                                               imaging_dates=IMAGING_DATES,
-                                               add_well_annotations=N_WELLS==96,
-                                               n_wells=N_WELLS,
-                                               from_source_plate=False)            
+    if Path(META_PATH).exists():    
+        # load metadata
+        metadata = pd.read_csv(META_PATH, index_col=None)
+    else:
+        # compile metadata
+        metadata, _ = compile_metadata(aux_dir=AUX_DIR,
+                                       imaging_dates=IMAGING_DATES,
+                                       add_well_annotations=N_WELLS==96,
+                                       n_wells=N_WELLS,
+                                       from_source_plate=False)            
     
     save_dir = Path(SAVE_DIR) / 'timeseries'
     
-    # TODO: omit data for Hydra05 to see if this fixes the bug due to timestamps lagging on some LoopBio videos
-    #metadata = metadata[metadata['instrument_name'] != 'Hydra05']
+    # TODO: omit data for Hydra05 to see if this fixes the bug due to timestamps lagging on some 
+    #       LoopBio videos: metadata = metadata[metadata['instrument_name'] != 'Hydra05']
        
     # create bins for frame of first food encounter
     bins = [int(b) for b in np.linspace(0, VIDEO_LENGTH_SECONDS*FPS, 
@@ -247,58 +250,10 @@ if __name__ == '__main__':
     colours = sns.color_palette(palette="tab10", n_colors=len(strain_list))
     bluelight_frames = [(i*60*FPS, i*60*FPS+10*FPS) for i in BLUELIGHT_TIMEPOINTS_MINUTES]
 
-    plot_dir = save_dir / 'motion_mode_plots_max_delay={}s'.format(THRESHOLD_N_SECONDS)
-    plot_dir.mkdir(exist_ok=True)
-
-    # Full timeseries plots - both strains together, for each motion mode
-    for mode in motion_modes:
-        print("Plotting motion mode %s fraction timeseries" % mode)
-
-        plt.close('all')
-        fig, ax = plt.subplots(figsize=(15,5))
-        
-        for s, strain in enumerate(strain_list):
-
-            strain_timeseries = get_strain_timeseries(metadata,
-                                                      project_dir=PROJECT_DIR, 
-                                                      strain=strain,
-                                                      n_wells=N_WELLS,
-                                                      group_by='bacteria_strain',
-                                                      save_dir=save_dir / 'data')
-            
-            ax = plot_timeseries_motion_mode(df=strain_timeseries,
-                                             window=SMOOTH_WINDOW_SECONDS*FPS, 
-                                             error=True, 
-                                             mode=mode, 
-                                             max_n_frames=VIDEO_LENGTH_SECONDS*FPS,
-                                             title=None, 
-                                             figsize=(12,6), 
-                                             ax=ax, 
-                                             saveAs=None,
-                                             sns_colour_palette='pastel', 
-                                             colour=colours[s], 
-                                             bluelight_frames=bluelight_frames,
-                                             cols = ['motion_mode','filename','well_name','timestamp'], 
-                                             alpha=0.5)
-            
-        ax.axvspan(mean_delay_seconds*FPS-FPS, mean_delay_seconds*FPS+FPS, facecolor='k', alpha=1)
-        ax.axvspan(THRESHOLD_N_SECONDS*FPS-FPS, THRESHOLD_N_SECONDS*FPS+FPS, facecolor='r', alpha=1)
-        xticks = np.linspace(0,VIDEO_LENGTH_SECONDS*FPS, 31)
-        ax.set_xticks(xticks)
-        ax.set_xticklabels([str(int(x/FPS/60)) for x in xticks])   
-        ax.set_xlabel('Time (minutes)', fontsize=15, labelpad=10)
-        ax.set_ylabel('Fraction {}'.format(mode), fontsize=15, labelpad=10)
-        ax.legend(strain_list, fontsize=12, frameon=False, loc='best')
-        ax.set_title("motion mode fraction '%s' (total n=%d worms)" % (mode, metadata.shape[0]),
-                     fontsize=15, pad=10)
-        # save plot
-        plt.savefig(plot_dir / '{}.png'.format(mode), dpi=300)  
-        plt.close()
-
     # full timeseries plots - BW vs fepD for each motion mode
     acute_single_worm_timeseries(metadata, 
                                  project_dir=None, 
-                                 save_dir=save_dir / 'data',
+                                 save_dir=save_dir,
                                  n_wells=N_WELLS,
                                  control='BW',
                                  group_by='bacteria_strain',
@@ -308,14 +263,61 @@ if __name__ == '__main__':
     # timeseries plots BW vs fepD around each blue light window
     acute_single_worm_timeseries(metadata, 
                                  project_dir=None, 
-                                 save_dir=save_dir / 'data',
+                                 save_dir=save_dir,
                                  n_wells=N_WELLS,
                                  control='BW',
                                  group_by='bacteria_strain',
                                  bluelight_windows_separately=True,
                                  smoothing=5)
         
+# =============================================================================
+#     plot_dir = save_dir / 'motion_mode_plots_max_delay={}s'.format(THRESHOLD_N_SECONDS)
+#     plot_dir.mkdir(exist_ok=True)
+# 
+#     # Full timeseries plots - both strains together, for each motion mode
+#     for mode in motion_modes:
+#         print("Plotting motion mode %s fraction timeseries" % mode)
+# 
+#         plt.close('all')
+#         fig, ax = plt.subplots(figsize=(15,5))
+#         
+#         for s, strain in enumerate(strain_list):
+# 
+#             strain_timeseries = get_strain_timeseries(metadata,
+#                                                       project_dir=PROJECT_DIR, 
+#                                                       strain=strain,
+#                                                       n_wells=N_WELLS,
+#                                                       group_by='bacteria_strain',
+#                                                       save_dir=save_dir / 'data')
+#             
+#             ax = plot_timeseries_motion_mode(df=strain_timeseries,
+#                                              window=SMOOTH_WINDOW_SECONDS*FPS, 
+#                                              error=True, 
+#                                              mode=mode, 
+#                                              max_n_frames=VIDEO_LENGTH_SECONDS*FPS,
+#                                              title=None, 
+#                                              figsize=(12,6), 
+#                                              ax=ax, 
+#                                              saveAs=None,
+#                                              sns_colour_palette='pastel', 
+#                                              colour=colours[s], 
+#                                              bluelight_frames=bluelight_frames,
+#                                              cols = ['motion_mode','filename','well_name','timestamp'], 
+#                                              alpha=0.5)
+#             
+#         ax.axvspan(mean_delay_seconds*FPS-FPS, mean_delay_seconds*FPS+FPS, facecolor='k', alpha=1)
+#         ax.axvspan(THRESHOLD_N_SECONDS*FPS-FPS, THRESHOLD_N_SECONDS*FPS+FPS, facecolor='r', alpha=1)
+#         xticks = np.linspace(0,VIDEO_LENGTH_SECONDS*FPS, 31)
+#         ax.set_xticks(xticks)
+#         ax.set_xticklabels([str(int(x/FPS/60)) for x in xticks])   
+#         ax.set_xlabel('Time (minutes)', fontsize=15, labelpad=10)
+#         ax.set_ylabel('Fraction {}'.format(mode), fontsize=15, labelpad=10)
+#         ax.legend(strain_list, fontsize=12, frameon=False, loc='best')
+#         ax.set_title("motion mode fraction '%s' (total n=%d worms)" % (mode, metadata.shape[0]),
+#                      fontsize=15, pad=10)
+#         # save plot
+#         plt.savefig(plot_dir / '{}.png'.format(mode), dpi=300)  
+#         plt.close()
+# =============================================================================
     
-    
-    
-    
+

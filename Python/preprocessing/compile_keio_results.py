@@ -14,7 +14,7 @@ from time import time
 from pathlib import Path
 
 from read_data.read import load_json
-from preprocessing.compile_hydra_data import process_metadata, process_feature_summaries
+from preprocessing.compile_hydra_data import compile_metadata, process_feature_summaries
 from preprocessing.append_supplementary_info import load_supplementary_7, append_supplementary_7
 from filter_data.clean_feature_summaries import clean_summary_results
 
@@ -65,7 +65,7 @@ def compile_keio_results(args):
     ##### Compile results #####
         
     # Process metadata 
-    metadata, metadata_path = process_metadata(aux_dir=aux_dir,
+    metadata, metadata_path = compile_metadata(aux_dir=aux_dir,
                                                imaging_dates=args.dates,
                                                add_well_annotations=args.add_well_annotations,
                                                update_day_meta=False)

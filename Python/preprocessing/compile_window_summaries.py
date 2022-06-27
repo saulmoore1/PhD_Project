@@ -36,7 +36,7 @@ def parse_window_number(fname):
     """
     
     regex = r'(?<=window_)\d+(?=\.csv)'
-    window_str = re.findall(regex, fname.name)[0]
+    window_str = re.findall(regex, str(fname))[0]
     
     return int(window_str)
 
@@ -46,9 +46,8 @@ def parse_date(fname):
 
     """
 
-    fstem = Path(fname).parent
     regex = r'(?<=/)\d{8}'
-    date_str = re.findall(regex, str(fstem))[0]
+    date_str = re.findall(regex, str(fname))[0]
     
     return date_str
 
@@ -74,14 +73,13 @@ def find_window_summaries(results_dir, dates=None):
     assert results_dir.exists()
 
     # find windows summary files
-    windows_file_list = []
     if dates is not None and type(dates) == list:
+        windows_file_list = []
         for date in dates:
             windows_files = list((results_dir / date).glob('*summary*window*csv'))
             windows_file_list.extend(windows_files)
     else:
-        windows_files = list(results_dir.rglob('*summary*window*csv'))
-        windows_file_list.append(windows_files)
+        windows_file_list = list(results_dir.rglob('*summary*window*csv'))
     
     filenames_summary_files = [f for f in windows_file_list if str(f.name).startswith('filenames')]  
     features_summary_files = [f for f in windows_file_list if str(f.name).startswith('features')]
@@ -89,13 +87,17 @@ def find_window_summaries(results_dir, dates=None):
     # match filenames and features summaries with their respective windows
     matched = []
     for fname_file in filenames_summary_files:
-        window = parse_window_number(fname_file) # get window number
-        date = parse_date(fname_file)
+        window = parse_window_number(str(fname_file)) # get window number
         
-        # find matching feature summary file for window
-        feat_file_list = [f for f in features_summary_files if 
-                          parse_window_number(f) == window and 
-                          parse_date(f) == date]
+        if dates is not None:
+            date = parse_date(str(fname_file))
+            
+            # find matching feature summary file for window
+            feat_file_list = [f for f in features_summary_files if 
+                              parse_window_number(f) == window and 
+                              parse_date(f) == date]
+        else:
+            feat_file_list = [f for f in features_summary_files if parse_window_number(f) == window]
         
         if len(feat_file_list) == 0:
             print('\nERROR: Cannot match filenames summary file: %s' % fname_file)
@@ -104,6 +106,7 @@ def find_window_summaries(results_dir, dates=None):
             # multiple 
             print('\nERROR: Multiple matched found for filenames summary file: %s' % fname_file)
             raise OSError('Multiple features summary files found for window %s' % window)   
+        assert len(feat_file_list) == 1    
             
         feat_file = feat_file_list[0]
         
@@ -175,32 +178,23 @@ def compile_window_summaries(fname_files,
         assert type(window_list) == list
     else:
         window_list = sorted(np.unique([parse_window_number(f) for f in fname_files]))
-                
-    date_list = sorted(np.unique([parse_date(f) for f in fname_files]))
-    
-    window_dict = {(parse_date(fname), parse_window_number(fname)) : (fname, feat) for 
-                   fname, feat in zip(fname_files, feat_files)}
-
+       
     filenames_summaries_list = []
     features_summaries_list = []
-    for date in date_list:
-        print("\nCompiling summaries for '%s'" % date)
+
+    # if not within each day folder    
+    if len(re.findall(r'(?<=/)\d{8}', str(Path(fname_files[0]).parent.name))) == 0:
+        window_dict = {parse_window_number(fname): (feat, fname) for feat, fname in 
+                       zip(feat_files, fname_files)}
+        
         for window in tqdm(window_list):
-            fname_file, feat_file = window_dict[(date, window)]
+            feat, fname = window_dict[window]
             
-            # read filenames/features summary for window and append to list of dataframes
-            filenames_df, features_df = read_tierpsy_feat_summaries(feat_file, fname_file)
-            filenames_df = filenames_df[['file_id','filename','is_good']]
-            
+            # read filename/features summary for window + append to list
+            filenames_df, features_df = read_tierpsy_feat_summaries(feat, fname)
             assert all(str(results_dir) in str(f) for f in filenames_df['filename'])
-            
-            if not all(i == j for i, j in zip(filenames_df['file_id'], features_df['file_id'])):
-                print("WARNING: %d files in filenames summaries are missing from feature summaries!"\
-                      % (len(filenames_df['file_id']) - len(features_df['file_id'])))
-                    
-                # reindex filenames summaries to drop entry that is missing from features summaries 
-                filenames_df = filenames_df.reindex(features_df['file_id'])
-    
+            assert all(i == j for i, j in zip(filenames_df['file_id'], features_df['file_id']))
+        
             # store window number (unique identifier = file_id + window)
             filenames_df['window'] = window
             features_df['window'] = window
@@ -211,10 +205,50 @@ def compile_window_summaries(fname_files,
                 
                 filenames_df['well_name'] = [UPRIGHT_6WP.loc[0,(c,0)] for c in channels]
                 features_df['well_name'] = [UPRIGHT_6WP.loc[0,(c,0)] for c in channels]
-
+    
             # append to list of dataframes
             filenames_summaries_list.append(filenames_df)
             features_summaries_list.append(features_df)
+
+    # if filenames summary file is within each day folder
+    else:
+        date_list = sorted(np.unique([parse_date(f) for f in fname_files]))
+        
+        window_dict = {(parse_date(fname), parse_window_number(fname)) : (fname, feat) for 
+                       fname, feat in zip(fname_files, feat_files)}
+    
+        for date in date_list:
+            print("\nCompiling summaries for '%s'" % date)
+            for window in tqdm(window_list):
+                fname_file, feat_file = window_dict[(date, window)]
+                
+                # read filenames/features summary for window + append to list
+                filenames_df, features_df = read_tierpsy_feat_summaries(feat_file, fname_file)
+                filenames_df = filenames_df[['file_id','filename','is_good']]
+                
+                assert all(str(results_dir) in str(f) for f in filenames_df['filename'])
+                
+                if not all(i == j for i, j in zip(filenames_df['file_id'], features_df['file_id'])):
+                    print("WARNING: %d files in filenames summaries are missing from feature summaries!"\
+                          % (len(filenames_df['file_id']) - len(features_df['file_id'])))
+                        
+                    # reindex filenames summaries to drop entry that is missing from features summaries 
+                    filenames_df = filenames_df.reindex(features_df['file_id'])
+        
+                # store window number (unique identifier = file_id + window)
+                filenames_df['window'] = window
+                features_df['window'] = window
+                
+                # add well name using mapping from UPRIGHT_6WP dataframe              
+                if n_wells == 6:
+                    channels = get_channels_from_filenames(filenames_df['filename'])
+                    
+                    filenames_df['well_name'] = [UPRIGHT_6WP.loc[0,(c,0)] for c in channels]
+                    features_df['well_name'] = [UPRIGHT_6WP.loc[0,(c,0)] for c in channels]
+    
+                # append to list of dataframes
+                filenames_summaries_list.append(filenames_df)
+                features_summaries_list.append(features_df)
        
     # compile full filenames/features summaries from list of dataframes + reset index across windows
     compiled_filenames_summaries = pd.concat(filenames_summaries_list, axis=0, 
