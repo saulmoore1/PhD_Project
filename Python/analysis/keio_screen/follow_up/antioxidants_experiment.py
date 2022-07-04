@@ -17,7 +17,7 @@ import seaborn as sns
 from tqdm import tqdm
 from pathlib import Path
 from matplotlib import pyplot as plt
-from preprocessing.compile_hydra_data import process_metadata, process_feature_summaries
+from preprocessing.compile_hydra_data import compile_metadata, process_feature_summaries
 from filter_data.clean_feature_summaries import clean_summary_results
 from visualisation.plotting_helper import sig_asterix, boxplots_sigfeats
 from write_data.write import write_list_to_file
@@ -46,11 +46,12 @@ nan_threshold_row = 0.8
 nan_threshold_col = 0.05
 motion_modes = ['forwards','backwards','stationary']
 
-WINDOW_DICT_SECONDS = {0:(1790,1800), 1:(1805,1815), 2:(1815,1825),
-                       3:(1850,1860), 4:(1865,1875), 5:(1875,1885),
-                       6:(1910,1920), 7:(1925,1935), 8:(1935,1945)}
+WINDOW_DICT_SECONDS = {0:(1830,1860), 1:(1890,1920), 2:(1950,1980)}
 
+window_list = sorted(WINDOW_DICT_SECONDS.keys()) # [8]
 feature_set = ['motion_mode_forward_fraction','speed_50th']
+control_treatment = 'BW-none-nan-H2O'
+
 
 #%% Functions
 
@@ -334,16 +335,18 @@ def antioxidants_timeseries(metadata,
             xticks = np.linspace(0, VIDEO_LENGTH_SECONDS*FPS, int(VIDEO_LENGTH_SECONDS/60)+1)
             ax.set_xticks(xticks)
             ax.set_xticklabels([str(int(x/FPS/60)) for x in xticks])   
-            ax.set_xlabel('Time (minutes)', fontsize=12, labelpad=10)
-            ax.set_ylabel('Fraction {}'.format(mode), fontsize=12, labelpad=10)
+            ax.set_xlabel('Time (minutes)', fontsize=15, labelpad=10)
+            ax.set_ylabel('Fraction {}'.format(mode), fontsize=15, labelpad=10)
             ax.legend([control, treatment], fontsize=12, frameon=False, loc='best')
+            plt.subplots_adjust(left=0.08, bottom=0.18, right=0.97, top=0.95)
     
             if BLUELIGHT_WINDOWS_ONLY_TS:
                 ax.set_xlim([min(BLUELIGHT_TIMEPOINTS_MINUTES)*60*FPS-60*FPS, 
                              max(BLUELIGHT_TIMEPOINTS_MINUTES)*60*FPS+70*FPS])
     
             if save_dir is not None:
-                ts_plot_dir = Path(save_dir) / 'Plots' / treatment
+                ts_plot_dir = Path(save_dir) /\
+                    ('Plots/bluelight' if BLUELIGHT_WINDOWS_ONLY_TS else 'Plots') / treatment
                 ts_plot_dir.mkdir(exist_ok=True, parents=True)
                 save_path = ts_plot_dir / '{0}_{1}.pdf'.format(treatment, mode)
                 print("Saving to: %s" % save_path)
@@ -365,7 +368,7 @@ if __name__ == '__main__':
     if not metadata_path_local.exists() or not features_path_local.exists():
     
         # load metadata    
-        metadata, metadata_path = process_metadata(aux_dir, 
+        metadata, metadata_path = compile_metadata(aux_dir, 
                                                    imaging_dates=IMAGING_DATES, 
                                                    add_well_annotations=False, 
                                                    n_wells=6)
@@ -426,13 +429,6 @@ if __name__ == '__main__':
     metadata['treatment'] = metadata[['food_type','drug_type','imaging_plate_drug_conc','solvent']
                                      ].astype(str).agg('-'.join, axis=1)
     
-    control_treatment = 'BW-none-nan-H2O'
-    t = [control_treatment, 'fepD-none-nan-H2O']
-    metadata = metadata[metadata['treatment'].isin(t)]
-    
-    window_list = sorted(WINDOW_DICT_SECONDS.keys())
-    window_list = [8]
-    
     antioxidants_window_stats(metadata, 
                               features, 
                               control=control_treatment,
@@ -457,6 +453,8 @@ if __name__ == '__main__':
                                                                 else 'Top{}'.format(N_TOP_FEATS)),
                           pvalue_threshold=0.05)
     
+    # subset metadata for a single window to avoid duplicate filename in metadata for timeseries
+    metadata = metadata.query("window==0")
     antioxidants_timeseries(metadata, 
                             control=control_treatment,
                             group_by='treatment',

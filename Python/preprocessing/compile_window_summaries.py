@@ -183,7 +183,7 @@ def compile_window_summaries(fname_files,
     features_summaries_list = []
 
     # if not within each day folder    
-    if len(re.findall(r'(?<=/)\d{8}', str(Path(fname_files[0]).parent.name))) == 0:
+    if len(re.findall(r'\d{8}', str(Path(fname_files[0]).parent.name))) == 0:
         window_dict = {parse_window_number(fname): (feat, fname) for feat, fname in 
                        zip(feat_files, fname_files)}
         
@@ -256,7 +256,7 @@ def compile_window_summaries(fname_files,
     compiled_features_summaries = pd.concat(features_summaries_list, axis=0, 
                                             sort=False).reset_index(drop=True)
     
-    # reset 'file_id' column (separate file ids for each window)
+    # reset 'file_id' column for both filenames and features summaries (separate IDs per window)
     compiled_filenames_summaries['file_id'] = range(compiled_filenames_summaries.shape[0])
     compiled_features_summaries['file_id'] = compiled_filenames_summaries['file_id']
         

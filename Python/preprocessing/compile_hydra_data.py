@@ -152,10 +152,11 @@ def compile_metadata(aux_dir,
     from tierpsytools.hydra.match_wells_annotations import update_metadata_with_wells_annotations
 
     metadata_path = Path(aux_dir) / 'metadata.csv'
+    metadata_annotated_path = Path(aux_dir) / 'metadata_annotated.csv'
            
     if metadata_path.exists():
-        metadata = pd.read_csv(metadata_path, dtype={"comments":str, "source_plate_id":str}, header=0)
-        print("Metadata loaded.")
+        metadata = pd.read_csv(metadata_path, header=0,
+                               dtype={"comments":str, "source_plate_id":str})
         
         if imaging_dates is not None:
             metadata = metadata[metadata['date_yyyymmdd'].astype(str).isin(imaging_dates)]
@@ -226,23 +227,21 @@ def compile_metadata(aux_dir,
     
     # add annotations to metadata
     if add_well_annotations and n_wells == 96:        
-        annotated_metadata_path = Path(str(metadata_path).replace('.csv', '_annotated.csv'))
         
-        if not annotated_metadata_path.exists():
+        if not metadata_annotated_path.exists():
             print("Adding annotations to metadata")
             metadata = update_metadata_with_wells_annotations(aux_dir=aux_dir, 
-                                                              saveto=annotated_metadata_path, 
+                                                              saveto=metadata_annotated_path, 
                                                               del_if_exists=False)
 
             if imaging_dates is not None:
                 metadata = metadata.loc[metadata['date_yyyymmdd'].astype(str).isin(imaging_dates)]
-                metadata.to_csv(annotated_metadata_path, index=None)
+                metadata.to_csv(metadata_annotated_path, index=None)
     
-            assert annotated_metadata_path.exists()
-            metadata_path = annotated_metadata_path
+            assert metadata_annotated_path.exists()
    
         # Load annotated metadata
-        metadata = pd.read_csv(metadata_path, header=0,
+        metadata = pd.read_csv(metadata_annotated_path, header=0,
                                dtype={"comments":str, "source_plate_id":str})
         if imaging_dates is not None:
             metadata = metadata.loc[metadata['date_yyyymmdd'].astype(str).isin(imaging_dates)]
@@ -490,12 +489,12 @@ def process_feature_summaries(metadata_path,
     from tierpsytools.read_data.hydra_metadata import read_hydra_metadata, align_bluelight_conditions
     from preprocessing.compile_window_summaries import find_window_summaries, compile_window_summaries
     
-    combined_feats_path = Path(results_dir) / ("full_features.csv" if not window_summaries else
+    compiled_feats_path = Path(results_dir) / ("full_features.csv" if not window_summaries else
                                                "full_window_features.csv")
-    combined_fnames_path = Path(results_dir) / ("full_filenames.csv" if not window_summaries else
+    compiled_fnames_path = Path(results_dir) / ("full_filenames.csv" if not window_summaries else
                                                 "full_window_filenames.csv")
  
-    if np.logical_and(combined_feats_path.is_file(), combined_fnames_path.is_file()):
+    if np.logical_and(compiled_feats_path.is_file(), compiled_fnames_path.is_file()):
         print("Found existing full feature summaries")
     else:
         print("Compiling feature summary results")   
@@ -506,10 +505,10 @@ def process_feature_summaries(metadata_path,
     
             # compile window summaries files
             print("\nCompiling window summaries..")
-            compiled_filenames, compiled_features = compile_window_summaries(fname_files=fname_files, 
-                                                                             feat_files=feat_files,
-                                                                             compiled_fnames_path=combined_fnames_path,
-                                                                             compiled_feats_path=combined_feats_path,
+            compiled_filenames, compiled_features = compile_window_summaries(fname_files, 
+                                                                             feat_files,
+                                                                             compiled_fnames_path,
+                                                                             compiled_feats_path,
                                                                              results_dir=Path(results_dir), 
                                                                              window_list=None,
                                                                              n_wells=n_wells)
@@ -540,8 +539,8 @@ def process_feature_summaries(metadata_path,
             # Compile feature summaries for matched features/filename summaries
             compile_tierpsy_summaries(feat_files=feat_files, 
                                       fname_files=fname_files,
-                                      compiled_feat_file=combined_feats_path,
-                                      compiled_fname_file=combined_fnames_path)
+                                      compiled_feat_file=compiled_feats_path,
+                                      compiled_fname_file=compiled_fnames_path)
 
     # Read metadata + record column order
     metadata = pd.read_csv(metadata_path, dtype={"comments":str, "source_plate_id":str,
@@ -557,8 +556,8 @@ def process_feature_summaries(metadata_path,
         feat_id_cols.append('window')
         
     # Read features summaries + metadata and add bluelight column if aligning bluelight video results
-    features, metadata = read_hydra_metadata(combined_feats_path, 
-                                             combined_fnames_path,
+    features, metadata = read_hydra_metadata(compiled_feats_path, 
+                                             compiled_fnames_path,
                                              metadata_path, 
                                              feat_id_cols=feat_id_cols,
                                              add_bluelight=align_bluelight)
