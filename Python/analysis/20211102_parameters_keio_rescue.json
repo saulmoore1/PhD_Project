@@ -7,7 +7,7 @@
 "align_bluelight": true,
 "omit_strains": null,
 "dates": ["20211102"],
-"n_top_feats": 16,
+"n_top_feats": null,
 "tierpsy_top_feats_dir": "/Users/sm5911/Tierpsy_Versions/tierpsy-tools-python/tierpsytools/extras/feat_sets",
 "percentile_to_use": null,
 "drop_size_features": false,

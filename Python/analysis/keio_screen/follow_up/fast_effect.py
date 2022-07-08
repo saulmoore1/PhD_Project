@@ -43,28 +43,16 @@ feature_set = ['motion_mode_forward_fraction']
 
 scale_outliers_box = True
 
-# ALL_WINDOWS = False
-# WINDOW_LIST = [0] # if ALL_WINDOWS is False
-
 # mapping dictionary - windows summary window number to corresponding timestamp (seconds)
 WINDOW_DICT_SECONDS = {0:(1830,1860), 1:(3630,3660), 2:(5430,5460), 
                        3:(7230,7260), 4:(9030,9060), 5:(10830,10860), 
                        6:(12630,12660), 7:(14430,14460), 8:(16230,16260)}
 
-# WINDOW_DICT_SECONDS = {0:(300,310), 1:(1790,1800), 2:(1805,1815), 3:(1815,1825),
-#                        4:(3590,3600), 5:(3605,3615), 6:(3615,3625), 7:(5390,5400),
-#                        8:(5405,5415), 9:(5415,5425), 10:(7190,7200), 11:(7205,7215),
-#                        12:(7215,7225), 13:(8990,9000), 14:(9005,9015), 15:(9015,9025),
-#                        16:(10790,10800), 17:(10805,10815), 18:(10815,10825), 19:(12590,12600),
-#                        20:(12605,12615), 21:(12615,12625), 22:(14390,14400), 23:(14405,14415),
-#                        24:(14415,14425), 25:(16190,16200), 26:(16205,16215), 27:(16215,16225),
-#                        28:(17700,17710)}
-
 FPS = 25
 BLUELIGHT_TIMEPOINTS_MINUTES = [30,60,90,120,150,180,210,240]
 VIDEO_LENGTH_SECONDS = 300*60
 
-motion_modes = ['forwards','stationary','backwards']
+motion_modes = ['forwards'] # 'stationary', 'backwards'
 
 #%% Functions
 
@@ -283,11 +271,11 @@ def fast_effect_timeseries(metadata,
     if strain_list is not None:
         assert isinstance(strain_list, list)
         assert all(s in metadata[group_by].unique() for s in strain_list)
-        strain_list = [control] + [s for s in strain_list if s != control]
+        strain_list = [s for s in strain_list if s != control]
     else:
         strain_list = [s for s in metadata[group_by].unique().tolist() if s != control]
     
-    for strain in strain_list:
+    for strain in tqdm(strain_list):
         # get timeseries for strain
         strain_ts = get_strain_timeseries(metadata[metadata[group_by]==strain], 
                                           project_dir=project_dir, 
@@ -393,11 +381,11 @@ def fast_effect_timeseries(metadata,
                 ax.legend([control, strain], fontsize=12, frameon=False, loc='best')
         
                 # save plot
-                ts_plot_dir = save_dir / 'Plots'
+                ts_plot_dir = save_dir / 'Plots' / strain
                 ts_plot_dir.mkdir(exist_ok=True, parents=True)
                 save_path = ts_plot_dir / 'motion_mode_{}.pdf'.format(mode)
                 print("Saving to: %s" % save_path)
-                plt.savefig(save_path)  
+                plt.savefig(save_path)
 
     return
 
@@ -465,10 +453,6 @@ if __name__ == '__main__':
         features = features[[f for f in features.columns if 'path_curvature' not in f]]
     elif feature_set is not None:
         features = features[features.columns[features.columns.isin(feature_set)]]
-
-    # if ALL_WINDOWS:
-    #     WINDOW_LIST = list(WINDOW_DICT_SECONDS.keys())
-    #     args.save_dir = Path(args.save_dir) / 'all_windows'
     
     perform_fast_effect_stats(features, 
                               metadata, 

@@ -109,10 +109,13 @@ def leaving_events(df,
             leaving_event_list.append(leaving_df)
             
     # compile leaving events for all worms in video
-    leaving_events_df = pd.concat(leaving_event_list, axis=0)
+    if len(leaving_event_list) == 0:
+        leaving_events_df = None
+    else:
+        leaving_events_df = pd.concat(leaving_event_list, axis=0)
     
     # Filter for worms that left food for longer than threshold_n_frames (n frames after leaving)
-    if threshold_n_frames is not None:
+    if threshold_n_frames is not None and leaving_events_df is not None:
         short_leaving_df = leaving_events_df[leaving_events_df['duration_n_frames'] < threshold_n_frames]
         print("Removing %d (%.1f%%) leaving events < %d frames" % (short_leaving_df.shape[0], 
               (short_leaving_df.shape[0]/leaving_events_df.shape[0])*100, threshold_n_frames))
@@ -162,6 +165,8 @@ def fraction_on_food(metadata,
         for i, (maskedfile, featurefile, coordsfile) in enumerate(tqdm(zip(
                 maskedfilelist, metadata['featuresN_filename'], coordsfilelist), total=metadata.shape[0])):
             
+            # if i == 49:
+            #     break
             assert (str(Path(maskedfile).parent).split('MaskedVideos')[-1] == 
                     str(Path(coordsfile).parent).split(str(food_coords_dir))[-1])
             
@@ -198,10 +203,13 @@ def fraction_on_food(metadata,
             # compute leaving events for each wormID in video
             leaving_df = leaving_events(traj_df, threshold_n_frames=threshold_leaving_duration)
 
-            # append file info
-            leaving_df['masked_video_path'] = maskedfile
-            leaving_events_list.append(leaving_df[
-                ['frame_number','worm_id','duration_n_frames','masked_video_path']])
+            if leaving_df is None:
+                print("WARNING: Could not find leaving events for %s" % featurefile)
+            else:
+                # append file info
+                leaving_df['masked_video_path'] = maskedfile
+                leaving_events_list.append(leaving_df[
+                    ['frame_number','worm_id','duration_n_frames','masked_video_path']])
                 
         # save fraction of worms in each timestamp of each video to file
         video_frac_df = pd.concat(video_frac_list, axis=1)
@@ -267,7 +275,7 @@ def timeseries_on_food(metadata,
                        smoothing=None,
                        bluelight_frames=None,
                        palette='tab10',
-                       show_error=True):
+                       error=True):
     
     assert video_frac_df.shape[0] == video_frac_df.index.nunique()
     
@@ -298,10 +306,10 @@ def timeseries_on_food(metadata,
             
             frac_mean = pd.DataFrame.from_dict({group_by:group, 'mean':mean}).reset_index()
 
-            if show_error:
+            if error:
                 try:
-                    error = group_frac_df.apply(lambda x: bootstrapped_ci(x,func=np.mean,n_boot=100), axis=1)
-                    lower, upper = [i[0] for i in error.values], [i[1] for i in error.values]
+                    err = group_frac_df.apply(lambda x: bootstrapped_ci(x,func=np.mean,n_boot=100), axis=1)
+                    lower, upper = [i[0] for i in err.values], [i[1] for i in err.values]
                     frac_mean = pd.DataFrame.from_dict({group_by:group, 'mean':mean, 
                                                         'lower':lower, 'upper':upper}).reset_index()
                 except Exception as e:
@@ -325,7 +333,7 @@ def timeseries_on_food(metadata,
     max_n_frames = timeseries_frac_df['frame_number'].max()
     groups_list = [i for i in grouped_timeseries.groups.keys() if i != control]
     
-    print("Plotting timeseries fractioin of worms on food...")
+    print("Plotting timeseries fraction of worms on food...")
     for group in tqdm(groups_list):
         group_ts = grouped_timeseries.get_group(group)
     
@@ -339,7 +347,7 @@ def timeseries_on_food(metadata,
         sns.lineplot(x='frame_number', y='mean', data=group_ts, 
                      color=colour_dict[group], ax=ax, label=group)
 
-        if show_error:
+        if error:
             ax.fill_between(control_ts['frame_number'], 
                             control_ts['lower'], 
                             control_ts['upper'], 
@@ -381,10 +389,10 @@ def timeseries_leaving(metadata,
 
     return
 
-
 def lawn_leaving_rate(metadata, 
                       food_coords_dir, 
                       group_by='treatment',
+                      control='BW-none-nan',
                       threshold_duration=None, 
                       threshold_movement=None,
                       threshold_leaving_duration=50):
@@ -411,7 +419,7 @@ def lawn_leaving_rate(metadata,
     timeseries_on_food(metadata,
                        group_by=group_by,
                        video_frac_df=video_frac_df,
-                       control='BW-none-nan',
+                       control=control,
                        save_dir=food_coords_dir / 'timeseries',
                        bluelight_frames=[(i*FPS, j*FPS) for (i, j) in BLUELIGHT_TIMEPOINTS_SECONDS],
                        smoothing=SMOOTHING, # default 10-second binning window for smoothing
@@ -420,7 +428,7 @@ def lawn_leaving_rate(metadata,
     timeseries_leaving(metadata,
                        group_by=group_by,
                        leaving_events_df=leaving_events_df,
-                       control='BW-none-nan',
+                       control=control,
                        save_dir=food_coords_dir / 'timeseries_leaving',
                        bluelight_frames=[(i*FPS, j*FPS) for (i, j) in BLUELIGHT_TIMEPOINTS_SECONDS],
                        smoothing=SMOOTHING, # default 10-second binning window for smoothing
@@ -454,6 +462,7 @@ if __name__ == '__main__':
     video_frac_df, leaving_events_df = lawn_leaving_rate(metadata,
                                                          food_coords_dir=food_coords_dir,
                                                          group_by='treatment',
+                                                         control='BW-none-nan',
                                                          threshold_movement=THRESHOLD_MOVEMENT,
                                                          threshold_duration=THRESHOLD_DURATION,
                                                          threshold_leaving_duration=THRESHOLD_LEAVING_DURATION)

@@ -18,6 +18,7 @@ from matplotlib import pyplot as plt
 from matplotlib import patches
 
 from read_data.read import get_skeleton_data, read_list_from_file
+from time_series.time_series_helper import get_strain_timeseries
 
 #%% Globals
 
@@ -65,6 +66,7 @@ def add_bluelight_to_plot(ax, bluelight_frames=BLUELIGHT_FRAMES, alpha=0.5):
      
     return ax
 
+
 def _bootstrapped_ci(x, function=np.mean, n_boot=100, which_ci=95, axis=None):
     """ Wrapper for tierpsytools bootstrapped_ci function, which encounters name space / 
         variable scope conflicts when used in combination with pandas apply function 
@@ -75,85 +77,6 @@ def _bootstrapped_ci(x, function=np.mean, n_boot=100, which_ci=95, axis=None):
     
     return lower, upper
 
-# =============================================================================
-# def plot_timeseries(filename, x, y, save_dir=None, window=100, n_frames_video=9000, **kwargs):
-#     """ Timeseries plot of feature (y) throughout video """
-#     
-#     timeseries_data = get_skeleton_data(filename, rig='Hydra', dataset='timeseries_data')
-#         
-#     wells_list = list(timeseries_data['well_name'].unique())
-# 
-#     if not len(wells_list) == 16:
-#         stem = Path(filename).parent.name
-#         print("WARNING: Missing results for %d well(s): '%s'" % (16 - len(wells_list), stem))
-#      
-#     # get data for each well in turn
-#     grouped_well = timeseries_data.groupby('well_name')
-#     for well in wells_list:
-#         well_data = grouped_well.get_group(well)
-# 
-#         xmax = max(n_frames_video, well_data[x].max())
-# 
-#         # frame average
-#         grouped_frame = well_data.groupby(x)
-#         well_mean = grouped_frame[y].mean()
-#         well_std = grouped_frame[y].std()
-#         
-#         # moving average (optional)
-#         if window:
-#             well_mean = well_mean.rolling(window=window, center=True).mean()
-#             well_std = well_std.rolling(window=window, center=True).std()
-# 
-#         colours = []
-#         for mm in np.array(well_mean):
-#             if np.isnan(mm):
-#                 #colours.append('white')
-#                 colours.append([255,255,255]) # white
-#             elif int(mm) == 1:
-#                 #colours.append('blue')
-#                 colours.append([0,0,255]) # blue
-#             elif int(mm) == -1:
-#                 #colours.append('red')
-#                 colours.append([255,0,0]) # red
-#             else:
-#                 #colours.append('grey')
-#                 colours.append([128,128,128]) # gray
-#         colours = np.array(colours) / 255.0
-#                 
-#         # cmap = plt.get_cmap('Greys', 3)
-#         # cmap.set_under(color='red', alpha=0)
-#         # cmap.set_over(color='blue', alpha=0)
-#         
-#         # Plot time series                
-#         plt.close('all')
-#         fig, ax = plt.subplots(figsize=(12,6))
-# 
-#         #sns.scatterplot(x=well_mean.index, y=well_mean.values, ax=ax) # hue=well_mean.index
-#         ax.scatter(x=well_mean.index, y=well_mean.values, c=colours, ls='-', marker='.', **kwargs)
-#         ax.set_xlim(0, xmax)
-#         ax.axhline(0, 0, xmax, ls='--', marker='o') 
-#         ax.fill_between(well_mean.index, well_mean-well_std, well_mean+well_std, 
-#                         where=(well_mean > 0), facecolor='blue', alpha=0.5) # egdecolor=None
-#         ax.fill_between(well_mean.index, well_mean-well_std, well_mean+well_std, 
-#                         where=(well_mean < 0), facecolor='red', alpha=0.5) # egdecolor=None        
-# 
-#         ax = add_bluelight_to_plot(ax, alpha=0.5)
-#         
-#         # sns.scatterplot(x=x, y=y, data=timeseries_data, **kwargs)
-#         if save_dir is not None:
-#             Path(save_dir).mkdir(exist_ok=True, parents=True)
-#             plt.savefig(Path(save_dir) / 'roaming_state_{}.png'.format(well))
-#             plt.close()
-#         else:
-#             plt.show()
-#         
-#     return
-# =============================================================================
-
-# def plot_timeseries_turn(df, window=None, title=None, figsize=(12,6), ax=None):
-#     """ """
-#     turn_dict = {0:'straight', 1:'turn'}
-#     df['turn_type'] = ['NA' if pd.isna(t) else turn_dict[int(t)] for t in df['turn']]
 
 def get_motion_mode_timestamp_stats(frac_mode, mode='stationary'):
            
@@ -171,7 +94,117 @@ def get_motion_mode_timestamp_stats(frac_mode, mode='stationary'):
                                  on='timestamp', how='outer').fillna(0)
                 
         return frame_mode_df
+
+
+# def plot_timeseries_turn(df, window=None, title=None, figsize=(12,6), ax=None):
+#     """ """
+#     turn_dict = {0:'straight', 1:'turn'}
+#     df['turn_type'] = ['NA' if pd.isna(t) else turn_dict[int(t)] for t in df['turn']]
+
+
+def plot_timeseries(df, 
+                    feature='speed', 
+                    error=True, 
+                    max_n_frames=None, 
+                    smoothing=1, 
+                    ax=None,
+                    bluelight_frames=None, 
+                    title=None, 
+                    saveAs=None, 
+                    colour=None):
+    """ Plot timeseries for any feature in HDF5 timeseries data EXCEPT from motion mode or turn 
+        features. For motion mode, please use 'plot_timeseries_motion_mode' """
     
+    from time_series.plot_timeseries import add_bluelight_to_plot #, _bootstrapped_ci
+    
+    grouped_timestamp = df.groupby(['timestamp'])[feature]
+
+    plot_df = grouped_timestamp.mean().reset_index()
+
+    # mean and bootstrap CI error for each timestamp
+    if error:
+        # conf_ints = grouped_timestamp.apply(_bootstrapped_ci, function=np.mean, n_boot=100)
+        # conf_ints = pd.concat([pd.Series([x[0] for x in conf_ints], index=conf_ints.index), 
+        #                       pd.Series([x[1] for x in conf_ints], index=conf_ints.index)], 
+        #                       axis=1)
+        # conf_ints = conf_ints.rename(columns={0:'lower',1:'upper'}).reset_index()
+        
+        # frac_nan = conf_ints['lower'].isna().sum() / conf_ints.shape[0]
+        
+        # # if Tierpsytools bootstrap fails or returns > 90% NaNs, compute bootstrap another way
+        # if frac_nan > 0.9:   
+        #     print("Bootstrap failed to compute error for timeseries\n" + 
+        #           "Trying alternative bootstrap method...")
+            
+        def bootstrapped_ci(x, n_boot=100, alpha=0.95):
+            """ Wrapper for applying bootstrap function to sample array """
+        
+            from sklearn.utils import resample
+            
+            means = []
+            for i in range(n_boot):
+                s = resample(x, n_samples=int(len(x)))
+                m = np.mean(s)
+                means.append(m)
+            # plt.hist(means)
+            # plt.show()
+            
+            # confidence intervals
+            p_lower = ((1.0 - alpha) / 2.0) * 100
+            lower = np.percentile(means, p_lower)
+            p_upper = (alpha + ((1.0 - alpha) / 2.0)) * 100
+            upper = np.percentile(means, p_upper)
+                                
+            return lower, upper
+                                
+        conf_ints = grouped_timestamp.apply(bootstrapped_ci, n_boot=100)
+        conf_ints = pd.concat([pd.Series([x[0] for x in conf_ints], index=conf_ints.index), 
+                               pd.Series([x[1] for x in conf_ints], index=conf_ints.index)], 
+                              axis=1)
+        conf_ints = conf_ints.rename(columns={0:'lower',1:'upper'}).reset_index()
+                            
+        plot_df = pd.merge(plot_df, conf_ints, on='timestamp')
+        #plot_df = plot_df.dropna(axis=0, how='any')
+
+    plot_df = plot_df.set_index('timestamp').rolling(window=smoothing, 
+                                                     center=True).mean().reset_index()
+        
+    # crop timeseries data to standard video length (optional)
+    if max_n_frames:
+        plot_df = plot_df[plot_df['timestamp'] <= max_n_frames]
+
+    if ax is None:
+        fig, ax = plt.subplots(figsize=(15,6))
+
+    sns.lineplot(data=plot_df,
+                 x='timestamp',
+                 y=feature,
+                 ax=ax,
+                 ls='-',
+                 hue=None,
+                 palette=None,
+                 color=colour)
+    if error:
+        ax.fill_between(plot_df['timestamp'], plot_df['lower'], plot_df['upper'], 
+                        color=colour, edgecolor=None, alpha=0.25)
+    
+    # add decorations
+    if bluelight_frames is not None:
+        ax = add_bluelight_to_plot(ax, bluelight_frames=bluelight_frames, alpha=0.5)
+
+    if title:
+        plt.title(title, pad=10)
+
+    if saveAs is not None:
+        Path(saveAs).parent.mkdir(parents=True, exist_ok=True)
+        plt.savefig(saveAs)
+    
+    if ax is None:
+        return fig, ax
+    else:
+        return ax
+   
+ 
 def plot_timeseries_motion_mode(df,
                                 window=None, error=False, mode=None, max_n_frames=None,
                                 title=None, figsize=(12,6), ax=None, saveAs=None,
@@ -335,7 +368,118 @@ def plot_timeseries_motion_mode(df,
         return fig, ax
     else:
         return ax
+      
+
+def selected_strains_timeseries(metadata, 
+                                project_dir, 
+                                save_dir, 
+                                group_by='gene_name',
+                                control='wild_type',
+                                strain_list=['fepD'],
+                                n_wells=96,
+                                bluelight_stim_type='bluelight',
+                                video_length_seconds=6*60,
+                                bluelight_timepoints_seconds=[(60,70),(160,170),(260,270)],
+                                motion_modes=['forwards','stationary','backwards'],
+                                smoothing=10,
+                                fps=25):
+    """ Timeseries plots for standard imaging and bluelight delivery protocol for the initial and 
+        confirmation screening of Keio Collection. Bluelight stimulation is delivered after 5 mins
+        pre-stimulus, 10 secs stimulus every 60 secs, repeated 3 times (6 mins total), 
+        followed by 5 mins post-stimulus (16 minutes total)
+    """
+            
+    if strain_list is None:
+        strain_list = list(metadata[group_by].unique())
+    else:
+        assert isinstance(strain_list, list)
+        assert all(s in metadata[group_by].unique() for s in strain_list)
+    strain_list = [s for s in strain_list if s != control]
     
+    metadata['imgstore_name'] = metadata['imgstore_name_{}'.format(bluelight_stim_type)]
+    
+    # remove entries with missing video filename info
+    n_nan = len([s for s in metadata['imgstore_name'].unique() if not isinstance(s, str)])
+    if n_nan > 1:
+        print("WARNING: Ignoring {} entries with missing ingstore_name_{} info".format(
+            n_nan, bluelight_stim_type))
+        metadata = metadata[~metadata['imgstore_name'].isna()]
+    
+    bluelight_frames = [(i*fps, j*fps) for (i, j) in bluelight_timepoints_seconds]
+    
+    # get timeseries for BW
+    control_ts = get_strain_timeseries(metadata[metadata[group_by]==control], 
+                                       project_dir=project_dir, 
+                                       strain=control,
+                                       group_by=group_by,
+                                       n_wells=n_wells,
+                                       save_dir=Path(save_dir) / 'Data' / bluelight_stim_type /\
+                                           control)
+    
+    for strain in tqdm(strain_list):
+        col_dict = dict(zip([control, strain], sns.color_palette("pastel", 2)))
+
+        # get timeseries for strain
+        strain_ts = get_strain_timeseries(metadata[metadata[group_by]==strain], 
+                                          project_dir=project_dir, 
+                                          strain=strain,
+                                          group_by=group_by,
+                                          n_wells=n_wells,
+                                          save_dir=Path(save_dir) / 'Data' /\
+                                              bluelight_stim_type / strain)
+    
+        for mode in motion_modes:
+            print("Plotting timeseries for motion mode %s fraction for %s vs BW.." % (mode, strain))
+
+            plt.close('all')
+            fig, ax = plt.subplots(figsize=(12,5), dpi=200)
+    
+            ax = plot_timeseries_motion_mode(df=control_ts,
+                                             window=smoothing*fps,
+                                             error=True,
+                                             mode=mode,
+                                             max_n_frames=video_length_seconds*fps,
+                                             title=None,
+                                             saveAs=None,
+                                             ax=ax,
+                                             bluelight_frames=(bluelight_frames if 
+                                                               bluelight_stim_type == 'bluelight'
+                                                               else None),
+                                             colour=col_dict[control],
+                                             alpha=0.25)
+            
+            ax = plot_timeseries_motion_mode(df=strain_ts,
+                                             window=smoothing*fps,
+                                             error=True,
+                                             mode=mode,
+                                             max_n_frames=video_length_seconds*fps,
+                                             title=None,
+                                             saveAs=None,
+                                             ax=ax,
+                                             bluelight_frames=(bluelight_frames if 
+                                                               bluelight_stim_type == 'bluelight'
+                                                               else None),
+                                             colour=col_dict[strain],
+                                             alpha=0.25)
+        
+            xticks = np.linspace(0, video_length_seconds*fps, int(video_length_seconds/60)+1)
+            ax.set_xticks(xticks)
+            ax.set_xticklabels([str(int(x/fps/60)) for x in xticks])   
+            ax.set_xlabel('Time (minutes)', fontsize=12, labelpad=10)
+            ax.set_ylabel('Fraction {}'.format(mode), fontsize=12, labelpad=10)
+            ax.set_title('{0} vs {1}'.format(control, strain), fontsize=12, pad=10)
+            ax.legend([control, strain], fontsize=12, frameon=False, loc='best')
+            #TODO: plt.subplots_adjust(left=0.01,top=0.9,bottom=0.1,left=0.2)
+    
+            # save plot
+            ts_plot_dir = save_dir / 'Plots' / '{0}'.format(strain)
+            ts_plot_dir.mkdir(exist_ok=True, parents=True)
+            save_path = ts_plot_dir / 'motion_mode_{0}_{1}.pdf'.format(mode, bluelight_stim_type)
+            print("Saving to: %s" % save_path)
+            plt.savefig(save_path)
+
+    return
+
 def plot_timeseries_from_metadata(metadata_path,
                                   results_dir,
                                   group_by='gene_name', 
@@ -458,8 +602,8 @@ def plot_timeseries_from_metadata(metadata_path,
 
     ### Plotting timeseries for each feature, for only selected strains
     for feature in fset:
-        
         if feature == 'motion_mode':
+            
             # discrete data
             motion_mode_list = ['forwards','backwards','stationary']
             motion_dict = dict(zip([0,1,-1], motion_mode_list))
@@ -574,28 +718,7 @@ def plot_timeseries_from_metadata(metadata_path,
                         saveAs = save_dir / 'timeseries_plots' / strain / '{}.pdf'.format(feature)
                         saveAs.parent.mkdir(parents=True, exist_ok=True)
                         plt.savefig(saveAs, dpi=300)
-  
-        elif feature != 'motion_mode':
-            # TODO
-            raise IOError("Only motion mode timeseries is supported!")
             
-# =============================================================================
-# elif feature == 'turn':
-#     # discrete data
-#     #plot_timeseries_turn()
-# else:
-#     # continuous data
-#     ax = plot_timeseries(df=timeseries_strain,
-#                           x='timestamp',
-#                           y=feature,
-#                           window=WINDOW,
-#                           max_n_frames=MAX_N_FRAMES,
-#                           title=feature,
-#                           ax=ax,
-#                           saveAs=None,
-#                           sns_colour_palette='Greens',
-#                           colour=colour_dict[strain] if multi_strain else None)   
-# =============================================================================
 
 #%% Main
     

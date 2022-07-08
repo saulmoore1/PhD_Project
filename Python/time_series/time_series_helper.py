@@ -8,12 +8,15 @@ Time-series Analysis
 
 """
 
+from write_data.write import write_list_to_file
+
 #%% Functions
 
 def get_strain_timeseries(metadata, 
                           project_dir, 
                           strain='BW', 
-                          group_by='bacteria_strain', 
+                          group_by='bacteria_strain',
+                          feature_list=['motion_mode'],
                           save_dir=None,
                           n_wells=96,
                           verbose=True,
@@ -31,10 +34,12 @@ def get_strain_timeseries(metadata,
         save_path = Path(save_dir) / '{0}_timeseries.csv'.format(strain)
         if save_path.exists():
             if verbose:
-                print("Loading timeseries data for %s.." % strain)
+                print("Loading timeseries data for %s..." % strain)
             strain_timeseries = pd.read_csv(save_path)
+            assert all(f in strain_timeseries.columns for f in feature_list)
 
-    if strain_timeseries is None:        
+    if strain_timeseries is None: 
+        print("Compiling timeseries for %s..." % strain)
         strain_meta = metadata.groupby(group_by).get_group(strain)
                     
         # make dict of video imgstore names and wells we need to extract for strain data
@@ -43,6 +48,11 @@ def get_strain_timeseries(metadata,
         video_dict = {vid : sorted(grouped_video.get_group(vid)['well_name'].unique()) 
                       for vid in video_list}     
           
+        feature_list = [feature_list] if isinstance(feature_list, str) else feature_list
+        assert isinstance(feature_list, list)
+        colnames = ['worm_index','timestamp','well_name']
+        colnames.extend(feature_list)
+        
         error_log = []
         strain_timeseries_list = []
         for imgstore, wells in tqdm(video_dict.items()):
@@ -51,7 +61,7 @@ def get_strain_timeseries(metadata,
 
             try:
                 df = read_timeseries(filename, 
-                                     names=['worm_index','timestamp','motion_mode','well_name'],
+                                     names=colnames,
                                      only_wells=wells if n_wells != 6 else None)
                 
                 df['filename'] = filename
@@ -62,7 +72,7 @@ def get_strain_timeseries(metadata,
                 
             except Exception as E:
                 if verbose:
-                    print("ERROR reading file!")
+                    print("ERROR reading file! %s" % filename)
                     print(E)
                 error_log.append(filename)
                 
@@ -72,14 +82,14 @@ def get_strain_timeseries(metadata,
         # save timeseries dataframe to file
         if save_dir is not None:
             if verbose:
-                print("Saving timeseries data for %s" % strain)
+                print("Saving timeseries data for %s..." % strain)
             save_dir.mkdir(exist_ok=True, parents=True)
             strain_timeseries.to_csv(save_path, index=False)
                  
-    if return_error_log:
-        return strain_timeseries, error_log
-    else:
-        return strain_timeseries
+            if len(error_log) > 0:
+                write_list_to_file(error_log, Path(save_dir) / 'error_log.txt')
+                
+    return strain_timeseries
 
 def plot_timeseries_phenix(df, colour_dict, window=1000, acclimtime=0, annotate=True,\
                            legend=True, ax=None, count=False, show=True, **kwargs):

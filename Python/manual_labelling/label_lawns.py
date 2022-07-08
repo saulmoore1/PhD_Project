@@ -16,7 +16,6 @@ Manual Labelling of Food Regions for On/Off Food Calculation
 import h5py
 import time
 import argparse
-import numpy as np
 import pandas as pd
 from tqdm import tqdm
 from pathlib import Path
@@ -31,18 +30,22 @@ from visualisation.plate_trajectories import plot_trajectory
 
 #%% Globals
 
+EXAMPLE_FILE = None
 # food choice assay (6-well):
 # EXAMPLE_FILE = "/Volumes/behavgenom$/Priota/Data/FoodChoiceAssay/MaskedVideos/20181101/PC1/Set1/Set1_Ch1_01112018_103218.hdf5"
 # confirmation screen (96-well):
 # EXAMPLE_FILE = "/Volumes/hermes$/KeioScreen2_96WP/MaskedVideos/20210914/keio_confirm_screen_run1_bluelight_20210914_135936.22956809/metadata.hdf5"
 # single worm assay (6-well):
-EXAMPLE_FILE = "/Volumes/hermes$/Keio_Acute_Single_Worm/MaskedVideos/20220206/acute_single_worm_run1_bluelight_20220206_101625.22956818/metadata.hdf5"
+# EXAMPLE_FILE = "/Volumes/hermes$/Keio_Acute_Single_Worm/MaskedVideos/20220206/acute_single_worm_run1_bluelight_20220206_101625.22956818/metadata.hdf5"
 
-PROJECT_DIR = "/Volumes/hermes$/Keio_Supplements"
-SAVE_DIR = "/Users/sm5911/Documents/Keio_Supplements"
-METADATA_PATH = "/Users/sm5911/Documents/Keio_Supplements/metadata.csv"
+PROJECT_DIR = "/Volumes/hermes$/Keio_UV_Paraquat_Antioxidant_6WP"
+SAVE_DIR = "/Users/sm5911/Documents/Keio_UV_Paraquat_Antioxidant"
+METADATA_PATH = "/Users/sm5911/Documents/Keio_UV_Paraquat_Antioxidant/metadata.csv"
 
+TREATMENT_COLUMNS = ['food_type','drug_type','drug_imaging_plate_conc','is_dead']
+#['food_type','drug_type','imaging_plate_drug_conc']
 
+MAX_N_VIDEOS_PER_GROUP = 10
 SKIP = False # Skip file if coordinates of food lawn are already saved
 
 #%% Functions
@@ -180,10 +183,12 @@ def annotate_lawns_from_metadata_6wp(metadata,
                                      save_dir,
                                      group_by='treatment', 
                                      group_subset=None, 
-                                     max_videos_per_group=30):
+                                     max_videos_per_group=None,
+                                     skip=True):
     """ Label lawns using masked video filenames from metadata for given treatment groups """
     
-    metadata.groupby('treatment').count()
+    if max_videos_per_group is None:
+        max_videos_per_group = metadata.groupby('treatment').count().mean()
     
     if group_subset is not None:
         assert all(g in metadata[group_by].unique() for g in group_subset)
@@ -207,7 +212,7 @@ def annotate_lawns_from_metadata_6wp(metadata,
                 annotate_lawns(maskedfilepath, 
                                save_dir=save_dir, 
                                n_poly=1, 
-                               skip=True)
+                               skip=skip)
             except Exception as error:
                 print("WARNING: Could not read file!\n", error)
             
@@ -227,6 +232,8 @@ if __name__ == '__main__':
                         annotate lawns", nargs='+', default=None)
     parser.add_argument('--save_dir', help="Directory to save lawn coordinates", 
                         default=SAVE_DIR)
+    parser.add_argument('--treatment_columns', nargs='+', default=TREATMENT_COLUMNS,
+                        help="List of columns to combine to form treatment column")
     args = parser.parse_args()
 
     tic = time.time()
@@ -235,24 +242,23 @@ if __name__ == '__main__':
     if args.metadata_path is not None:
         # load project metadata
         metadata = pd.read_csv(args.metadata_path, header=0, index_col=None, dtype={'comments':str})
-
-        ##### SUPPLEMENT ANALYSIS #####
-        if 'Supplements' in str(args.metadata_path):
-            # subset for metadata for a single window (so there are no duplicate filenames)
+            
+        # if window summaries metadata: subset for first window only (no duplicate filenames)
+        if 'window' in metadata.columns:
             metadata = metadata[metadata['window']==0]
-    
-            # subset for paraquat results only
-            metadata = metadata[metadata['drug_type'].isin(['paraquat','none'])]
             
-            # treatment names for experiment conditions
-            metadata['treatment'] = metadata[['food_type','drug_type','imaging_plate_drug_conc']].astype(str).agg('-'.join, axis=1)
-            
-            # user-label lawn regions in first frame image of each video
-            annotate_lawns_from_metadata_6wp(metadata,
-                                             save_dir=Path(args.save_dir) / 'lawn_leaving',
-                                             group_by='treatment',
-                                             group_subset=None,
-                                             max_videos_per_group=10)
+        # treatment names for experiment conditions
+        if len(TREATMENT_COLUMNS) > 1:
+            metadata['treatment'] = metadata[TREATMENT_COLUMNS].astype(str).agg('-'.join, axis=1)
+        else:
+            metadata['treatment'] = metadata[TREATMENT_COLUMNS[0]]
+        
+        # user-label lawn regions in first frame image of each video
+        annotate_lawns_from_metadata_6wp(metadata,
+                                         save_dir=Path(args.save_dir) / 'lawn_leaving',
+                                         group_by='treatment',
+                                         group_subset=None,
+                                         max_videos_per_group=MAX_N_VIDEOS_PER_GROUP)
         
     else:
         # will annotate all videos found in MaskedVideo directory if no masked video list is given
@@ -261,7 +267,7 @@ if __name__ == '__main__':
         elif args.maskedvideo_dir is not None:
             # Find masked HDF5 video files (for labelling) 
             maskedfilelist = list(Path(args.maskedvideo_dir).rglob('*.hdf5'))
-        else:
+        elif EXAMPLE_FILE is not None:
             maskedfilelist = [EXAMPLE_FILE]
             args.save_dir = EXAMPLE_FILE.split("MaskedVideos")[0]
     

@@ -1,59 +1,55 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Analyse Proteomics Mutants
-
-Investigate whether the arousal phenotype is present in any of the double-knockout and 
-over-expression mutants prepared to investigate the differentially regulated genes between 
-fepD and BW highlighted by proteomics analysis
+Keio Tap Response Tests
 
 @author: sm5911
-@date: 28/06/2022
+@date: 05/07/2022
 
 """
 
 #%% Imports
 
-# import numpy as np
+import numpy as np
 import pandas as pd
-# import seaborn as sns
-# from tqdm import tqdm
+import seaborn as sns
+from tqdm import tqdm
 from pathlib import Path
-# from matplotlib import pyplot as plt
+from matplotlib import pyplot as plt
+
 from preprocessing.compile_hydra_data import compile_metadata, process_feature_summaries
 from filter_data.clean_feature_summaries import clean_summary_results
-from visualisation.plotting_helper import sig_asterix, boxplots_sigfeats
 from write_data.write import write_list_to_file
-from time_series.plot_timeseries import selected_strains_timeseries
+from visualisation.plotting_helper import sig_asterix, boxplots_sigfeats
+from time_series.time_series_helper import get_strain_timeseries
+from time_series.plot_timeseries import plot_timeseries_motion_mode
 
-# from analysis.keio_screen.check_keio_screen_worm_trajectories import check_tracked_objects
 
 from tierpsytools.analysis.statistical_tests import univariate_tests, get_effect_sizes
 from tierpsytools.preprocessing.filter_data import select_feat_set
 
-
 #%% Globals
 
-PROJECT_DIR = "/Volumes/hermes$/Keio_Proteomics_Mutants_6WP"
-SAVE_DIR = "/Users/sm5911/Documents/Keio_Proteomics_Mutants"
+PROJECT_DIR = "/Volumes/hermes$/Keio_Tap_Tests_6WP"
+SAVE_DIR = "/Users/sm5911/Documents/Keio_Tap_Tests"
 
 N_WELLS = 6
 
 nan_threshold_row = 0.8
 nan_threshold_col = 0.05
 
-FEATURE_SET = ['motion_mode_forward_fraction_bluelight']
+FEATURE_SET = ['motion_mode_forward_fraction']
 
 #%% Functions
 
-def proteomics_mutants_stats(metadata,
-                             features,
-                             group_by='treatment',
-                             control='BW',
-                             save_dir=None,
-                             feature_set=None,
-                             pvalue_threshold=0.05,
-                             fdr_method='fdr_by'):
+def tap_response_stats(metadata,
+                       features,
+                       group_by='treatment',
+                       control='BW-none',
+                       save_dir=None,
+                       feature_set=None,
+                       pvalue_threshold=0.05,
+                       fdr_method='fdr_by'):
     
     # check case-sensitivity
     assert len(metadata[group_by].unique()) == len(metadata[group_by].str.upper().unique())
@@ -142,14 +138,14 @@ def proteomics_mutants_stats(metadata,
 
     return #anova_results, ttest_results
 
-def proteomics_mutants_boxplots(metadata,
-                                features,
-                                group_by='treatment',
-                                control='BW',
-                                save_dir=None,
-                                stats_dir=None,
-                                feature_set=None,
-                                pvalue_threshold=0.05):
+def tap_response_boxplots(metadata,
+                          features,
+                          group_by='treatment',
+                          control='BW-none',
+                          save_dir=None,
+                          stats_dir=None,
+                          feature_set=None,
+                          pvalue_threshold=0.05):
     
     
     feature_set = features.columns.tolist() if feature_set is None else feature_set
@@ -175,6 +171,103 @@ def proteomics_mutants_boxplots(metadata,
         
     return
 
+def tap_response_timeseries(metadata, 
+                            project_dir, 
+                            save_dir, 
+                            group_by='tap_stimulus',
+                            control='none',
+                            strain_list=None,
+                            n_wells=6,
+                            video_length_seconds=60,
+                            motion_modes=['forwards','stationary','backwards'],
+                            smoothing=10,
+                            fps=25):
+    """ Timeseries plots for standard imaging and bluelight delivery protocol for the initial and 
+        confirmation screening of Keio Collection. Bluelight stimulation is delivered after 5 mins
+        pre-stimulus, 10 secs stimulus every 60 secs, repeated 3 times (6 mins total), 
+        followed by 5 mins post-stimulus (16 minutes total)
+    """
+            
+    if strain_list is None:
+        strain_list = list(metadata[group_by].unique())
+    else:
+        assert isinstance(strain_list, list)
+        assert all(s in metadata[group_by].unique() for s in strain_list)
+    strain_list = [s for s in strain_list if s != control]
+        
+    # remove entries with missing video filename info
+    n_nan = len([s for s in metadata['imgstore_name'].unique() if not isinstance(s, str)])
+    if n_nan > 1:
+        print("WARNING: Ignoring {} entries with missing imgstore_name info".format(n_nan))
+        metadata = metadata[~metadata['imgstore_name'].isna()]
+        
+    # get timeseries for BW
+    control_ts = get_strain_timeseries(metadata[metadata[group_by]==control], 
+                                  project_dir=project_dir, 
+                                  strain=control,
+                                  group_by=group_by,
+                                  n_wells=n_wells,
+                                  save_dir=Path(save_dir) / 'Data' / control)
+    
+    for strain in tqdm(strain_list):
+        col_dict = dict(zip([control, strain], sns.color_palette("pastel", 2)))
+
+        # get timeseries for strain
+        strain_ts = get_strain_timeseries(metadata[metadata[group_by]==strain], 
+                                          project_dir=project_dir, 
+                                          strain=strain,
+                                          group_by=group_by,
+                                          n_wells=n_wells,
+                                          save_dir=Path(save_dir) / 'Data' / strain)
+    
+        for mode in motion_modes:
+            print("Plotting timeseries for motion mode %s fraction for %s vs %s.." % \
+                  (mode, strain, control))
+
+            plt.close('all')
+            fig, ax = plt.subplots(figsize=(12,5), dpi=200)
+    
+            ax = plot_timeseries_motion_mode(df=control_ts,
+                                             window=smoothing*fps,
+                                             error=True,
+                                             mode=mode,
+                                             max_n_frames=video_length_seconds*fps,
+                                             title=None,
+                                             saveAs=None,
+                                             ax=ax,
+                                             bluelight_frames=None,
+                                             colour=col_dict[control],
+                                             alpha=0.25)
+            
+            ax = plot_timeseries_motion_mode(df=strain_ts,
+                                             window=smoothing*fps,
+                                             error=True,
+                                             mode=mode,
+                                             max_n_frames=video_length_seconds*fps,
+                                             title=None,
+                                             saveAs=None,
+                                             ax=ax,
+                                             bluelight_frames=None,
+                                             colour=col_dict[strain],
+                                             alpha=0.25)
+        
+            xticks = np.linspace(0, video_length_seconds*fps, int(video_length_seconds/60)+1)
+            ax.set_xticks(xticks)
+            ax.set_xticklabels([str(int(x/fps/60)) for x in xticks])   
+            ax.set_xlabel('Time (minutes)', fontsize=12, labelpad=10)
+            ax.set_ylabel('Fraction {}'.format(mode), fontsize=12, labelpad=10)
+            ax.set_title('{0} vs {1}'.format(control, strain), fontsize=12, pad=10)
+            ax.legend([control, strain], fontsize=12, frameon=False, loc='best')
+            #TODO: plt.subplots_adjust(left=0.01,top=0.9,bottom=0.1,left=0.2)
+    
+            # save plot
+            ts_plot_dir = save_dir / 'Plots' / '{0}'.format(strain)
+            ts_plot_dir.mkdir(exist_ok=True, parents=True)
+            save_path = ts_plot_dir / 'motion_mode_{0}.pdf'.format(mode)
+            print("Saving to: %s" % save_path)
+            plt.savefig(save_path)
+
+    return
 
 #%% Main
 
@@ -193,7 +286,7 @@ if __name__ == '__main__':
                                                        results_dir=res_dir, 
                                                        compile_day_summaries=True, 
                                                        imaging_dates=None, 
-                                                       align_bluelight=True, 
+                                                       align_bluelight=False, 
                                                        window_summaries=False,
                                                        n_wells=N_WELLS)
 
@@ -233,39 +326,58 @@ if __name__ == '__main__':
     feature_list = features.columns.tolist()
 
     # perform anova and t-tests comparing each treatment to BW control
-    metadata['treatment'] = metadata[['food_type','drug_type']].astype(str).agg('-'.join, axis=1)
-    metadata['treatment'] = [i.replace('-nan','') for i in metadata['treatment']]
+    metadata['treatment'] = metadata[['food_type','tap_stimulus']].astype(str).agg('-'.join, axis=1)
+    control = 'BW-none'
     
-    proteomics_mutants_stats(metadata,
-                             features,
-                             group_by='treatment',
-                             control='BW',
-                             save_dir=Path(SAVE_DIR) / 'Stats',
-                             feature_set=feature_list,
-                             pvalue_threshold=0.05,
-                             fdr_method='fdr_by')
+    # tap_response_stats(metadata,
+    #                    features,
+    #                    group_by='treatment',
+    #                    control=control,
+    #                    save_dir=Path(SAVE_DIR) / 'Stats',
+    #                    feature_set=feature_list,
+    #                    pvalue_threshold=0.05,
+    #                    fdr_method='fdr_by')
+    
+    #XXX not enough data for individual treatment-wise comparison, so instead lump data together for 
+    # each tap stimulus type to get an idea whether the tap stimuli are causing arousal
+    tap_response_stats(metadata,
+                       features,
+                       group_by='tap_stimulus',
+                       control='none',
+                       save_dir=Path(SAVE_DIR) / 'Stats',
+                       feature_set=feature_list,
+                       pvalue_threshold=0.05,
+                       fdr_method='fdr_by')
+    tap_response_stats(metadata,
+                       features,
+                       group_by='food_type',
+                       control='BW',
+                       save_dir=Path(SAVE_DIR) / 'Stats',
+                       feature_set=feature_list,
+                       pvalue_threshold=0.05,
+                       fdr_method='fdr_by')
     
     # boxplots comparing each treatment to BW control for each feature
-    proteomics_mutants_boxplots(metadata,
-                                features,
-                                group_by='treatment',
-                                control='BW',
-                                save_dir=Path(SAVE_DIR) / 'Plots',
-                                stats_dir=Path(SAVE_DIR) / 'Stats',
-                                pvalue_threshold=0.05)
+    tap_response_boxplots(metadata,
+                          features,
+                          group_by='tap_stimulus',
+                          control='none',
+                          save_dir=Path(SAVE_DIR) / 'Plots',
+                          stats_dir=Path(SAVE_DIR) / 'Stats',
+                          feature_set=feature_list,
+                          pvalue_threshold=0.05)
     
     # timeseries motion mode fraction for each treatment vs BW control
-    strain_list = list(metadata['treatment'].unique())
-    selected_strains_timeseries(metadata,
-                                project_dir=Path(PROJECT_DIR), 
-                                save_dir=Path(SAVE_DIR) / 'timeseries', 
-                                strain_list=strain_list,
-                                group_by='treatment',
-                                control='BW',
-                                n_wells=6,
-                                bluelight_stim_type='bluelight',
-                                video_length_seconds=360,
-                                bluelight_timepoints_seconds=[(60, 70),(160, 170),(260, 270)],
-                                motion_modes=['forwards','paused','backwards'],
-                                smoothing=10)    
+    # strain_list = list(metadata['treatment'].unique())
+    tap_response_timeseries(metadata, 
+                            project_dir=Path(PROJECT_DIR), 
+                            save_dir=Path(SAVE_DIR) / 'timeseries', 
+                            group_by='tap_stimulus',
+                            control='none',
+                            strain_list=None,
+                            n_wells=6,
+                            video_length_seconds=60,
+                            motion_modes=['forwards','stationary','backwards'],
+                            smoothing=4,
+                            fps=25)
     

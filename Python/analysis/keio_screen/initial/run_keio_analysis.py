@@ -18,9 +18,7 @@ THRESHOLD MAX DISTANCE FOR CLUSTERING: 8 (Tierpsy16, fdr_bh, all strains)
 import argparse
 import numpy as np
 import pandas as pd
-import seaborn as sns
 from time import time
-from tqdm import tqdm
 from pathlib import Path
 from matplotlib import pyplot as plt
 from scipy.stats import zscore # levene, ttest_ind, f_oneway, kruskal
@@ -35,8 +33,7 @@ from clustering.hierarchical_clustering import plot_clustermap, plot_barcode_hea
 from feature_extraction.decomposition.pca import plot_pca, remove_outliers_pca
 from feature_extraction.decomposition.tsne import plot_tSNE
 from feature_extraction.decomposition.umap import plot_umap
-from time_series.time_series_helper import get_strain_timeseries
-from time_series.plot_timeseries import plot_timeseries_motion_mode
+from time_series.plot_timeseries import selected_strains_timeseries
 from visualisation.plotting_helper import errorbar_sigfeats, boxplots_sigfeats 
 # from visualisation.plotting_helper import boxplots_grouped, barplot_sigfeats, plot_day_variation
 # from visualisation.super_plots import superplot
@@ -671,114 +668,6 @@ def compare_strains_keio(features, metadata, args):
 
     return
 
-def selected_strains_timeseries(metadata, 
-                                project_dir, 
-                                save_dir, 
-                                group_by='gene_name',
-                                control='wild_type',
-                                strain_list=['fepD'],
-                                n_wells=96,
-                                bluelight_stim_type='bluelight',
-                                video_length_seconds=6*60,
-                                bluelight_timepoints_seconds=[(60,70),(160,170),(260,270)],
-                                motion_modes=['forwards','stationary','backwards'],
-                                smoothing=10):
-    """ Timeseries plots for standard imaging and bluelight delivery protocol for the initial and 
-        confirmation screening of Keio Collection. Bluelight stimulation is delivered after 5 mins
-        pre-stimulus, 10 secs stimulus every 60 secs, repeated 3 times (6 mins total), 
-        followed by 5 mins post-stimulus (16 minutes total)
-    """
-            
-    if strain_list is None:
-        strain_list = list(metadata[group_by].unique())
-    else:
-        assert isinstance(strain_list, list)
-        assert all(s in metadata[group_by].unique() for s in strain_list)
-    strain_list = [s for s in strain_list if s != control]
-    
-    metadata['imgstore_name'] = metadata['imgstore_name_{}'.format(bluelight_stim_type)]
-    
-    # remove entries with missing video filename info
-    n_nan = len([s for s in metadata['imgstore_name'].unique() if not isinstance(s, str)])
-    if n_nan > 1:
-        print("WARNING: Ignoring {} entries with missing ingstore_name_{} info".format(
-            n_nan, bluelight_stim_type))
-        metadata = metadata[~metadata['imgstore_name'].isna()]
-    
-    bluelight_frames = [(i*FPS, j*FPS) for (i, j) in bluelight_timepoints_seconds]
-    
-    # get timeseries for BW
-    BW_ts = get_strain_timeseries(metadata[metadata[group_by]==control], 
-                                  project_dir=project_dir, 
-                                  strain=control,
-                                  group_by=group_by,
-                                  n_wells=n_wells,
-                                  save_dir=Path(save_dir) / 'Data' /\
-                                      bluelight_stim_type / control)
-    
-    for strain in tqdm(strain_list):
-        col_dict = dict(zip([control, strain], sns.color_palette("pastel", 2)))
-
-        # get timeseries for strain
-        strain_ts = get_strain_timeseries(metadata[metadata[group_by]==strain], 
-                                          project_dir=project_dir, 
-                                          strain=strain,
-                                          group_by=group_by,
-                                          n_wells=n_wells,
-                                          save_dir=Path(save_dir) / 'Data' /\
-                                              bluelight_stim_type / strain)
-    
-        for mode in motion_modes:
-            print("Plotting timeseries for motion mode %s fraction for %s vs BW.." % (mode, strain))
-
-            plt.close('all')
-            fig, ax = plt.subplots(figsize=(12,5), dpi=200)
-    
-            ax = plot_timeseries_motion_mode(df=BW_ts,
-                                             window=smoothing*FPS,
-                                             error=True,
-                                             mode=mode,
-                                             max_n_frames=video_length_seconds*FPS,
-                                             title=None,
-                                             saveAs=None,
-                                             ax=ax,
-                                             bluelight_frames=(bluelight_frames if 
-                                                               bluelight_stim_type == 'bluelight'
-                                                               else None),
-                                             colour=col_dict[control],
-                                             alpha=0.25)
-            
-            ax = plot_timeseries_motion_mode(df=strain_ts,
-                                             window=smoothing*FPS,
-                                             error=True,
-                                             mode=mode,
-                                             max_n_frames=video_length_seconds*FPS,
-                                             title=None,
-                                             saveAs=None,
-                                             ax=ax,
-                                             bluelight_frames=(bluelight_frames if 
-                                                               bluelight_stim_type == 'bluelight'
-                                                               else None),
-                                             colour=col_dict[strain],
-                                             alpha=0.25)
-        
-            xticks = np.linspace(0, video_length_seconds*FPS, int(video_length_seconds/60)+1)
-            ax.set_xticks(xticks)
-            ax.set_xticklabels([str(int(x/FPS/60)) for x in xticks])   
-            ax.set_xlabel('Time (minutes)', fontsize=12, labelpad=10)
-            ax.set_ylabel('Fraction {}'.format(mode), fontsize=12, labelpad=10)
-            ax.set_title('{0} vs {1}'.format(control, strain), fontsize=12, pad=10)
-            ax.legend([control, strain], fontsize=12, frameon=False, loc='best')
-            #TODO: plt.subplots_adjust(left=0.01,top=0.9,bottom=0.1,left=0.2)
-    
-            # save plot
-            ts_plot_dir = save_dir / 'Plots' / '{0}'.format(strain)
-            ts_plot_dir.mkdir(exist_ok=True, parents=True)
-            save_path = ts_plot_dir / 'motion_mode_{0}_{1}.pdf'.format(mode, bluelight_stim_type)
-            print("Saving to: %s" % save_path)
-            plt.savefig(save_path)
-
-    return
 
 #%% MAIN
 if __name__ == "__main__":
@@ -851,7 +740,7 @@ if __name__ == "__main__":
                                 smoothing=10)
     toc = time()
     print("\nDone in %.1f seconds (%.1f minutes)" % (toc - tic, (toc - tic) / 60))  
-
+    
 #%%
 
 # # Scale the features (necessary if you want to do PCA)

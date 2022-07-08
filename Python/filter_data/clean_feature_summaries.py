@@ -96,15 +96,17 @@ def clean_summary_results(features,
 
     # Drop rows based on percentage of NaN values across features for each row
     # NB: axis=1 will sum the NaNs across all the columns for each row
-    features = filter_nan_inf(features, threshold=nan_threshold_row, axis=1, verbose=True)
-    metadata = metadata.reindex(features.index)
+    if nan_threshold_row is not None:
+        features = filter_nan_inf(features, threshold=nan_threshold_row, axis=1, verbose=True)
+        metadata = metadata.reindex(features.index)
     
     # Drop feature columns with too many NaN values
     # NB: to remove features with NaNs across all results, eg. food_edge related features which are not calculated
-    features = filter_nan_inf(features, threshold=nan_threshold_col, axis=0, verbose=False)
-    nan_cols = [col for col in feature_columns if col not in features.columns]
-    if len(nan_cols) > 0:
-        print("Dropped %d features with >%.1f%% NaNs" % (len(nan_cols), nan_threshold_col*100))
+    if nan_threshold_col is not None:
+        features = filter_nan_inf(features, threshold=nan_threshold_col, axis=0, verbose=False)
+        nan_cols = [col for col in feature_columns if col not in features.columns]
+        if len(nan_cols) > 0:
+            print("Dropped %d features with >%.1f%% NaNs" % (len(nan_cols), nan_threshold_col*100))
     
     # Drop feature columns with zero standard deviation
     feature_columns = features.columns
@@ -127,8 +129,7 @@ def clean_summary_results(features,
     path_curvature_feats = [f for f in features.columns if 'path_curvature' in f]
     if len(path_curvature_feats) > 0:
         features = features.drop(columns=path_curvature_feats)
-        print("Dropped %d features that are derived from path curvature"\
-              % len(path_curvature_feats))
+        print("Dropped %d features that are derived from path curvature" % len(path_curvature_feats))
 
     # Cap feature values to max value for given feature
     if max_value_cap and features[features > max_value_cap].any().any():
