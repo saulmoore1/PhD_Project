@@ -126,7 +126,8 @@ def leaving_events(df,
     return leaving_events_df
 
 def fraction_on_food(metadata, 
-                     food_coords_dir, 
+                     food_coords_dir,
+                     bluelight_stimulus_type=None,
                      threshold_duration=None, 
                      threshold_movement=None,
                      threshold_leaving_duration=50):
@@ -151,29 +152,33 @@ def fraction_on_food(metadata,
             print("%d files found with no annotations" % (metadata.shape[0] - n_coords))
         
         metadata = metadata.loc[metadata.index[mask],:]
+                    
         maskedfilelist = [s.replace('RawVideos','MaskedVideos') + '/metadata.hdf5' for s in 
                           metadata['filename']]
-        coordsfilelist = np.array(coordsfilelist)[mask].tolist()
-    
+        
         assert all(str(Path(i).parent).split('MaskedVideos')[-1] == 
                    str(Path(j).parent).split(str(food_coords_dir))[-1] 
                    for i, j in zip(maskedfilelist, coordsfilelist))
+
+        if bluelight_stimulus_type is not None:
+            assert bluelight_stimulus_type in ['prestim','bluelight','poststim']
+            print("Finding '%s' MaskedVideo files" % bluelight_stimulus_type)
+            root = metadata.iloc[0]['filename'].split('RawVideos')[0]
+            maskedfilelist = [root + 'MaskedVideos/' + s + '/metadata.hdf5' for s in 
+                              metadata['imgstore_name_{}'.format(bluelight_stimulus_type)]]
         
+        coordsfilelist = np.array(coordsfilelist)[mask].tolist()
+            
         video_frac_list = []
         leaving_events_list = []
         print("Calculating fraction on/off food")
         for i, (maskedfile, featurefile, coordsfile) in enumerate(tqdm(zip(
                 maskedfilelist, metadata['featuresN_filename'], coordsfilelist), total=metadata.shape[0])):
-            
-            # if i == 49:
-            #     break
-            assert (str(Path(maskedfile).parent).split('MaskedVideos')[-1] == 
-                    str(Path(coordsfile).parent).split(str(food_coords_dir))[-1])
-            
-            # load coordinates of food lawns (user labelled)
-            f = open(coordsfile, 'r').read()
-            poly_dict = eval(f) # use 'evaluate' to read as dictionary not string
-            
+                        
+            if bluelight_stimulus_type is not None:
+                featurefile = maskedfile.replace('/MaskedVideos/','/Results/')
+                featurefile = featurefile.replace('/metadata.hdf5','/metadata_featuresN.hdf5')
+                
             # load coordinates of worm trajectories
             with h5py.File(featurefile, 'r') as f:
                 traj_df = pd.DataFrame({'x': f['trajectories_data']['coord_x'],
@@ -188,8 +193,12 @@ def fraction_on_food(metadata,
                                                        threshold_move=threshold_movement, 
                                                        threshold_time=threshold_duration,
                                                        microns_per_pixel=12.4)
-            # TODO: store stats / investigate number of bad worm trajectories?
+            #XXX: store stats? / investigate number of bad worm trajectories?
             
+            # load coordinates of food lawns (user labelled)
+            f = open(coordsfile, 'r').read()
+            poly_dict = eval(f) # use 'evaluate' to read as dictionary not string
+
             # compute whether each wormID in each timestamp is on or off food + append results
             traj_df = on_food(traj_df, poly_dict)
             
@@ -274,6 +283,7 @@ def timeseries_on_food(metadata,
                        save_dir=None, 
                        smoothing=None,
                        bluelight_frames=None,
+                       bluelight_stimulus_type=None,
                        palette='tab10',
                        error=True):
     
@@ -285,19 +295,30 @@ def timeseries_on_food(metadata,
         timeseries_frac_df = pd.read_csv(timeseries_data_path, header=0, index_col=None)
 
     else:
+        print("Compiling timeseries data for fraction of worms on/off food (by treatment)")
+        
         # group metadata by treatment + compute fraction on/off food
         grouped = metadata.groupby(group_by)
 
         group_frac_list = []
         
-        for group in grouped.groups.keys():
+        for group in tqdm(grouped.groups.keys()):
             group_meta = grouped.get_group(group)
                             
             # video_frac_df = video_frac_df.iloc[:,~video_frac_df.columns.duplicated()]
             assert not any(video_frac_df.columns.duplicated())
-            assert group_meta['featuresN_filename'].nunique() == group_meta['featuresN_filename'].shape[0]
-    
-            _mask = video_frac_df.columns.isin(group_meta['featuresN_filename'].unique())        
+            assert (group_meta['featuresN_filename'].nunique() == 
+                    group_meta['featuresN_filename'].shape[0])
+            
+            if bluelight_stimulus_type is not None:
+                assert bluelight_stimulus_type in ['prestim','bluelight','poststim']
+                root = group_meta.iloc[0]['filename'].split('RawVideos')[0]
+                featurefilelist = [root + 'Results/' + s + '/metadata_featuresN.hdf5' for s in 
+                                   group_meta['imgstore_name_{}'.format(bluelight_stimulus_type)]]
+            else:
+                featurefilelist = list(group_meta['featuresN_filename'].unique())
+                
+            _mask = video_frac_df.columns.isin(featurefilelist)
             cols = video_frac_df.columns[_mask].tolist()
             
             # mean + std fraction on food in each frame across videos for treatment group
@@ -320,6 +341,7 @@ def timeseries_on_food(metadata,
         timeseries_frac_df = pd.concat(group_frac_list, axis=0)
         
         # save timeseries fraction to file
+        print("Saving timeseries data to: %s" % timeseries_data_path)
         timeseries_frac_df.to_csv(timeseries_data_path, header=True, index=False)
                     
     if smoothing:
@@ -362,12 +384,16 @@ def timeseries_on_food(metadata,
             ax = add_bluelight_to_plot(ax, bluelight_frames=bluelight_frames, alpha=0.25)
         
         ax.set_xlim(0, max_n_frames)
-        xticks = [0,7500,15000,22500,30000,37500,45000,52500,60000]
-        xticklabels = [0,5,10,15,20,25,30,35]
+        xticks = [0,1500,3000,4500,6000,7500]
+        xticklabels = [0,1,2,3,4,5]
+        if bluelight_stimulus_type is not None and bluelight_stimulus_type == 'bluelight':
+            xticks.append(9000)
+            xticklabels.append(6)
+            
         ax.set_xticks(xticks)
         ax.set_xticklabels(xticklabels)
-        ax.set_xlabel('Time (seconds)', labelpad=10)
-        ax.set_ylabel('Fraction of worms feeding', labelpad=10)
+        ax.set_xlabel('Time (minutes)', labelpad=10)
+        ax.set_ylabel('Fraction of worms on food', labelpad=10)
         
         if save_dir:
             plt.savefig(Path(save_dir) / 'timeseries_fraction_on_{}.pdf'.format(group), dpi=300)

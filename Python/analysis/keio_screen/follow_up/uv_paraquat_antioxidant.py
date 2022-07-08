@@ -430,6 +430,7 @@ if __name__ == '__main__':
     from analysis.keio_screen.follow_up.lawn_leaving_rate import fraction_on_food, timeseries_on_food
     video_frac_df, leaving_events_df = fraction_on_food(metadata,
                                                         food_coords_dir=Path(SAVE_DIR) / 'lawn_leaving',
+                                                        bluelight_stimulus_type='bluelight',
                                                         threshold_duration=THRESHOLD_FILTER_DURATION,
                                                         threshold_movement=THRESHOLD_FILTER_MOVEMENT,
                                                         threshold_leaving_duration=THRESHOLD_LEAVING_DURATION)
@@ -439,7 +440,8 @@ if __name__ == '__main__':
                        control=control,
                        save_dir=Path(SAVE_DIR) / 'lawn_leaving',
                        bluelight_frames=[(i*FPS, j*FPS) for (i, j) in BLUELIGHT_TIMEPOINTS_SECONDS],
-                       smoothing=10,
+                       bluelight_stimulus_type='bluelight',
+                       smoothing=20,
                        error=True)
     
     
