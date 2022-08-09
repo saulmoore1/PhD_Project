@@ -21,7 +21,7 @@ import pandas as pd
 from time import time
 from pathlib import Path
 from matplotlib import pyplot as plt
-from scipy.stats import zscore # levene, ttest_ind, f_oneway, kruskal
+from scipy.stats import zscore
 
 from read_data.paths import get_save_dir
 from read_data.read import load_json
@@ -29,14 +29,13 @@ from write_data.write import write_list_to_file
 from analysis.compare_strains.control_variation import control_variation
 from filter_data.clean_feature_summaries import clean_summary_results, subset_results
 from statistical_testing.perform_keio_stats import average_plate_control_data
+from visualisation.plotting_helper import errorbar_sigfeats, boxplots_sigfeats 
 from clustering.hierarchical_clustering import plot_clustermap, plot_barcode_heatmap
 from feature_extraction.decomposition.pca import plot_pca, remove_outliers_pca
 from feature_extraction.decomposition.tsne import plot_tSNE
 from feature_extraction.decomposition.umap import plot_umap
 from time_series.plot_timeseries import selected_strains_timeseries
-from visualisation.plotting_helper import errorbar_sigfeats, boxplots_sigfeats 
-# from visualisation.plotting_helper import boxplots_grouped, barplot_sigfeats, plot_day_variation
-# from visualisation.super_plots import superplot
+from time_series.plot_timeseries import plot_timeseries_feature
 
 from tierpsytools.preprocessing.filter_data import select_feat_set
 
@@ -344,16 +343,16 @@ def compare_strains_keio(features, metadata, args):
                           control=control,
                           pvals=pvals_t, 
                           z_class=metadata['date_yyyymmdd'],
-                          feature_set=fset, #None
-                          # feature_set=['motion_mode_forward_fraction_prestim',
-                          #              'motion_mode_forward_fraction_bluelight',
-                          #              'motion_mode_forward_fraction_poststim',
-                          #              'speed_50th_prestim',
-                          #              'speed_50th_bluelight',
-                          #              'speed_50th_poststim',
-                          #              'curvature_midbody_norm_abs_50th_prestim',
-                          #              'curvature_midbody_norm_abs_50th_bluelight',
-                          #              'curvature_midbody_norm_abs_50th_poststim'],
+                          #feature_set=fset, #None
+                          feature_set=['motion_mode_forward_fraction_prestim',
+                                        'motion_mode_forward_fraction_bluelight',
+                                        'motion_mode_forward_fraction_poststim',
+                                        'speed_50th_prestim',
+                                        'speed_50th_bluelight',
+                                        'speed_50th_poststim',
+                                        'curvature_midbody_norm_abs_50th_prestim',
+                                        'curvature_midbody_norm_abs_50th_bluelight',
+                                        'curvature_midbody_norm_abs_50th_poststim'],
                           # append_ranking_fname=False,
                           saveDir=plot_dir / 'paired_boxplots_nsig', # pval
                           p_value_threshold=args.pval_threshold,
@@ -738,6 +737,22 @@ if __name__ == "__main__":
                                 bluelight_stim_type='poststim',
                                 video_length_seconds=5*60,
                                 smoothing=10)
+    
+    plot_timeseries_feature(metadata, 
+                            project_dir=Path(args.project_dir),
+                            save_dir=Path(args.save_dir) / 'timeseries_speed',
+                            feature='speed',
+                            group_by='gene_name',
+                            control='wild_type',
+                            groups_list=SELECTED_STRAIN_LIST, 
+                            n_wells=96,
+                            bluelight_stim_type='bluelight',
+                            video_length_seconds=6*60,
+                            bluelight_timepoints_seconds=[(60, 70), (160, 170), (260, 270)],
+                            smoothing=10,
+                            fps=25)
+    
+    
     toc = time()
     print("\nDone in %.1f seconds (%.1f minutes)" % (toc - tic, (toc - tic) / 60))  
     

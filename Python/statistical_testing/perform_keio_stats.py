@@ -37,9 +37,10 @@ from tierpsytools.preprocessing.filter_data import select_feat_set
 
 #%% GLOBALS
 
-JSON_PARAMETERS_PATH = "analysis/20210914_parameters_keio_screen.json"
+JSON_PARAMETERS_PATH = "analysis/20210406_parameters_keio_screen.json"
+#JSON_PARAMETERS_PATH = "analysis/20210914_parameters_keio_screen.json"
 
-#%% MAIN
+#%% FUNCTIONS
 
 def average_plate_control_data(features, metadata, control='wild_type', grouping_var='gene_name', 
                                plate_var='imaging_plate_id'):
@@ -386,8 +387,8 @@ def keio_stats(features, metadata, args):
         estimator = Pipeline([('scaler', StandardScaler()), ('estimator', LogisticRegression())])
         y = metadata[grouping_var].values
         (mrmr_feat_set, 
-         mrmr_scores, 
-         mrmr_support) = mRMR_feature_selection(features, y_class=y, k=10,
+          mrmr_scores, 
+          mrmr_support) = mRMR_feature_selection(features, y_class=y, k=10,
                                                 redundancy_func='pearson_corr',
                                                 relevance_func='kruskal',
                                                 n_bins=10, mrmr_criterion='MID',

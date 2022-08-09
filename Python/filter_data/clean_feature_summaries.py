@@ -82,6 +82,16 @@ def clean_summary_results(features,
                                             metadata, 
                                             bad_well_cols=['is_bad_well'], 
                                             verbose=False)
+        
+    col_list = ['worm_strain','bacteria_strain']
+    for col in col_list:
+        if col in metadata.columns:
+            n_missing, idxs = sum(metadata[col].isna()), list(np.where(metadata[col].isna())[0])
+            if n_missing > 0:
+                print("\n\tWARNING: There are %d missing entries for %s in metadata!" % (n_missing, col))
+                print("\n\tThese samples will be dropped from the analysis\n")
+                metadata = metadata[~metadata.index.isin(idxs)]
+                features = features.reindex(metadata.index)
     
     # raise warning if missing row data
     if any(features.sum(axis=1) == 0):
@@ -90,7 +100,6 @@ def clean_summary_results(features,
               "\n\tThese samples will be dropped from the analysis\n")
         # NB: if using window summaries, esp for long videos, this could be due to condensation 
         #     build up affecting tracking in later windows
-        
         features = features[~features.index.isin(idxs)]
         metadata = metadata.reindex(features.index)
 

@@ -25,7 +25,7 @@ import os, sys, time
 import numpy as np
 import pandas as pd
 #import czifile, tifffile
-import javabridge 
+import javabridge
 import bioformats #unicodedata
 from PIL import Image
 from matplotlib import pyplot as plt
@@ -500,7 +500,7 @@ if __name__ == "__main__":
         # local copy
         raise Warning("No directory path provided! " + 
                       "Please provide path to parent directory of CZI image files")
-        #image_root_dir = '~/Documents/PanGenome/data/dev_assay_optimisation_local_copy/210201_DA_1143_R1'
+        #image_root_dir = '/Users/sm5911/Documents/PanGenome/data/dev_assay_optimisation_local_copy/210201_DA_1143_R1'
     
     ####################
     ##### COMMANDS #####
@@ -534,3 +534,4 @@ if __name__ == "__main__":
 
     toc = time.time()
     print('Complete!\nTotal time taken: %.2f seconds.' % (toc - tic))        
+

@@ -550,8 +550,10 @@ def process_feature_summaries(metadata_path,
     feat_id_cols = ['file_id', 'n_skeletons', 'well_name', 'is_good_well']
 
     # if there are no well annotations in metadata, omit 'is_good_well' from feat_id_cols
-    if 'is_good_well' not in meta_col_order: 
+    remove_is_good_well = False
+    if 'is_good_well' not in meta_col_order:
         feat_id_cols = [f for f in feat_id_cols if f != 'is_good_well']
+        remove_is_good_well = True
     if window_summaries:
         feat_id_cols.append('window')
         
@@ -561,6 +563,8 @@ def process_feature_summaries(metadata_path,
                                              metadata_path, 
                                              feat_id_cols=feat_id_cols,
                                              add_bluelight=align_bluelight)
+    if remove_is_good_well:
+        features = features.drop(columns='is_good_well')
 
     if align_bluelight:
         features, metadata = align_bluelight_conditions(feat=features, 
@@ -572,7 +576,7 @@ def process_feature_summaries(metadata_path,
                                                                        'well_name'])
         meta_col_order.remove('imgstore_name')
             
-    assert set(features.index) == set(metadata.index)    
+    assert set(features.index) == set(metadata.index)
     
     # record new columns
     assert len(set(meta_col_order) - set(metadata.columns)) == 0 # ensure no old columns were dropped

@@ -204,7 +204,99 @@ def plot_timeseries(df,
     else:
         return ax
    
- 
+def plot_timeseries_feature(metadata,
+                            project_dir,
+                            save_dir,
+                            feature='speed',
+                            group_by='treatment',
+                            control='BW-nan-nan-N',
+                            groups_list=None,
+                            n_wells=6,
+                            bluelight_stim_type='bluelight',
+                            video_length_seconds=360,
+                            bluelight_timepoints_seconds=[(60, 70),(160, 170),(260, 270)],
+                            smoothing=10,
+                            fps=25):
+        
+    if groups_list is not None:
+        assert isinstance(groups_list, list) 
+        assert all(g in metadata[group_by].unique() for g in groups_list)
+    else:
+        groups_list = sorted(metadata[group_by].unique())
+    groups_list = [g for g in groups_list if g != control]
+    assert control in metadata[group_by].unique()
+    
+    if bluelight_stim_type is not None:
+        metadata['imgstore_name'] = metadata['imgstore_name_{}'.format(bluelight_stim_type)]
+    
+    if bluelight_timepoints_seconds is not None:
+        bluelight_frames = [(i*fps, j*fps) for (i, j) in bluelight_timepoints_seconds]
+    
+    # get control timeseries
+    control_ts = get_strain_timeseries(metadata,
+                                       project_dir=project_dir,
+                                       strain=control,
+                                       group_by=group_by,
+                                       feature_list=[feature],#['motion_mode','speed']
+                                       save_dir=save_dir,
+                                       n_wells=n_wells,
+                                       verbose=True)
+
+    for group in tqdm(groups_list):
+        ts_plot_dir = save_dir / 'Plots' / '{0}'.format(group)
+        ts_plot_dir.mkdir(exist_ok=True, parents=True)
+        save_path = ts_plot_dir / '{0}_{1}.pdf'.format(feature, bluelight_stim_type)
+        
+        if not save_path.exists():
+            group_ts = get_strain_timeseries(metadata,
+                                             project_dir=project_dir,
+                                             strain=group,
+                                             group_by=group_by,
+                                             feature_list=[feature],
+                                             save_dir=save_dir,
+                                             n_wells=n_wells,
+                                             verbose=True)
+            
+            print("Plotting '%s' timeseries for %s vs %s" % (feature, group, control))
+            col_dict = dict(zip([control, group], sns.color_palette('tab10', 2)))
+            
+            plt.close('all')
+            fig, ax = plt.subplots(figsize=(15,6), dpi=300)
+            ax = plot_timeseries(df=control_ts,
+                                 feature=feature,
+                                 error=True, 
+                                 max_n_frames=video_length_seconds*fps, 
+                                 smoothing=smoothing*fps, 
+                                 ax=ax,
+                                 bluelight_frames=(bluelight_frames if 
+                                                   bluelight_stim_type == 'bluelight' else None),
+                                 colour=col_dict[control])
+            
+            ax = plot_timeseries(df=group_ts,
+                                 feature=feature,
+                                 error=True, 
+                                 max_n_frames=video_length_seconds*fps, 
+                                 smoothing=smoothing*fps, 
+                                 ax=ax,
+                                 bluelight_frames=(bluelight_frames if 
+                                                   bluelight_stim_type == 'bluelight' else None),
+                                 colour=col_dict[group])
+            
+            xticks = np.linspace(0, video_length_seconds*fps, int(video_length_seconds/60)+1)
+            ax.set_xticks(xticks)
+            ax.set_xticklabels([str(int(x/fps/60)) for x in xticks])   
+            ax.set_xlabel('Time (minutes)', fontsize=12, labelpad=10)
+            ax.set_ylabel(feature, fontsize=12, labelpad=10)
+            # ax.set_title('{0} vs {1}'.format(control, group), fontsize=12, pad=10)
+            ax.legend([control, group], fontsize=12, frameon=False, loc='best')
+            plt.subplots_adjust(left=0.1, top=0.95, bottom=0.1, right=0.95)
+    
+            # save plot
+            print("Saving to: %s" % save_path)
+            plt.savefig(save_path)
+
+    return
+
 def plot_timeseries_motion_mode(df,
                                 window=None, error=False, mode=None, max_n_frames=None,
                                 title=None, figsize=(12,6), ax=None, saveAs=None,

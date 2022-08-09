@@ -387,6 +387,7 @@ def boxplots_sigfeats(features,
     import seaborn as sns
     from tqdm import tqdm
     from matplotlib import pyplot as plt
+    from matplotlib import transforms
 
     # features
     if feature_set is not None:
@@ -513,15 +514,26 @@ def boxplots_sigfeats(features,
                     IQR = Q3 - Q1
                     plt.ylim(min(y_bar) - 2.5 * max(IQR), max(y_bar) + 2.5 * max(IQR))
     
+                if 'speed' in feature:
+                    plt.ylim(0, 250)
+                    
                 # Add p-value to plot
                 p = strain_pvals.loc[feature]
                 text = ax.get_xticklabels()[-1]
                 assert text.get_text() == strain
                 y = (max(y_bar) + 2 * max(IQR)) if scale_outliers else strain_data[feature].max()
                 h = (max(IQR) / 8) if scale_outliers else (y - strain_data[feature].min()) / 50
-                plt.plot([0, 0, 1, 1], [y+h, y+2*h, y+2*h, y+h], lw=1.5, c='k')
-                p_text = 'P < 0.001' if p < 0.001 else 'P = %.3f' % p
-                ax.text(0.5, y+2*h, p_text, fontsize=12, ha='center', va='bottom')
+                
+                if 'speed' in feature:
+                    trans = transforms.blended_transform_factory(ax.transData,# x=none
+                                                                 ax.transAxes) # y=scaled
+                    plt.plot([0, 0, 1, 1], [y+h, y+2*h, y+2*h, y+h], lw=1.5, c='k')
+                    p_text = 'P < 0.001' if p < 0.001 else 'P = %.3f' % p
+                    ax.text(0.5, y+2*h, p_text, fontsize=12, ha='center', va='bottom', transform=trans)
+                else:
+                    plt.plot([0, 0, 1, 1], [y+h, y+2*h, y+2*h, y+h], lw=1.5, c='k')
+                    p_text = 'P < 0.001' if p < 0.001 else 'P = %.3f' % p
+                    ax.text(0.5, y+2*h, p_text, fontsize=12, ha='center', va='bottom')
                 plt.subplots_adjust(left=0.15)
                 
             # Save figure

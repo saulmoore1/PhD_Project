@@ -14,23 +14,17 @@ fepD and BW highlighted by proteomics analysis
 
 #%% Imports
 
-# import numpy as np
 import pandas as pd
-# import seaborn as sns
-# from tqdm import tqdm
 from pathlib import Path
-# from matplotlib import pyplot as plt
 from preprocessing.compile_hydra_data import compile_metadata, process_feature_summaries
 from filter_data.clean_feature_summaries import clean_summary_results
 from visualisation.plotting_helper import sig_asterix, boxplots_sigfeats
 from write_data.write import write_list_to_file
-from time_series.plot_timeseries import selected_strains_timeseries
-
+from time_series.plot_timeseries import selected_strains_timeseries, plot_timeseries_feature
 # from analysis.keio_screen.check_keio_screen_worm_trajectories import check_tracked_objects
 
 from tierpsytools.analysis.statistical_tests import univariate_tests, get_effect_sizes
 from tierpsytools.preprocessing.filter_data import select_feat_set
-
 
 #%% Globals
 
@@ -38,11 +32,14 @@ PROJECT_DIR = "/Volumes/hermes$/Keio_Proteomics_Mutants_6WP"
 SAVE_DIR = "/Users/sm5911/Documents/Keio_Proteomics_Mutants"
 
 N_WELLS = 6
+FPS = 25
 
 nan_threshold_row = 0.8
 nan_threshold_col = 0.05
 
-FEATURE_SET = ['motion_mode_forward_fraction_bluelight']
+FEATURE_SET = ['motion_mode_forward_fraction_bluelight', 'speed_50th_bluelight']
+
+BLUELIGHT_TIMEPOINTS_SECONDS = [(60, 70),(160, 170),(260, 270)]
 
 #%% Functions
 
@@ -235,6 +232,8 @@ if __name__ == '__main__':
     # perform anova and t-tests comparing each treatment to BW control
     metadata['treatment'] = metadata[['food_type','drug_type']].astype(str).agg('-'.join, axis=1)
     metadata['treatment'] = [i.replace('-nan','') for i in metadata['treatment']]
+
+    strain_list = list(metadata['treatment'].unique())
     
     proteomics_mutants_stats(metadata,
                              features,
@@ -250,12 +249,12 @@ if __name__ == '__main__':
                                 features,
                                 group_by='treatment',
                                 control='BW',
+                                feature_set=feature_list,
                                 save_dir=Path(SAVE_DIR) / 'Plots',
                                 stats_dir=Path(SAVE_DIR) / 'Stats',
                                 pvalue_threshold=0.05)
     
     # timeseries motion mode fraction for each treatment vs BW control
-    strain_list = list(metadata['treatment'].unique())
     selected_strains_timeseries(metadata,
                                 project_dir=Path(PROJECT_DIR), 
                                 save_dir=Path(SAVE_DIR) / 'timeseries', 
@@ -265,7 +264,25 @@ if __name__ == '__main__':
                                 n_wells=6,
                                 bluelight_stim_type='bluelight',
                                 video_length_seconds=360,
-                                bluelight_timepoints_seconds=[(60, 70),(160, 170),(260, 270)],
+                                bluelight_timepoints_seconds=BLUELIGHT_TIMEPOINTS_SECONDS,
                                 motion_modes=['forwards','paused','backwards'],
-                                smoothing=10)    
+                                smoothing=10,
+                                fps=FPS)    
+
+    #TODO: Try to fix the scale across plots to 0-300 um/sec for easier comparison across conditions
+    
+    # timeseries plots of speed for each treatment vs control
+    plot_timeseries_feature(metadata,
+                            project_dir=Path(PROJECT_DIR),
+                            save_dir=Path(SAVE_DIR) / 'timeseries-speed',
+                            group_by='treatment',
+                            control='BW',
+                            groups_list=strain_list,
+                            feature='speed',
+                            n_wells=6,
+                            bluelight_stim_type='bluelight',
+                            video_length_seconds=360,
+                            bluelight_timepoints_seconds=BLUELIGHT_TIMEPOINTS_SECONDS,
+                            smoothing=10,
+                            fps=FPS)
     

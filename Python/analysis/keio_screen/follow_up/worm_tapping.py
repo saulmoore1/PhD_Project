@@ -1,13 +1,10 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Keio UV Paraquat Antioxidant experiment
-
-Investigate whether the arousal phenotype on fepD is rescued by addition of antioxidants, 
-or exacerbated by addition of paraquat (when bacteria are UV killed or not)
+Worm tapping experiments
 
 @author: sm5911
-@date: 30/06/2022
+@date: 08/08/2022
 
 """
 
@@ -16,21 +13,20 @@ or exacerbated by addition of paraquat (when bacteria are UV killed or not)
 import pandas as pd
 from pathlib import Path
 
-# from analysis.keio_screen.check_keio_screen_worm_trajectories import check_tracked_objects
 from preprocessing.compile_hydra_data import compile_metadata, process_feature_summaries
 from filter_data.clean_feature_summaries import clean_summary_results
 from write_data.write import write_list_to_file
 from visualisation.plotting_helper import sig_asterix, boxplots_sigfeats
-from time_series.plot_timeseries import selected_strains_timeseries, plot_timeseries_feature
-from analysis.keio_screen.follow_up.lawn_leaving_rate import fraction_on_food, timeseries_on_food
+from time_series.plot_timeseries import plot_timeseries_feature
+# from analysis.keio_screen.follow_up.lawn_leaving_rate import fraction_on_food, timeseries_on_food
 
 from tierpsytools.analysis.statistical_tests import univariate_tests, get_effect_sizes
 from tierpsytools.preprocessing.filter_data import select_feat_set
 
 #%% Globals
 
-PROJECT_DIR = "/Volumes/hermes$/Keio_UV_Paraquat_Antioxidant_6WP"
-SAVE_DIR = "/Users/sm5911/Documents/Keio_UV_Paraquat_Antioxidant"
+PROJECT_DIR = "/Volumes/hermes$/Keio_Tap_6WP"
+SAVE_DIR = "/Users/sm5911/Documents/Keio_Tapping"
 
 N_WELLS = 6
 FPS = 25
@@ -38,24 +34,22 @@ FPS = 25
 nan_threshold_row = 0.8
 nan_threshold_col = 0.05
 
-FEATURE_SET = ['motion_mode_forward_fraction_bluelight', 'speed_50th_bluelight']
+FEATURE_SET = ['speed_50th']
 
 THRESHOLD_FILTER_DURATION = 25 # threshold trajectory length (n frames) / 25 fps => 1 second
 THRESHOLD_FILTER_MOVEMENT = 10 # threshold movement (n pixels) * 12.4 microns per pixel => 124 microns
 THRESHOLD_LEAVING_DURATION = 50 # n frames a worm has to leave food for => a true leaving event
 
-BLUELIGHT_TIMEPOINTS_SECONDS = [(60, 70),(160, 170),(260, 270)]
-
 #%% Functions
 
-def uv_paraquat_antioxidant_stats(metadata,
-                                  features,
-                                  group_by='treatment',
-                                  control='BW',
-                                  save_dir=None,
-                                  feature_set=None,
-                                  pvalue_threshold=0.05,
-                                  fdr_method='fdr_by'):
+def tap_stats(metadata,
+              features,
+              group_by='treatment',
+              control='BW',
+              save_dir=None,
+              feature_set=None,
+              pvalue_threshold=0.05,
+              fdr_method='fdr_by'):
     
     # check case-sensitivity
     assert len(metadata[group_by].unique()) == len(metadata[group_by].str.upper().unique())
@@ -145,14 +139,14 @@ def uv_paraquat_antioxidant_stats(metadata,
 
     return
 
-def uv_paraquat_antioxidant_boxplots(metadata,
-                                     features,
-                                     group_by='treatment',
-                                     control='BW',
-                                     save_dir=None,
-                                     stats_dir=None,
-                                     feature_set=None,
-                                     pvalue_threshold=0.05):
+def tap_boxplots(metadata,
+                 features,
+                 group_by='treatment',
+                 control='BW',
+                 save_dir=None,
+                 stats_dir=None,
+                 feature_set=None,
+                 pvalue_threshold=0.05):
     
     feature_set = features.columns.tolist() if feature_set is None else feature_set
     assert isinstance(feature_set, list) and all(f in features.columns for f in feature_set)
@@ -177,38 +171,6 @@ def uv_paraquat_antioxidant_boxplots(metadata,
     
     return
 
-def masked_video_list_from_metadata(metadata, 
-                                    group_by='treatment', 
-                                    groups_list=['BW-nan-nan-N'],
-                                    imgstore_col='imgstore_name_bluelight',
-                                    project_dir=None,
-                                    save_dir=None):
-    
-    if groups_list is not None:
-        assert isinstance(groups_list, list) and all(g in metadata[group_by].unique() for g in groups_list)
-    else:
-        groups_list = sorted(metadata[group_by].unique())
-       
-    video_dict = {}
-    for group in groups_list:
-        group_meta = metadata[metadata[group_by]==group].copy()
-        # check all filenames are completimgstore_col'imgstore_name'].nunique() == group_meta.shape[0]
-        
-        if project_dir is not None:
-            video_dict[group] = [str(Path(project_dir) / 'MaskedVideos' / i / 'metadata.hdf5') 
-                                 for i in sorted(group_meta[imgstore_col].unique())]
-        else:
-            video_dict[group] = sorted(group_meta[imgstore_col].unique())
-        
-    if save_dir is not None:
-        Path(save_dir).mkdir(exist_ok=True, parents=True)
-        
-        for group in groups_list:
-            write_list_to_file(video_dict[group], Path(save_dir) / '{}_video_filenames.txt'.format(group))
-    
-    return video_dict
-
-    
 #%% Main
 
 if __name__ == '__main__':
@@ -229,12 +191,12 @@ if __name__ == '__main__':
                                                        results_dir=res_dir, 
                                                        compile_day_summaries=True, 
                                                        imaging_dates=None, 
-                                                       align_bluelight=True, 
+                                                       align_bluelight=False, 
                                                        window_summaries=False,
                                                        n_wells=N_WELLS)
 
         # Clean results - Remove bad well data + features with too many NaNs/zero std + impute NaNs
-        features, metadata = clean_summary_results(features, 
+        features, metadata = clean_summary_results(features,
                                                    metadata,
                                                    feature_columns=None,
                                                    nan_threshold_row=nan_threshold_row,
@@ -268,57 +230,36 @@ if __name__ == '__main__':
             features = features[FEATURE_SET].copy()
     feature_list = features.columns.tolist()
     
-    treatment_cols = ['food_type','drug_type','drug_imaging_plate_conc','is_dead']
+    # TODO: Use control no tapping from 20220803 mutant worm experiments (no bluelight, so use prestim)
+    
+    treatment_cols = ['food_type','drug_type'] # 'tap_stimulus'
     metadata['treatment'] = metadata[treatment_cols].astype(str).agg('-'.join, axis=1)
-    control = 'BW-nan-nan-N'
+    control = 'BW-nan' # none
     
     # perform anova and t-tests comparing each treatment to BW control
-    uv_paraquat_antioxidant_stats(metadata,
-                                  features,
-                                  group_by='treatment',
-                                  control=control,
-                                  save_dir=Path(SAVE_DIR) / 'Stats',
-                                  feature_set=feature_list,
-                                  pvalue_threshold=0.05,
-                                  fdr_method='fdr_by')
+    tap_stats(metadata,
+              features,
+              group_by='treatment',
+              control=control,
+              save_dir=Path(SAVE_DIR) / 'Stats',
+              feature_set=feature_list,
+              pvalue_threshold=0.05,
+              fdr_method='fdr_by')
     
     # boxplots comparing each treatment to BW control for each feature
-    uv_paraquat_antioxidant_boxplots(metadata,
-                                     features,
-                                     group_by='treatment',
-                                     control=control,
-                                     save_dir=Path(SAVE_DIR) / 'Plots',
-                                     stats_dir=Path(SAVE_DIR) / 'Stats',
-                                     feature_set=feature_list,
-                                     pvalue_threshold=0.05)
- 
-    # save video file list for treatments (for manual inspection)
-    #XXX to select example videos
-    video_dict = masked_video_list_from_metadata(metadata, 
-                                                 group_by='treatment', 
-                                                 groups_list=[control,'fepD-nan-nan-N'],
-                                                 project_dir=Path(PROJECT_DIR),
-                                                 save_dir=Path(SAVE_DIR) / 'video_filenames')
-    print("Found file information for %d treatment groups" % len(video_dict.keys()))
-
-    # timeseries motion mode fraction for each treatment vs BW control
-    strain_list = list(metadata['treatment'].unique())
-    selected_strains_timeseries(metadata,
-                                project_dir=Path(PROJECT_DIR), 
-                                save_dir=Path(SAVE_DIR) / 'timeseries', 
-                                strain_list=strain_list,
-                                group_by='treatment',
-                                control=control,
-                                n_wells=6,
-                                bluelight_stim_type='bluelight',
-                                video_length_seconds=360,
-                                bluelight_timepoints_seconds=BLUELIGHT_TIMEPOINTS_SECONDS,
-                                motion_modes=['forwards','paused','backwards'],
-                                smoothing=10)
-    
+    tap_boxplots(metadata,
+                 features,
+                 group_by='treatment',
+                 control=control,
+                 save_dir=Path(SAVE_DIR) / 'Plots',
+                 stats_dir=Path(SAVE_DIR) / 'Stats',
+                 feature_set=feature_list,
+                 pvalue_threshold=0.05)
+     
     #TODO: Try to fix the scale across plots to 0-300 um/sec for easier comparison across conditions
     
     # timeseries plots of speed for each treatment vs control
+    strain_list = list(metadata['treatment'].unique())
     plot_timeseries_feature(metadata,
                             project_dir=Path(PROJECT_DIR),
                             save_dir=Path(SAVE_DIR) / 'timeseries-speed',
@@ -327,28 +268,9 @@ if __name__ == '__main__':
                             groups_list=strain_list,
                             feature='speed',
                             n_wells=6,
-                            bluelight_stim_type='bluelight',
+                            bluelight_stim_type=None,
                             video_length_seconds=360,
-                            bluelight_timepoints_seconds=BLUELIGHT_TIMEPOINTS_SECONDS,
+                            bluelight_timepoints_seconds=None,
                             smoothing=10,
-                            fps=FPS)    
-    
-    # timeseries plots of fraction of worms on food
-    #XXX: Use script to label lawns prior to executing these functions
-    video_frac_df, leaving_events_df = fraction_on_food(metadata,
-                                                        food_coords_dir=Path(SAVE_DIR) / 'lawn_leaving',
-                                                        bluelight_stimulus_type='bluelight',
-                                                        threshold_duration=THRESHOLD_FILTER_DURATION,
-                                                        threshold_movement=THRESHOLD_FILTER_MOVEMENT,
-                                                        threshold_leaving_duration=THRESHOLD_LEAVING_DURATION)
-    timeseries_on_food(metadata,
-                       group_by='treatment',
-                       video_frac_df=video_frac_df,
-                       control=control,
-                       save_dir=Path(SAVE_DIR) / 'lawn_leaving',
-                       bluelight_frames=[(i*FPS, j*FPS) for (i, j) in BLUELIGHT_TIMEPOINTS_SECONDS],
-                       bluelight_stimulus_type='bluelight',
-                       smoothing=20,
-                       error=True)
-    
-    
+                            fps=FPS)
+        
