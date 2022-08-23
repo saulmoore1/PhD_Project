@@ -29,7 +29,7 @@ from filter_data.clean_feature_summaries import clean_summary_results
 from visualisation.plotting_helper import sig_asterix
 from statistical_testing.stats_helper import do_stats
 from time_series.time_series_helper import get_strain_timeseries
-from time_series.plot_timeseries import plot_timeseries_motion_mode
+from time_series.plot_timeseries import plot_timeseries_motion_mode, plot_window_timeseries_feature
 from analysis.keio_screen.check_keio_screen_worm_trajectories import check_tracked_objects
 
 #%% Globals
@@ -44,7 +44,7 @@ NAN_THRESHOLD_COL = 0.05
 MIN_NSKEL_PER_VIDEO = None
 MIN_NSKEL_SUM = 500
 
-FEATURE = 'motion_mode_forward_fraction'
+FEATURE = 'speed_50th' #'motion_mode_forward_fraction'
 motion_modes = ['forwards']
 
 WINDOW_DICT_SECONDS = {0:(1790,1800), 1:(1805,1815), 2:(1815,1825),
@@ -953,6 +953,30 @@ if __name__ == '__main__':
                             save_dir=Path(SAVE_DIR),
                             window=WINDOW_NUMBER)
     
+    # timeseries plots of speed for fepD vs BW control
+    
+    BLUELIGHT_TIMEPOINTS_SECONDS = [(i*60,i*60+10) for i in BLUELIGHT_TIMEPOINTS_MINUTES]
+    metadata['treatment'] = metadata[['drug_type','cell_extract_type','culture_type',
+                                      'is_dead','solvent']].agg('-'.join, axis=1)   
+    metadata['treatment'] = [s.replace('/',':') for s in metadata['treatment']]
+    control = 'none-none-none-N-none'
+    plot_window_timeseries_feature(metadata=metadata,
+                                   project_dir=Path(PROJECT_DIR),
+                                   save_dir=Path(SAVE_DIR) / 'timeseries-speed',
+                                   group_by='treatment',
+                                   control=control,
+                                   groups_list=None,
+                                   feature='speed',
+                                   n_wells=6,
+                                   bluelight_timepoints_seconds=BLUELIGHT_TIMEPOINTS_SECONDS,
+                                   bluelight_windows_separately=True,
+                                   smoothing=10,
+                                   figsize=(15,5),
+                                   fps=FPS,
+                                   ylim_minmax=(-20,320),
+                                   xlim_crop_around_bluelight_seconds=(120,300),
+                                   video_length_seconds=VIDEO_LENGTH_SECONDS)
+
     # # Check length/area of tracked objects - prop bad skeletons
     # results_df = check_tracked_objects(metadata, 
     #                                    length_minmax=(200, 2000), 

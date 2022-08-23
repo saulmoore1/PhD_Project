@@ -8,7 +8,17 @@ Time-series Analysis
 
 """
 
+#%% Imports 
+
+import numpy as np
+import pandas as pd
+from tqdm import tqdm
+from pathlib import Path 
+from matplotlib import pyplot as plt
+from matplotlib import patches as mpatches
+
 from write_data.write import write_list_to_file
+from tierpsytools.read_data.get_timeseries import read_timeseries
 
 #%% Functions
 
@@ -22,11 +32,6 @@ def get_strain_timeseries(metadata,
                           verbose=True,
                           return_error_log=False):
     """ Load saved timeseries reults for strain, or compile from featuresN timeseries data """
-
-    import pandas as pd
-    from tqdm import tqdm
-    from pathlib import Path 
-    from tierpsytools.read_data.get_timeseries import read_timeseries
 
     strain_timeseries = None
     
@@ -103,10 +108,6 @@ def plot_timeseries_phenix(df, colour_dict, window=1000, acclimtime=0, annotate=
         - count (default = False) Return counts (number of worms), not mean proportion of worms
     """
     
-    import numpy as np
-    from matplotlib import pyplot as plt
-    from matplotlib import patches as mpatches
-
     # List of food labels + dictionary keys for plot colours
     food_labels = list(df.columns.levels[0])
     colour_keys = [food.split('_')[0] for food in food_labels]

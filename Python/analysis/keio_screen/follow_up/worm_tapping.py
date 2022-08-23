@@ -146,7 +146,10 @@ def tap_boxplots(metadata,
                  save_dir=None,
                  stats_dir=None,
                  feature_set=None,
-                 pvalue_threshold=0.05):
+                 pvalue_threshold=0.05,
+                 drop_insignificant=False,
+                 scale_outliers=False,
+                 ylim_minmax=None):
     
     feature_set = features.columns.tolist() if feature_set is None else feature_set
     assert isinstance(feature_set, list) and all(f in features.columns for f in feature_set)
@@ -161,13 +164,14 @@ def tap_boxplots(metadata,
     boxplots_sigfeats(features,
                       y_class=metadata[group_by],
                       control=control,
-                      pvals=pvals if stats_dir is not None else None,
+                      pvals=pvals,
                       z_class=None,
                       feature_set=feature_set,
                       saveDir=Path(save_dir),
-                      drop_insignificant=True if feature_set is None else False,
+                      drop_insignificant=drop_insignificant,
                       p_value_threshold=pvalue_threshold,
-                      scale_outliers=True)
+                      scale_outliers=scale_outliers,
+                      ylim_minmax=ylim_minmax)
     
     return
 
@@ -254,10 +258,11 @@ if __name__ == '__main__':
                  save_dir=Path(SAVE_DIR) / 'Plots',
                  stats_dir=Path(SAVE_DIR) / 'Stats',
                  feature_set=feature_list,
-                 pvalue_threshold=0.05)
-     
-    #TODO: Try to fix the scale across plots to 0-300 um/sec for easier comparison across conditions
-    
+                 pvalue_threshold=0.05,
+                 scale_outliers=None,
+                 ylim_minmax=(0,250)) # ylim_minmax for speed feature only
+    # XXX: fixed scale across plots for speed to 0-250 um/sec for easier comparison across conditions
+         
     # timeseries plots of speed for each treatment vs control
     strain_list = list(metadata['treatment'].unique())
     plot_timeseries_feature(metadata,
@@ -272,5 +277,6 @@ if __name__ == '__main__':
                             video_length_seconds=360,
                             bluelight_timepoints_seconds=None,
                             smoothing=10,
-                            fps=FPS)
+                            fps=FPS,
+                            ylim_minmax=(0,200))
         

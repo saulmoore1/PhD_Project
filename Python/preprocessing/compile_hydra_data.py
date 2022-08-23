@@ -550,10 +550,10 @@ def process_feature_summaries(metadata_path,
     feat_id_cols = ['file_id', 'n_skeletons', 'well_name', 'is_good_well']
 
     # if there are no well annotations in metadata, omit 'is_good_well' from feat_id_cols
-    remove_is_good_well = False
+    bad_well_annotations = True
     if 'is_good_well' not in meta_col_order:
         feat_id_cols = [f for f in feat_id_cols if f != 'is_good_well']
-        remove_is_good_well = True
+        bad_well_annotations = False
     if window_summaries:
         feat_id_cols.append('window')
         
@@ -563,7 +563,7 @@ def process_feature_summaries(metadata_path,
                                              metadata_path, 
                                              feat_id_cols=feat_id_cols,
                                              add_bluelight=align_bluelight)
-    if remove_is_good_well:
+    if not bad_well_annotations and 'is_good_well' in features.columns:
         features = features.drop(columns='is_good_well')
 
     if align_bluelight:

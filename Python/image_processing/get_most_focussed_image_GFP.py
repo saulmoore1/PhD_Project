@@ -169,19 +169,19 @@ def findFocussedCZI(file, output_dir, method='BREN', imageSizeThreshXY=None, sho
         for zc in range(zslices):
             # image_arrays[:,:,ch,:,:,:,:]
             # ch[0] == GFP, ch[1] == RFP                
-            RFP_img = image_arrays[0,sc,1,zc,:,:,0]
+            GFP_img = image_arrays[0,sc,0,zc,:,:,0]
             
             # crop image to size
-            RFP_img = crop_image_nonzero(RFP_img)
+            GFP_img = crop_image_nonzero(GFP_img)
 
             if imageSizeThreshXY is not None:
-                x, y = RFP_img.shape
+                x, y = GFP_img.shape
                 assert x > imageSizeThreshXY[0] and y > imageSizeThreshXY[1]
-            # plt.imshow(RFP_img, 'Reds')
+            # plt.imshow(GFP_img, 'Reds')
             # plt.show(), plt.pause(2)
             
             # measure focus of RFP image (uint16)
-            fm = fmeasure(RFP_img, method)
+            fm = fmeasure(GFP_img, method)
             
             # store image info
             file_info.append([file, sc, zc, fm])
@@ -193,10 +193,10 @@ def findFocussedCZI(file, output_dir, method='BREN', imageSizeThreshXY=None, sho
     # get images with max focus for each well/GFP concentration
     focussed_images_df = file_df[file_df['focus_measure'] == 
                          file_df.groupby(['seriesID'])['focus_measure'].transform(max)]
-    print("%d most focussed RFP images found." % focussed_images_df.shape[0])
+    print("%d most focussed GFP images found." % focussed_images_df.shape[0])
 
     # save most focussed images
-    print("Saving GFP and RFP images separately for most focussed RFP images...")
+    print("Saving GFP and RFP images separately for most focussed GFP images...")
     
     # create most focussed folder for file
     if not os.path.exists(output_dir):
@@ -237,7 +237,7 @@ def findFocussedCZI(file, output_dir, method='BREN', imageSizeThreshXY=None, sho
                                pixel_type=bioformats.PT_UINT16)
     
     # save focus measures to file
-    fm_outPath = os.path.join(output_dir, 'focus_measures_RFP.csv')
+    fm_outPath = os.path.join(output_dir, 'focus_measures_GFP.csv')
     focussed_images_df.to_csv(fm_outPath, index=False)
 
     return focussed_images_df

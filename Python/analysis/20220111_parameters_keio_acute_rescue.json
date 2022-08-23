@@ -19,7 +19,7 @@
 "min_nskel_sum": null,
 "selected_features_path": null,
 "add_well_annotations": false,
-"control_dict": {"gene_name": "wild_type",
+"control_dict": {"gene_name": "BW",
 		 "antioxidant": "None",
                  "instrument_name": "Hydra01",
 		 "imaging_run_number": "1",

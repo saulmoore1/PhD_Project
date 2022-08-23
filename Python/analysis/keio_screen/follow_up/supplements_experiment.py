@@ -26,7 +26,7 @@ from filter_data.clean_feature_summaries import clean_summary_results
 from visualisation.plotting_helper import sig_asterix
 from statistical_testing.stats_helper import do_stats
 from time_series.time_series_helper import get_strain_timeseries
-from time_series.plot_timeseries import plot_timeseries_motion_mode
+from time_series.plot_timeseries import plot_timeseries_motion_mode, plot_window_timeseries_feature
 from analysis.keio_screen.check_keio_screen_worm_trajectories import check_tracked_objects
 
 #%% Globals
@@ -41,7 +41,7 @@ NAN_THRESHOLD_COL = 0.05
 MIN_NSKEL_PER_VIDEO = None
 MIN_NSKEL_SUM = 500
 
-FEATURE = 'motion_mode_forward_fraction'
+FEATURE = 'speed_50th'
 motion_modes = ['forwards']
 
 WINDOW_DICT_SECONDS = {0:(1790,1800), 1:(1805,1815), 2:(1815,1825),
@@ -449,26 +449,27 @@ def supplements_timeseries(metadata, project_dir=PROJECT_DIR, save_dir=SAVE_DIR,
             ('BW', 'fepD + 1mM feCl3'),('BW', 'fepD + 4mM feCl3'),
             ('BW', 'fepD + 0.5mM paraquat'),('BW', 'fepD + 1mM paraquat'),
             ('BW', 'fepD + 2mM paraquat'),('BW', 'fepD + 4mM paraquat')]
-    
+
+
     for control, treatment, title, lab in tqdm(zip(control_list, treatment_list, title_list, labs)):
         
-        # get timeseries for control data
+        #get timeseries for control data
         control_ts = get_strain_timeseries(window_meta[window_meta['treatment']==control], 
-                                           project_dir=project_dir, 
-                                           strain=control,
-                                           group_by='treatment',
-                                           n_wells=6,
-                                           save_dir=Path(save_dir) / 'Data' / control,
-                                           verbose=False)
+                                            project_dir=project_dir, 
+                                            strain=control,
+                                            group_by='treatment',
+                                            n_wells=6,
+                                            save_dir=Path(save_dir) / 'Data' / control,
+                                            verbose=False)
         
         # get timeseries for treatment data
         treatment_ts = get_strain_timeseries(window_meta[window_meta['treatment']==treatment], 
-                                             project_dir=project_dir, 
-                                             strain=treatment,
-                                             group_by='treatment',
-                                             n_wells=6,
-                                             save_dir=Path(save_dir) / 'Data' / treatment,
-                                             verbose=False)
+                                              project_dir=project_dir, 
+                                              strain=treatment,
+                                              group_by='treatment',
+                                              n_wells=6,
+                                              save_dir=Path(save_dir) / 'Data' / treatment,
+                                              verbose=False)
  
         colour_dict = dict(zip([control, treatment], sns.color_palette("pastel", 2)))
         bluelight_frames = [(i*60*FPS, i*60*FPS+10*FPS) for i in BLUELIGHT_TIMEPOINTS_MINUTES]
@@ -482,28 +483,28 @@ def supplements_timeseries(metadata, project_dir=PROJECT_DIR, save_dir=SAVE_DIR,
             fig, ax = plt.subplots(figsize=(15,5), dpi=200)
     
             ax = plot_timeseries_motion_mode(df=control_ts,
-                                             window=SMOOTH_WINDOW_SECONDS*FPS,
-                                             error=True,
-                                             mode=mode,
-                                             max_n_frames=VIDEO_LENGTH_SECONDS*FPS,
-                                             title=None,
-                                             saveAs=None,
-                                             ax=ax,
-                                             bluelight_frames=bluelight_frames,
-                                             colour=colour_dict[control],
-                                             alpha=0.25)
+                                              window=SMOOTH_WINDOW_SECONDS*FPS,
+                                              error=True,
+                                              mode=mode,
+                                              max_n_frames=VIDEO_LENGTH_SECONDS*FPS,
+                                              title=None,
+                                              saveAs=None,
+                                              ax=ax,
+                                              bluelight_frames=bluelight_frames,
+                                              colour=colour_dict[control],
+                                              alpha=0.25)
             
             ax = plot_timeseries_motion_mode(df=treatment_ts,
-                                             window=SMOOTH_WINDOW_SECONDS*FPS,
-                                             error=True,
-                                             mode=mode,
-                                             max_n_frames=VIDEO_LENGTH_SECONDS*FPS,
-                                             title=None,
-                                             saveAs=None,
-                                             ax=ax,
-                                             bluelight_frames=bluelight_frames,
-                                             colour=colour_dict[treatment],
-                                             alpha=0.25)
+                                              window=SMOOTH_WINDOW_SECONDS*FPS,
+                                              error=True,
+                                              mode=mode,
+                                              max_n_frames=VIDEO_LENGTH_SECONDS*FPS,
+                                              title=None,
+                                              saveAs=None,
+                                              ax=ax,
+                                              bluelight_frames=bluelight_frames,
+                                              colour=colour_dict[treatment],
+                                              alpha=0.25)
         
             xticks = np.linspace(0, VIDEO_LENGTH_SECONDS*FPS, int(VIDEO_LENGTH_SECONDS/60)+1)
             ax.set_xticks(xticks)
@@ -516,7 +517,7 @@ def supplements_timeseries(metadata, project_dir=PROJECT_DIR, save_dir=SAVE_DIR,
             if BLUELIGHT_WINDOWS_ONLY_TS:
                 ts_plot_dir = Path(save_dir) / 'Plots' / 'timeseries_bluelight' / treatment
                 ax.set_xlim([min(BLUELIGHT_TIMEPOINTS_MINUTES)*60*FPS-60*FPS, 
-                             max(BLUELIGHT_TIMEPOINTS_MINUTES)*60*FPS+70*FPS])
+                              max(BLUELIGHT_TIMEPOINTS_MINUTES)*60*FPS+70*FPS])
             else:   
                 ts_plot_dir = Path(save_dir) / 'Plots' / 'timeseries' / treatment
     
@@ -604,6 +605,30 @@ if __name__ == '__main__':
                            project_dir=Path(PROJECT_DIR),
                            save_dir=Path(SAVE_DIR),
                            window=WINDOW_NUMBER)
+    
+    # timeseries plots of speed for fepD vs BW control
+    
+    BLUELIGHT_TIMEPOINTS_SECONDS = [(i*60,i*60+10) for i in BLUELIGHT_TIMEPOINTS_MINUTES]
+    metadata['treatment'] = metadata[['food_type','drug_type','imaging_plate_drug_conc']
+                                     ].agg('-'.join, axis=1)     
+    control = 'BW-none-nan'
+    plot_window_timeseries_feature(metadata=metadata,
+                                   project_dir=Path(PROJECT_DIR),
+                                   save_dir=Path(SAVE_DIR) / 'timeseries-speed',
+                                   group_by='treatment',
+                                   control=control,
+                                   groups_list=None,
+                                   feature='speed',
+                                   n_wells=6,
+                                   bluelight_timepoints_seconds=BLUELIGHT_TIMEPOINTS_SECONDS,
+                                   bluelight_windows_separately=True,
+                                   smoothing=10,
+                                   figsize=(15,5),
+                                   fps=FPS,
+                                   ylim_minmax=(-20,220),
+                                   xlim_crop_around_bluelight_seconds=(120,300),
+                                   video_length_seconds=VIDEO_LENGTH_SECONDS)
+
 
     # # Check length/area of tracked objects - prop bad skeletons
     # results_df = check_tracked_objects(metadata, 

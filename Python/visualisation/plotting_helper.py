@@ -362,7 +362,8 @@ def boxplots_sigfeats(features,
                       max_strains=None,
                       sns_colour_palette="tab10",
                       verbose=True,
-                      scale_outliers=True,
+                      scale_outliers=False,
+                      ylim_minmax=None,
                       append_ranking_fname=True):
     """ Box plots of most significantly different features between each strain and the control 
     
@@ -498,8 +499,9 @@ def boxplots_sigfeats(features,
                               edgecolor='k',
                               linewidth=.3) #facecolors="none"
                 ax.axes.get_xaxis().get_label().set_visible(False) # remove x axis label
+                # plt.ylabel(feature.replace('_',' '), fontsize=18, labelpad=25)
                 plt.ylabel("")
-                plt.title(feature.replace('_',' '), fontsize=18, pad=20)
+                plt.title(feature.replace('_',' '), fontsize=18, pad=30)
     
                 if z_class is not None:
                     plt.xlim(right=len(order)-0.3)
@@ -514,26 +516,19 @@ def boxplots_sigfeats(features,
                     IQR = Q3 - Q1
                     plt.ylim(min(y_bar) - 2.5 * max(IQR), max(y_bar) + 2.5 * max(IQR))
     
-                if 'speed' in feature:
-                    plt.ylim(0, 250)
+                elif ylim_minmax is not None:
+                    assert isinstance(ylim_minmax, tuple)
+                    plt.ylim(ylim_minmax[0], ylim_minmax[1])
                     
                 # Add p-value to plot
                 p = strain_pvals.loc[feature]
                 text = ax.get_xticklabels()[-1]
                 assert text.get_text() == strain
-                y = (max(y_bar) + 2 * max(IQR)) if scale_outliers else strain_data[feature].max()
-                h = (max(IQR) / 8) if scale_outliers else (y - strain_data[feature].min()) / 50
                 
-                if 'speed' in feature:
-                    trans = transforms.blended_transform_factory(ax.transData,# x=none
-                                                                 ax.transAxes) # y=scaled
-                    plt.plot([0, 0, 1, 1], [y+h, y+2*h, y+2*h, y+h], lw=1.5, c='k')
-                    p_text = 'P < 0.001' if p < 0.001 else 'P = %.3f' % p
-                    ax.text(0.5, y+2*h, p_text, fontsize=12, ha='center', va='bottom', transform=trans)
-                else:
-                    plt.plot([0, 0, 1, 1], [y+h, y+2*h, y+2*h, y+h], lw=1.5, c='k')
-                    p_text = 'P < 0.001' if p < 0.001 else 'P = %.3f' % p
-                    ax.text(0.5, y+2*h, p_text, fontsize=12, ha='center', va='bottom')
+                trans = transforms.blended_transform_factory(ax.transData, ax.transAxes) #y=scaled
+                plt.plot([0, 0, 1, 1], [0.98, 0.99, 0.99, 0.98], lw=1.5, c='k', transform=trans)
+                p_text = 'P < 0.001' if p < 0.001 else 'P = %.3f' % p
+                ax.text(0.5, 1, p_text, fontsize=12, ha='center', va='bottom', transform=trans)
                 plt.subplots_adjust(left=0.15)
                 
             # Save figure

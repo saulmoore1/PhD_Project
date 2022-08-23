@@ -28,7 +28,7 @@ from read_data.paths import get_save_dir
 from preprocessing.compile_hydra_data import compile_metadata, process_feature_summaries
 from filter_data.clean_feature_summaries import clean_summary_results
 from time_series.time_series_helper import get_strain_timeseries
-from time_series.plot_timeseries import plot_timeseries_motion_mode
+from time_series.plot_timeseries import plot_timeseries_motion_mode, plot_window_timeseries_feature
 from visualisation.plotting_helper import sig_asterix
 from write_data.write import write_list_to_file
 
@@ -39,18 +39,18 @@ from tierpsytools.preprocessing.filter_data import select_feat_set
 
 JSON_PARAMETERS_PATH = 'analysis/20211102_parameters_keio_fast_effect.json'
 
-feature_set = ['motion_mode_forward_fraction']
+feature_set = ['motion_mode_forward_fraction','speed_50th']
 
 scale_outliers_box = True
 
 # mapping dictionary - windows summary window number to corresponding timestamp (seconds)
 WINDOW_DICT_SECONDS = {0:(1830,1860), 1:(3630,3660), 2:(5430,5460), 
-                       3:(7230,7260), 4:(9030,9060), 5:(10830,10860), 
-                       6:(12630,12660), 7:(14430,14460), 8:(16230,16260)}
-
+                        3:(7230,7260), 4:(9030,9060), 5:(10830,10860), 
+                        6:(12630,12660), 7:(14430,14460), 8:(16230,16260)}
 FPS = 25
 BLUELIGHT_TIMEPOINTS_MINUTES = [30,60,90,120,150,180,210,240]
-VIDEO_LENGTH_SECONDS = 300*60
+
+VIDEO_LENGTH_SECONDS = 5*60*60
 
 motion_modes = ['forwards'] # 'stationary', 'backwards'
 
@@ -248,14 +248,14 @@ def analyse_fast_effect(features,
 
     return
     
-def fast_effect_timeseries(metadata, 
-                           project_dir, 
-                           save_dir, 
-                           group_by='gene_name',
-                           control='wild_type',
-                           strain_list=['fepD'],
-                           bluelight_windows_separately=False,
-                           smoothing=120):
+def fast_effect_timeseries_motion_mode(metadata, 
+                                       project_dir, 
+                                       save_dir,
+                                       group_by='gene_name',
+                                       control='wild_type',
+                                       strain_list=['fepD'],
+                                       bluelight_windows_separately=False,
+                                       smoothing=120):
     """ Timeseries plots (10 seconds BL delivered every 30 minutes, for 5 hours total) """
         
     # get timeseries for BW
@@ -266,7 +266,7 @@ def fast_effect_timeseries(metadata,
                                        group_by=group_by,
                                        n_wells=6,
                                        save_dir=save_dir / 'Data' / control,
-                                       verbose=False)
+                                       verbose=True)
     
     if strain_list is not None:
         assert isinstance(strain_list, list)
@@ -283,7 +283,7 @@ def fast_effect_timeseries(metadata,
                                           group_by=group_by,
                                           n_wells=6,
                                           save_dir=save_dir / 'Data' / strain,
-                                          verbose=False)
+                                          verbose=True)
      
         colour_dict = dict(zip([control, strain], sns.color_palette("tab10", 2)))
         bluelight_frames = [(i*60*FPS, i*60*FPS+10*FPS) for i in BLUELIGHT_TIMEPOINTS_MINUTES]
@@ -388,7 +388,7 @@ def fast_effect_timeseries(metadata,
                 plt.savefig(save_path)
 
     return
-
+    
 #%% Main
 
 if __name__ == '__main__':   
@@ -401,51 +401,59 @@ if __name__ == '__main__':
     aux_dir = Path(args.project_dir) / 'AuxiliaryFiles'
     results_dir =  Path(args.project_dir) / 'Results'
     
-    # load metadata    
-    metadata, metadata_path = compile_metadata(aux_dir, 
-                                               imaging_dates=args.dates, 
-                                               add_well_annotations=args.add_well_annotations, 
-                                               n_wells=6)
+    metadata_path_local = Path(args.save_dir) / 'metadata.csv'
+    features_path_local = Path(args.save_dir) / 'features.csv'
     
-    features, metadata = process_feature_summaries(metadata_path, 
-                                                   results_dir, 
-                                                   compile_day_summaries=False, 
-                                                   imaging_dates=None, 
-                                                   align_bluelight=False, 
-                                                   window_summaries=True,
+    if not metadata_path_local.exists() or not features_path_local.exists():
+        # load metadata    
+        metadata, metadata_path = compile_metadata(aux_dir, 
+                                                   imaging_dates=args.dates, 
+                                                   add_well_annotations=args.add_well_annotations, 
                                                    n_wells=6)
- 
-    # Subset results (rows) to remove entries for wells with unknown strain data for 'gene_name'
-    n = metadata.shape[0]
-    metadata = metadata.loc[~metadata['gene_name'].isna(),:]
-    features = features.reindex(metadata.index)
-    print("%d entries removed with no gene name metadata" % (n - metadata.shape[0]))
- 
-    # update gene names for mutant strains
-    metadata['gene_name'] = [args.control_dict['gene_name'] if s == 'BW' else s 
-                             for s in metadata['gene_name']]
-    #['BW\u0394'+g if not g == 'BW' else 'wild_type' for g in metadata['gene_name']]
+        
+        features, metadata = process_feature_summaries(metadata_path, 
+                                                       results_dir, 
+                                                       compile_day_summaries=False, 
+                                                       imaging_dates=None, 
+                                                       align_bluelight=False, 
+                                                       window_summaries=True,
+                                                       n_wells=6)
+     
+        # Subset results (rows) to remove entries for wells with unknown strain data for 'gene_name'
+        n = metadata.shape[0]
+        metadata = metadata.loc[~metadata['gene_name'].isna(),:]
+        features = features.reindex(metadata.index)
+        print("%d entries removed with no gene name metadata" % (n - metadata.shape[0]))
+     
+        # update gene names for mutant strains
+        # metadata['gene_name'] = [args.control_dict['gene_name'] if s == 'BW' else s 
+        #                          for s in metadata['gene_name']]
+        #['BW\u0394'+g if not g == 'BW' else 'wild_type' for g in metadata['gene_name']]
+        
+        # Clean results - Remove features with too many NaNs/zero std + impute remaining NaNs
+        features, metadata = clean_summary_results(features, 
+                                                   metadata,
+                                                   feature_columns=None,
+                                                   nan_threshold_row=args.nan_threshold_row,
+                                                   nan_threshold_col=args.nan_threshold_col,
+                                                   max_value_cap=args.max_value_cap,
+                                                   imputeNaN=args.impute_nans,
+                                                   min_nskel_per_video=args.min_nskel_per_video,
+                                                   min_nskel_sum=args.min_nskel_sum,
+                                                   drop_size_related_feats=args.drop_size_features,
+                                                   norm_feats_only=args.norm_features_only,
+                                                   percentile_to_use=args.percentile_to_use)
 
-    # Create is_bad_well column - refer to manual metadata for bad 35mm petri plates 
-    # NO BAD WELLS FOR THIS DATASET!
-    metadata['is_bad_well'] = False
-
-    # Clean results - Remove features with too many NaNs/zero std + impute remaining NaNs
-    features, metadata = clean_summary_results(features, 
-                                               metadata,
-                                               feature_columns=None,
-                                               nan_threshold_row=args.nan_threshold_row,
-                                               nan_threshold_col=args.nan_threshold_col,
-                                               max_value_cap=args.max_value_cap,
-                                               imputeNaN=args.impute_nans,
-                                               min_nskel_per_video=args.min_nskel_per_video,
-                                               min_nskel_sum=args.min_nskel_sum,
-                                               drop_size_related_feats=args.drop_size_features,
-                                               norm_feats_only=args.norm_features_only,
-                                               percentile_to_use=args.percentile_to_use)
-
-    assert not features.isna().sum(axis=1).any()
-    assert not (features.std(axis=1) == 0).any()
+        # save clean metadata and features
+        metadata.to_csv(metadata_path_local, index=False)
+        features.to_csv(features_path_local, index=False)
+        
+    else:
+        metadata = pd.read_csv(metadata_path_local, header=0, index_col=None, dtype={'comments':str})
+        features = pd.read_csv(features_path_local, header=0, index_col=None)
+    
+        assert not features.isna().sum(axis=1).any()
+        assert not (features.std(axis=1) == 0).any()
     
     # Load Tierpsy feature set + subset (columns) for selected features only
     if args.n_top_feats is not None:
@@ -454,10 +462,12 @@ if __name__ == '__main__':
     elif feature_set is not None:
         features = features[features.columns[features.columns.isin(feature_set)]]
     
+    control = args.control_dict['gene_name']
+    
     perform_fast_effect_stats(features, 
                               metadata, 
                               group_by='gene_name',
-                              control='wild_type',
+                              control=control,
                               window_list=list(WINDOW_DICT_SECONDS.keys()), 
                               save_dir=get_save_dir(args) / "Stats" / args.fdr_method,
                               feature_set=feature_set,
@@ -467,27 +477,49 @@ if __name__ == '__main__':
     analyse_fast_effect(features, 
                         metadata, 
                         group_by='gene_name',
-                        control='wild_type',
+                        control=control,
                         window_list=list(WINDOW_DICT_SECONDS.keys()),
                         save_dir=get_save_dir(args) / "Plots" / args.fdr_method,
                         stats_dir=get_save_dir(args) / "Stats" / args.fdr_method,
                         pvalue_threshold=args.pval_threshold,
                         fdr_method=args.fdr_method)
     
-    fast_effect_timeseries(metadata=metadata.query("window == 0"), # avoid plotting multiple times
-                           project_dir=Path(args.project_dir),
-                           save_dir=Path(args.save_dir) / 'timeseries',
-                           group_by='gene_name',
-                           control='wild_type',
-                           bluelight_windows_separately=False,
-                           smoothing=120) # moving window of 2 minutes for smoothing
+    fast_effect_timeseries_motion_mode(metadata=metadata.query("window == 0"), # avoid plotting multiple times
+                                       project_dir=Path(args.project_dir),
+                                       save_dir=Path(args.save_dir) / 'timeseries',
+                                       group_by='gene_name',
+                                       control=control,
+                                       bluelight_windows_separately=False,
+                                       smoothing=120) # moving window of 2 minutes for smoothing
 
-    fast_effect_timeseries(metadata=metadata, # around each window in turn
-                           project_dir=Path(args.project_dir),
-                           save_dir=Path(args.save_dir) / 'timeseries',
-                           group_by='gene_name',
-                           control='wild_type',
-                           bluelight_windows_separately=True,
-                           smoothing=10) # moving window of 10 seconds for smoothing
+    fast_effect_timeseries_motion_mode(metadata=metadata, # around each window in turn
+                                       project_dir=Path(args.project_dir),
+                                       save_dir=Path(args.save_dir) / 'timeseries',
+                                       group_by='gene_name',
+                                       control=control,
+                                       bluelight_windows_separately=True,
+                                       smoothing=10) # moving window of 10 seconds for smoothing
+    
+    # timeseries plots of speed for fepD vs BW control
+    
+    BLUELIGHT_TIMEPOINTS_SECONDS = [(i*60,i*60+10) for i in BLUELIGHT_TIMEPOINTS_MINUTES]
+    strain_list = ['BW','fepD']
+    
+    plot_window_timeseries_feature(metadata=metadata,
+                                   project_dir=Path(args.project_dir),
+                                   save_dir=Path(args.save_dir) / 'timeseries-speed',
+                                   group_by='gene_name',
+                                   control='BW',
+                                   groups_list=strain_list,
+                                   feature='speed',
+                                   n_wells=6,
+                                   bluelight_timepoints_seconds=BLUELIGHT_TIMEPOINTS_SECONDS,
+                                   bluelight_windows_separately=True,
+                                   smoothing=10,
+                                   figsize=(15,5),
+                                   fps=FPS,
+                                   ylim_minmax=(-20,370),
+                                   video_length_seconds=VIDEO_LENGTH_SECONDS)
+    
     
     

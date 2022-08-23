@@ -18,7 +18,7 @@ from filter_data.clean_feature_summaries import clean_summary_results
 from write_data.write import write_list_to_file
 from visualisation.plotting_helper import sig_asterix, boxplots_sigfeats
 from analysis.keio_screen.follow_up.uv_paraquat_antioxidant import masked_video_list_from_metadata
-from time_series.plot_timeseries import plot_timeseries_feature
+from time_series.plot_timeseries import plot_timeseries_feature, selected_strains_timeseries
 
 from tierpsytools.analysis.statistical_tests import univariate_tests, get_effect_sizes
 from tierpsytools.preprocessing.filter_data import select_feat_set
@@ -149,7 +149,10 @@ def worm_stress_mutants_boxplots(metadata,
                                  save_dir=None,
                                  stats_dir=None,
                                  feature_set=None,
-                                 pvalue_threshold=0.05):
+                                 pvalue_threshold=0.05,
+                                 drop_insignificant=False,
+                                 scale_outliers=False,
+                                 ylim_minmax=None):
     
     feature_set = features.columns.tolist() if feature_set is None else feature_set
     assert isinstance(feature_set, list) and all(f in features.columns for f in feature_set)
@@ -168,9 +171,10 @@ def worm_stress_mutants_boxplots(metadata,
                       z_class=None,
                       feature_set=feature_set,
                       saveDir=Path(save_dir),
-                      drop_insignificant=False,
+                      drop_insignificant=drop_insignificant,
                       p_value_threshold=pvalue_threshold,
-                      scale_outliers=False)
+                      scale_outliers=scale_outliers,
+                      ylim_minmax=ylim_minmax)
     
     return
 
@@ -267,12 +271,28 @@ if __name__ == '__main__':
                                  save_dir=Path(SAVE_DIR) / 'Plots',
                                  stats_dir=Path(SAVE_DIR) / 'Stats',
                                  feature_set=feature_list,
-                                 pvalue_threshold=0.05)
-    
-    #TODO: Try to fix the scale across plots to 0-300 um/sec for easier comparison across conditions
-    
-    # timeseries plots of speed for each treatment vs control
+                                 pvalue_threshold=0.05,
+                                 scale_outliers=False,
+                                 ylim_minmax=(0,250)) # ylim_minmax for speed feature only 
+    # XXX: fixed scale across plots for speed to 0-250 um/sec for easier comparison across conditions
+
     strain_list = list(metadata['treatment'].unique())
+    
+    # timeseries plots of motion mode
+    selected_strains_timeseries(metadata,
+                                project_dir=Path(PROJECT_DIR), 
+                                save_dir=Path(SAVE_DIR) / 'timeseries-motion_mode', 
+                                strain_list=strain_list,
+                                group_by='treatment',
+                                control=control,
+                                n_wells=6,
+                                bluelight_stim_type='bluelight',
+                                video_length_seconds=360,
+                                bluelight_timepoints_seconds=BLUELIGHT_TIMEPOINTS_SECONDS,
+                                motion_modes=['forwards','paused','backwards'],
+                                smoothing=10)
+    
+    # timeseries plots of speed for each treatment vs 'N2-BW-nan' control
     plot_timeseries_feature(metadata,
                             project_dir=Path(PROJECT_DIR),
                             save_dir=Path(SAVE_DIR) / 'timeseries-speed',
@@ -285,5 +305,23 @@ if __name__ == '__main__':
                             video_length_seconds=360,
                             bluelight_timepoints_seconds=BLUELIGHT_TIMEPOINTS_SECONDS,
                             smoothing=10,
-                            fps=FPS) 
+                            fps=FPS,
+                            ylim_minmax=(-20,330)) # ylim_minmax for speed feature only
+    
+    # # timeseries plots of speed for each 'X-fepD-nan' treatment vs 'N2-fepD-nan' control
+    # strain_list = [s for s in strain_list if 'fepD-nan' in s]
+    # plot_timeseries_feature(metadata,
+    #                         project_dir=Path(PROJECT_DIR),
+    #                         save_dir=Path(SAVE_DIR) / 'timeseries-speed',
+    #                         group_by='treatment',
+    #                         control='N2-fepD-nan',
+    #                         groups_list=strain_list,
+    #                         feature='speed',
+    #                         n_wells=6,
+    #                         bluelight_stim_type='bluelight',
+    #                         video_length_seconds=360,
+    #                         bluelight_timepoints_seconds=BLUELIGHT_TIMEPOINTS_SECONDS,
+    #                         smoothing=10,
+    #                         fps=FPS,
+    #                         ylim_minmax=(-20,330)) # ylim_minmax for speed feature only
 

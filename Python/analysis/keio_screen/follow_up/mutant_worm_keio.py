@@ -22,7 +22,7 @@ from preprocessing.compile_hydra_data import compile_metadata, process_feature_s
 from filter_data.clean_feature_summaries import clean_summary_results
 from statistical_testing.stats_helper import window_stats
 from time_series.time_series_helper import get_strain_timeseries
-from time_series.plot_timeseries import plot_timeseries_motion_mode
+from time_series.plot_timeseries import plot_timeseries_motion_mode, plot_window_timeseries_feature
 # from tierpsytools.analysis.statistical_tests import univariate_tests, get_effect_sizes
 
 #%% Globals
@@ -33,7 +33,7 @@ SAVE_DIR = "/Users/sm5911/Documents/Keio_Mutant_Worm"
 IMAGING_DATES = ['20220305','20220314','20220321']
 N_WELLS = 6
 
-FEATURE = 'motion_mode_forward_fraction'
+FEATURE = 'speed_50th' #'motion_mode_forward_fraction'
 
 NAN_THRESHOLD_ROW = 0.8
 NAN_THRESHOLD_COL = 0.05
@@ -554,7 +554,7 @@ if __name__ == '__main__':
              window_list=window_list)
     
     # plot timeseries comparing forwards fraction of each mutant worms on BW vs fepD bacteria
-    timeseries_motion_mode(metadata)
+    # timeseries_motion_mode(metadata)
     
     # # statistics: pairwise t-test of BW vs fepB for each mutant worm (at each window)
     # for window in window_list: 
@@ -584,3 +584,24 @@ if __name__ == '__main__':
     #                           worm_strain=worm,
     #                           save_dir=plot_dir / 'boxplots_BW_vs_fepD' / '{}'.format(worm))    
         
+    # timeseries plots of speed for fepD vs BW control
+    
+    BLUELIGHT_TIMEPOINTS_SECONDS = [(i*60,i*60+10) for i in BLUELIGHT_TIMEPOINTS_MINUTES]
+    plot_window_timeseries_feature(metadata=metadata,
+                                   project_dir=Path(PROJECT_DIR),
+                                   save_dir=Path(SAVE_DIR) / 'timeseries-speed',
+                                   group_by='treatment',
+                                   control='N2-BW',
+                                   groups_list=None,
+                                   feature='speed',
+                                   n_wells=6,
+                                   bluelight_timepoints_seconds=BLUELIGHT_TIMEPOINTS_SECONDS,
+                                   bluelight_windows_separately=True,
+                                   smoothing=10,
+                                   figsize=(15,5),
+                                   fps=FPS,
+                                   ylim_minmax=(-20,320),
+                                   xlim_crop_around_bluelight_seconds=(120,300),
+                                   video_length_seconds=VIDEO_LENGTH_SECONDS)
+
+    

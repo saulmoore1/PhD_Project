@@ -22,21 +22,16 @@ from time_series.time_series_helper import get_strain_timeseries
 
 #%% Globals
 
-METADATA_PATH = '/Users/sm5911/Documents/Keio_Conf_Screen/metadata.csv'
-
-RESULTS_DIR = '/Volumes/hermes$/KeioScreen2_96WP/Results'
-#FILENAMES_SUMMARIES_PATH = '/Volumes/hermes$/KeioScreen2_96WP/Results/full_filenames.csv'
-
-FEATURE_SET_PATH = '/Users/sm5911/Documents/Keio_Screen2/selected_features_timeseries.txt'
-
-STRAIN_LIST_PATH = None #'/Users/sm5911/Documents/Keio_Screen/52_selected_strains_from_initial_keio_top100_lowest_pval_tierpsy16.txt'
-STRAIN_LIST = ['wild_type','fepB','fepD','fes','atpB','nuoC','sdhD','entA'] # missing: 'trpA','trpD'
-
-SAVE_DIR = '/Users/sm5911/Documents/Keio_Conf_Screen'
+EXAMPLE_METADATA_PATH = '/Users/sm5911/Documents/Keio_Conf_Screen/metadata.csv'
+EXAMPLE_RESULTS_DIR = '/Volumes/hermes$/KeioScreen2_96WP/Results'
+EXAMPLE_SAVE_DIR = '/Users/sm5911/Documents/Keio_Conf_Screen'
+EXAMPLE_FEATURE_SET_PATH = '/Users/sm5911/Documents/Keio_Screen2/selected_features_timeseries.txt'
+EXAMPLE_STRAIN_LIST_PATH = None #'/Users/sm5911/Documents/Keio_Screen/52_selected_strains_from_initial_keio_top100_lowest_pval_tierpsy16.txt'
+EXAMPLE_STRAIN_LIST = ['wild_type','fepB','fepD','fes','atpB','nuoC','sdhD','entA'] # missing: 'trpA','trpD'
+EXAMPLE_CONTROL = 'wild_type'
 
 BLUELIGHT_FRAMES = [(1500,1751),(4000,4251),(6500,6751)]
 
-CONTROL = 'wild_type'
 
 RENAME_DICT = {"BW" : "wild_type",
                "FECE" : "fecE",
@@ -66,18 +61,6 @@ def add_bluelight_to_plot(ax, bluelight_frames=BLUELIGHT_FRAMES, alpha=0.5):
      
     return ax
 
-
-def _bootstrapped_ci(x, function=np.mean, n_boot=100, which_ci=95, axis=None):
-    """ Wrapper for tierpsytools bootstrapped_ci function, which encounters name space / 
-        variable scope conflicts when used in combination with pandas apply function 
-    """
-    from tierpsytools.analysis.statistical_tests import bootstrapped_ci
-    
-    lower, upper = bootstrapped_ci(x, func=function, n_boot=n_boot, which_ci=which_ci, axis=axis)
-    
-    return lower, upper
-
-
 def get_motion_mode_timestamp_stats(frac_mode, mode='stationary'):
            
         # average fraction in given motion mode
@@ -101,6 +84,36 @@ def get_motion_mode_timestamp_stats(frac_mode, mode='stationary'):
 #     turn_dict = {0:'straight', 1:'turn'}
 #     df['turn_type'] = ['NA' if pd.isna(t) else turn_dict[int(t)] for t in df['turn']]
 
+def _bootstrapped_ci(x, function=np.mean, n_boot=100, which_ci=95, axis=None):
+    """ Wrapper for tierpsytools bootstrapped_ci function, which encounters name space / 
+        variable scope conflicts when used in combination with pandas apply function 
+    """
+    from tierpsytools.analysis.statistical_tests import bootstrapped_ci
+    
+    lower, upper = bootstrapped_ci(x, func=function, n_boot=n_boot, which_ci=which_ci, axis=axis)
+    
+    return lower, upper
+
+def bootstrapped_ci(x, n_boot=100, alpha=0.95):
+    """ Wrapper for applying bootstrap function to sample array """
+
+    from sklearn.utils import resample
+    
+    means = []
+    for i in range(n_boot):
+        s = resample(x, n_samples=int(len(x)))
+        m = np.mean(s)
+        means.append(m)
+    # plt.hist(means); plt.show()
+    
+    # confidence intervals
+    p_lower = ((1.0 - alpha) / 2.0) * 100
+    lower = np.percentile(means, p_lower)
+    p_upper = (alpha + ((1.0 - alpha) / 2.0)) * 100
+    upper = np.percentile(means, p_upper)
+                        
+    return lower, upper
+
 
 def plot_timeseries(df, 
                     feature='speed', 
@@ -122,40 +135,7 @@ def plot_timeseries(df,
     plot_df = grouped_timestamp.mean().reset_index()
 
     # mean and bootstrap CI error for each timestamp
-    if error:
-        # conf_ints = grouped_timestamp.apply(_bootstrapped_ci, function=np.mean, n_boot=100)
-        # conf_ints = pd.concat([pd.Series([x[0] for x in conf_ints], index=conf_ints.index), 
-        #                       pd.Series([x[1] for x in conf_ints], index=conf_ints.index)], 
-        #                       axis=1)
-        # conf_ints = conf_ints.rename(columns={0:'lower',1:'upper'}).reset_index()
-        
-        # frac_nan = conf_ints['lower'].isna().sum() / conf_ints.shape[0]
-        
-        # # if Tierpsytools bootstrap fails or returns > 90% NaNs, compute bootstrap another way
-        # if frac_nan > 0.9:   
-        #     print("Bootstrap failed to compute error for timeseries\n" + 
-        #           "Trying alternative bootstrap method...")
-            
-        def bootstrapped_ci(x, n_boot=100, alpha=0.95):
-            """ Wrapper for applying bootstrap function to sample array """
-        
-            from sklearn.utils import resample
-            
-            means = []
-            for i in range(n_boot):
-                s = resample(x, n_samples=int(len(x)))
-                m = np.mean(s)
-                means.append(m)
-            # plt.hist(means)
-            # plt.show()
-            
-            # confidence intervals
-            p_lower = ((1.0 - alpha) / 2.0) * 100
-            lower = np.percentile(means, p_lower)
-            p_upper = (alpha + ((1.0 - alpha) / 2.0)) * 100
-            upper = np.percentile(means, p_upper)
-                                
-            return lower, upper
+    if error:            
                                 
         conf_ints = grouped_timestamp.apply(bootstrapped_ci, n_boot=100)
         conf_ints = pd.concat([pd.Series([x[0] for x in conf_ints], index=conf_ints.index), 
@@ -216,7 +196,8 @@ def plot_timeseries_feature(metadata,
                             video_length_seconds=360,
                             bluelight_timepoints_seconds=[(60, 70),(160, 170),(260, 270)],
                             smoothing=10,
-                            fps=25):
+                            fps=25,
+                            ylim_minmax=None):
         
     if groups_list is not None:
         assert isinstance(groups_list, list) 
@@ -282,18 +263,179 @@ def plot_timeseries_feature(metadata,
                                                    bluelight_stim_type == 'bluelight' else None),
                                  colour=col_dict[group])
             
+            if ylim_minmax is not None:
+                assert isinstance(ylim_minmax, tuple)
+                plt.ylim(ylim_minmax[0], ylim_minmax[1])
+                    
             xticks = np.linspace(0, video_length_seconds*fps, int(video_length_seconds/60)+1)
             ax.set_xticks(xticks)
             ax.set_xticklabels([str(int(x/fps/60)) for x in xticks])   
             ax.set_xlabel('Time (minutes)', fontsize=12, labelpad=10)
             ax.set_ylabel(feature, fontsize=12, labelpad=10)
-            # ax.set_title('{0} vs {1}'.format(control, group), fontsize=12, pad=10)
-            ax.legend([control, group], fontsize=12, frameon=False, loc='best')
+            ax.legend([control, group], fontsize=12, frameon=False, loc='best', handletextpad=1)
             plt.subplots_adjust(left=0.1, top=0.95, bottom=0.1, right=0.95)
     
             # save plot
             print("Saving to: %s" % save_path)
             plt.savefig(save_path)
+
+    return
+
+def plot_window_timeseries_feature(metadata,
+                                   project_dir,
+                                   save_dir,
+                                   group_by='gene_name',
+                                   control='BW',
+                                   groups_list=None,
+                                   window_list=None,
+                                   feature='speed',
+                                   n_wells=6,
+                                   bluelight_timepoints_seconds=None,
+                                   bluelight_windows_separately=True,
+                                   xlim_crop_around_bluelight_seconds=(30,120),
+                                   smoothing=10,
+                                   fps=25,
+                                   figsize=(15,5),
+                                   ylim_minmax=(-20,330),
+                                   video_length_seconds=None):
+        
+    if groups_list is not None:
+        assert isinstance(groups_list, list) 
+        assert all(g in metadata[group_by].unique() for g in groups_list)
+    else:
+        groups_list = sorted(metadata[group_by].unique())
+    groups_list = [g for g in groups_list if g != control]
+    assert control in metadata[group_by].unique()
+        
+    if bluelight_timepoints_seconds is not None:
+        bluelight_frames = [(i*fps, j*fps) for (i, j) in bluelight_timepoints_seconds]
+    
+    # get control timeseries
+    control_ts = get_strain_timeseries(metadata,
+                                       project_dir=project_dir,
+                                       strain=control,
+                                       group_by=group_by,
+                                       feature_list=[feature],#['motion_mode','speed']
+                                       save_dir=save_dir,
+                                       n_wells=n_wells,
+                                       verbose=True)
+    
+    if video_length_seconds is None:
+        video_length_seconds = control_ts['timestamp'].max() / fps
+
+    for group in tqdm(groups_list):
+        ts_plot_dir = save_dir / 'Plots' / '{0}'.format(group)
+        ts_plot_dir.mkdir(exist_ok=True, parents=True)
+        save_path = ts_plot_dir / '{}.pdf'.format(feature)
+        
+        if not save_path.exists():
+            group_ts = get_strain_timeseries(metadata,
+                                             project_dir=project_dir,
+                                             strain=group,
+                                             group_by=group_by,
+                                             feature_list=[feature],
+                                             save_dir=save_dir,
+                                             n_wells=n_wells,
+                                             verbose=True)
+            
+            print("Plotting '%s' timeseries for %s vs %s" % (feature, group, control))
+            col_dict = dict(zip([control, group], sns.color_palette('tab10', 2)))
+
+            if bluelight_windows_separately:
+                for pulse, frame in enumerate(tqdm(bluelight_frames), start=1):
+                    
+                    # crop -30sec before to +2mins after pulse
+                    timestamp_range = (frame[0] - xlim_crop_around_bluelight_seconds[0] * fps, 
+                                       frame[1] + xlim_crop_around_bluelight_seconds[1] * fps)
+                    _control_ts = control_ts[np.logical_and(control_ts['timestamp']>=timestamp_range[0], 
+                                                            control_ts['timestamp']<=timestamp_range[1])]
+                    _group_ts = group_ts[np.logical_and(group_ts['timestamp']>=timestamp_range[0], 
+                                                        group_ts['timestamp']<=timestamp_range[1])]                  
+                    
+                    plt.close('all')
+                    fig, ax = plt.subplots(figsize=figsize, dpi=300)
+                    ax = plot_timeseries(df=_control_ts,
+                                         feature=feature,
+                                         error=True, 
+                                         max_n_frames=None, 
+                                         smoothing=smoothing*fps, 
+                                         ax=ax,
+                                         bluelight_frames=bluelight_frames,
+                                         colour=col_dict[control])
+            
+                    ax = plot_timeseries(df=_group_ts,
+                                         feature=feature,
+                                         error=True, 
+                                         max_n_frames=None, 
+                                         smoothing=smoothing*fps, 
+                                         ax=ax,
+                                         bluelight_frames=bluelight_frames,
+                                         colour=col_dict[group])
+
+                    xticks = np.linspace(0, video_length_seconds*fps, int(video_length_seconds/60)+1)
+                    ax.set_xticks(xticks)
+                    ax.set_xticklabels([str(int(x/fps/60)) for x in xticks])   
+                    ax.set_xlim([timestamp_range[0], timestamp_range[1]])
+                    ax.set_xlabel('Time (minutes)', fontsize=12, labelpad=10)
+                    if ylim_minmax is not None:
+                        assert isinstance(ylim_minmax, tuple)
+                        plt.ylim(ylim_minmax[0], ylim_minmax[1])
+                    ax.set_ylabel(feature, fontsize=12, labelpad=10)
+                    ax.set_title('{0} vs {1} (bluelight pulse {2} = {3} min)'.format(
+                        group, control, pulse, int(frame[0]/fps/60)), fontsize=12, pad=10)
+                    ax.legend([control, group], fontsize=12, frameon=False, loc='best',
+                              handletextpad=1)
+                    plt.subplots_adjust(left=0.1, top=0.9, bottom=0.1, right=0.95)
+            
+                    # save plot
+                    ts_plot_dir = save_dir / 'Plots' / group
+                    ts_plot_dir.mkdir(exist_ok=True, parents=True)
+                    save_path = ts_plot_dir / '{0}_pulse{1}_{2}min.pdf'.format(
+                        feature, pulse, int(frame[0]/fps/60))
+                    print("Saving to: %s" % save_path)
+                    plt.savefig(save_path)
+                    
+            else:
+                plt.close('all')
+                fig, ax = plt.subplots(figsize=figsize, dpi=300)
+                ax = plot_timeseries(df=control_ts,
+                             feature=feature,
+                             error=True, 
+                             max_n_frames=(video_length_seconds*fps if video_length_seconds
+                                           is not None else None), 
+                             smoothing=smoothing*fps, 
+                             ax=ax,
+                             bluelight_frames=bluelight_frames,
+                             colour=col_dict[control])
+        
+                ax = plot_timeseries(df=group_ts,
+                             feature=feature,
+                             error=True, 
+                             max_n_frames=(video_length_seconds*fps if video_length_seconds
+                                           is not None else None), 
+                             smoothing=smoothing*fps, 
+                             ax=ax,
+                             bluelight_frames=bluelight_frames,
+                             colour=col_dict[group])
+                xticks = np.linspace(0, video_length_seconds*fps, int(video_length_seconds/60)+1)
+                ax.set_xticks(xticks)
+                ax.set_xticklabels([str(int(x/fps/60)) for x in xticks])   
+                ax.set_xlabel('Time (minutes)', fontsize=12, labelpad=10)
+                if ylim_minmax is not None:
+                    assert isinstance(ylim_minmax, tuple)
+                    plt.ylim(ylim_minmax[0], ylim_minmax[1])
+
+                ax.set_ylabel(feature, fontsize=12, labelpad=10)
+                ax.set_title('%s vs %s' % (group, control), fontsize=12, pad=10)
+                ax.legend([control, group], fontsize=12, frameon=False, loc='best', handletextpad=1)
+                plt.subplots_adjust(left=0.1, top=0.95, bottom=0.1, right=0.95)
+        
+                # save plot
+                ts_plot_dir = save_dir / 'Plots' / group
+                ts_plot_dir.mkdir(exist_ok=True, parents=True)
+                save_path = ts_plot_dir / '{}.pdf'.format(feature)
+                print("Saving to: %s" % save_path)
+                plt.savefig(save_path)
 
     return
 
@@ -820,30 +962,30 @@ if __name__ == "__main__":
     # parser.add_argument('-f', '--filenames_summaries_path', help="Tierpsy filenames summaries path", 
     #                     default=FILENAMES_SUMMARIES_PATH, type=str)
     parser.add_argument('--metadata_path', 
-                        help="Path to metadata file", type=str, default=METADATA_PATH)
+                        help="Path to metadata file", type=str, default=EXAMPLE_METADATA_PATH)
     parser.add_argument('--strain_list_path', 
                         help="Path to text file with list of strains to plot", type=str,
-                        default=STRAIN_LIST_PATH)
+                        default=EXAMPLE_STRAIN_LIST_PATH)
     parser.add_argument('--fset_path', 
                         help="Path to text file with list of features to plot (currently only \
-                        'motion_mode' is supported!)", type=str, default=FEATURE_SET_PATH)
+                        'motion_mode' is supported!)", type=str, default=EXAMPLE_FEATURE_SET_PATH)
     parser.add_argument('--save_dir', 
-                        help="Path to save timeseries plots", type=str, default=SAVE_DIR)
+                        help="Path to save timeseries plots", type=str, default=EXAMPLE_SAVE_DIR)
     args = parser.parse_args()
     
     if args.save_dir is None:
-        args.save_dir = SAVE_DIR #Path(args.filenames_summaries_path).parent
+        args.save_dir = EXAMPLE_SAVE_DIR #Path(args.filenames_summaries_path).parent
     
-    strain_list = STRAIN_LIST if args.strain_list_path is None else read_list_from_file(args.strain_list_path)
+    strain_list = EXAMPLE_STRAIN_LIST if args.strain_list_path is None else read_list_from_file(args.strain_list_path)
     fset = None if args.fset_path is None else read_list_from_file(args.fset_path)
 
     # plot timeseries of all motion modes together, for each strain separately
     print("Plotting timeseries for each strain:")
     plot_timeseries_from_metadata(metadata_path=args.metadata_path, 
-                                  results_dir=RESULTS_DIR,
+                                  results_dir=EXAMPLE_RESULTS_DIR,
                                   group_by='gene_name',
                                   strain_list=strain_list, 
-                                  control=CONTROL,
+                                  control=EXAMPLE_CONTROL,
                                   fset=fset,
                                   save_dir=Path(args.save_dir) / 'timeseries',
                                   motion_mode='all', # 'forwards', 'backwards', 'stationary', 
@@ -856,12 +998,12 @@ if __name__ == "__main__":
     # plot timeseries of strain vs control, for each motion mode separately
     strain_list = ['fepB','fepD','fes','atpB','nuoC','sdhD','entA']
     for strain in strain_list:
-        print("\nPlotting timeseries for: %s vs %s.." % (strain, CONTROL))
+        print("\nPlotting timeseries for: %s vs %s.." % (strain, EXAMPLE_CONTROL))
         plot_timeseries_from_metadata(metadata_path=args.metadata_path, 
-                                      results_dir=RESULTS_DIR,
+                                      results_dir=EXAMPLE_RESULTS_DIR,
                                       group_by='gene_name',
-                                      strain_list=[CONTROL, strain], 
-                                      control=CONTROL,
+                                      strain_list=[EXAMPLE_CONTROL, strain], 
+                                      control=EXAMPLE_CONTROL,
                                       fset=fset,
                                       save_dir=Path(args.save_dir) / 'timeseries',
                                       motion_mode='all', # 'all','forwards', 'backwards', 'stationary'
@@ -870,22 +1012,4 @@ if __name__ == "__main__":
                                       error=True,
                                       max_n_frames=MAX_N_FRAMES,
                                       sns_colour_palette='Greens')
-        
 
-#%%        
-# # total number of worms recorded at each timestamp (across all videos)
-# total_timestamp_count = df.groupby(['timestamp'])['filename'].count()
-
-# # total number of worms in each motion mode at each timestamp
-# motion_mode_count = df.groupby(['timestamp','motion_name'])['filename'].count().reset_index()
-# motion_mode_count = motion_mode_count.rename(columns={'filename':'count'})
-    
-# frac_mode = pd.merge(motion_mode_count, total_timestamp_count, 
-#                      left_on='timestamp', right_on=total_timestamp_count.index, 
-#                      how='left')
-    
-# # divide by total filename count
-# frac_mode['fraction'] = frac_mode['count'] / frac_mode['filename']
-
-# # subset for motion mode
-# plot_df = frac_mode[frac_mode['motion_name']==mode][['timestamp','fraction']]

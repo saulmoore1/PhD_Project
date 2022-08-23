@@ -36,7 +36,7 @@ from visualisation.plotting_helper import sig_asterix, boxplots_sigfeats
 # from feature_extraction.decomposition.tsne import plot_tSNE
 # from feature_extraction.decomposition.umap import plot_umap
 from time_series.time_series_helper import get_strain_timeseries
-from time_series.plot_timeseries import plot_timeseries_motion_mode
+from time_series.plot_timeseries import plot_timeseries_motion_mode, plot_window_timeseries_feature
 from statistical_testing.antioxidant_rescue_stats import antioxidants_stats
 
 # from tierpsytools.preprocessing.filter_data import select_feat_set
@@ -47,7 +47,8 @@ from tierpsytools.analysis.statistical_tests import univariate_tests, get_effect
 JSON_PARAMETERS_PATH = 'analysis/20220111_parameters_keio_acute_rescue.json'
 N_WELLS = 6
 
-FEATURE = 'motion_mode_forward_fraction'
+feature_set = ['motion_mode_forward_fraction','speed_50th']
+# FEATURE = 'motion_mode_forward_fraction'
 
 scale_outliers_box = True
 
@@ -136,7 +137,7 @@ def acute_rescue_stats(features,
               "of worms paused among different antioxidant treatments for %s..." % strain)
         
         # perform ANOVA (correct for multiple comparisons)             
-        stats, pvals, reject = univariate_tests(X=strain_feat[[FEATURE]], 
+        stats, pvals, reject = univariate_tests(X=strain_feat[feature_set], 
                                                 y=strain_meta['antioxidant'], 
                                                 test='ANOVA',
                                                 control=control_antioxidant,
@@ -146,7 +147,7 @@ def acute_rescue_stats(features,
                                                 n_permutation_test=None) # 'all'
     
         # get effect sizes
-        effect_sizes = get_effect_sizes(X=strain_feat[[FEATURE]], 
+        effect_sizes = get_effect_sizes(X=strain_feat[feature_set], 
                                         y=strain_meta['antioxidant'],
                                         control=control_antioxidant,
                                         effect_type=None,
@@ -164,14 +165,14 @@ def acute_rescue_stats(features,
               
         print("Performing t-tests comparing each antioxidant treatment to None (pooled window data)")
         
-        stats_t, pvals_t, reject_t = univariate_tests(X=strain_feat[[FEATURE]],
+        stats_t, pvals_t, reject_t = univariate_tests(X=strain_feat[feature_set],
                                                       y=strain_meta['antioxidant'],
                                                       test='t-test',
                                                       control=control_antioxidant,
                                                       comparison_type='binary_each_group',
                                                       multitest_correction=fdr_method,
                                                       alpha=pval_threshold)
-        effect_sizes_t =  get_effect_sizes(X=strain_feat[[FEATURE]], 
+        effect_sizes_t =  get_effect_sizes(X=strain_feat[feature_set], 
                                            y=strain_meta['antioxidant'], 
                                            control=control_antioxidant,
                                            effect_type=None,
@@ -194,7 +195,7 @@ def acute_rescue_stats(features,
               "of worms paused across (bluelight) window summaries for %s..." % strain)
         
         # perform ANOVA (correct for multiple comparisons)
-        stats, pvals, reject = univariate_tests(X=strain_feat[[FEATURE]],
+        stats, pvals, reject = univariate_tests(X=strain_feat[feature_set],
                                                 y=strain_meta['window'],
                                                 test='ANOVA',
                                                 control=control_window,
@@ -204,7 +205,7 @@ def acute_rescue_stats(features,
                                                 n_permutation_test=None)
         
         # get effect sizes
-        effect_sizes = get_effect_sizes(X=strain_feat[[FEATURE]],
+        effect_sizes = get_effect_sizes(X=strain_feat[feature_set],
                                         y=strain_meta['window'],
                                         control=control_window,
                                         effect_type=None,
@@ -222,14 +223,14 @@ def acute_rescue_stats(features,
 
         print("Performing t-tests comparing each window with the first (pooled antioxidant data)")
         
-        stats_t, pvals_t, reject_t = univariate_tests(X=strain_feat[[FEATURE]],
+        stats_t, pvals_t, reject_t = univariate_tests(X=strain_feat[feature_set],
                                                       y=strain_meta['window'],
                                                       test='t-test',
                                                       control=control_window,
                                                       comparison_type='binary_each_group',
                                                       multitest_correction=fdr_method,
                                                       alpha=pval_threshold)
-        effect_sizes_t =  get_effect_sizes(X=strain_feat[[FEATURE]], 
+        effect_sizes_t =  get_effect_sizes(X=strain_feat[feature_set], 
                                            y=strain_meta['window'], 
                                            control=control_window,
                                            effect_type=None,
@@ -249,12 +250,12 @@ def acute_rescue_stats(features,
 
     control_meta = metadata[metadata['gene_name']==control_strain]
     control_feat = features.reindex(control_meta.index)
-    control_df = control_meta.join(control_feat[[FEATURE]])
+    control_df = control_meta.join(control_feat[feature_set])
 
     for strain in strain_list[1:]: # skip control_strain at first index postion         
         strain_meta = metadata[metadata['gene_name']==strain]
         strain_feat = features.reindex(strain_meta.index)
-        strain_df = strain_meta.join(strain_feat[[FEATURE]])
+        strain_df = strain_meta.join(strain_feat[feature_set])
 
         # 3. Is there a difference between strain vs control at any window?
         
@@ -263,7 +264,7 @@ def acute_rescue_stats(features,
 
         stats, pvals, reject = pairwise_ttest(control_df, 
                                               strain_df, 
-                                              feature_list=[FEATURE], 
+                                              feature_list=feature_set, 
                                               group_by='window', 
                                               fdr_method=fdr_method,
                                               fdr=0.05)
@@ -290,7 +291,7 @@ def acute_rescue_stats(features,
             
             stats, pvals, reject = pairwise_ttest(antiox_control_df,
                                                   antiox_strain_df,
-                                                  feature_list=[FEATURE],
+                                                  feature_list=feature_set,
                                                   group_by='window',
                                                   fdr_method=fdr_method,
                                                   fdr=0.05)
@@ -314,7 +315,7 @@ def acute_rescue_stats(features,
 
         stats, pvals, reject = pairwise_ttest(control_df, 
                                               strain_df, 
-                                              feature_list=[FEATURE], 
+                                              feature_list=feature_set, 
                                               group_by='antioxidant', 
                                               fdr_method=fdr_method,
                                               fdr=0.05)
@@ -341,7 +342,7 @@ def acute_rescue_stats(features,
             
             stats, pvals, reject = pairwise_ttest(window_control_df,
                                                   window_strain_df,
-                                                  feature_list=[FEATURE],
+                                                  feature_list=feature_set,
                                                   group_by='antioxidant',
                                                   fdr_method=fdr_method,
                                                   fdr=0.05)
@@ -776,7 +777,7 @@ def acute_rescue_timeseries(metadata,
                                        group_by=group_by,
                                        n_wells=n_wells,
                                        save_dir=save_dir,
-                                       verbose=False)
+                                       verbose=True)
     
     treatment_list = list(t for t in metadata['treatment'].unique() if t != control)
 
@@ -793,7 +794,7 @@ def acute_rescue_timeseries(metadata,
                                              group_by=group_by,
                                              n_wells=n_wells,
                                              save_dir=save_dir,
-                                             verbose=False)
+                                             verbose=True)
 
         for mode in motion_modes:
             print("Plotting timeseries %s fraction for %s vs %s..." % (mode, control, treatment))
@@ -930,13 +931,10 @@ if __name__ == '__main__':
         features = features.reindex(metadata.index)
         print("%d entries removed with no gene name metadata" % (n - metadata.shape[0]))
      
-        # update gene names for mutant strains
-        metadata['gene_name'] = [args.control_dict['gene_name'] if s == 'BW' else s 
-                                 for s in metadata['gene_name']]
+        # # update gene names for mutant strains
+        # metadata['gene_name'] = [args.control_dict['gene_name'] if s == 'BW' else s 
+        #                          for s in metadata['gene_name']]
         #['BW\u0394'+g if not g == 'BW' else 'wild_type' for g in metadata['gene_name']]
-    
-        # Create is_bad_well column - refer to manual metadata for bad 35mm petri plates
-        metadata['is_bad_well'] = False
     
         # Clean results - Remove bad well data + features with too many NaNs/zero std + impute
         features, metadata = clean_summary_results(features, 
@@ -982,8 +980,8 @@ if __name__ == '__main__':
      
     control_strain = args.control_dict['gene_name']
     control_antioxidant = args.control_dict['antioxidant']
-    control = control_strain + '-' + control_antioxidant
-    metadata['treatment'] = metadata[['gene_name','antioxidant']].agg('-'.join, axis=1)
+    control = control_strain + '_' + control_antioxidant
+    metadata['treatment'] = metadata[['gene_name','antioxidant']].agg('_'.join, axis=1)
         
     for window in tqdm(WINDOW_LIST):
         window_meta = metadata[metadata['window']==window]
@@ -996,7 +994,7 @@ if __name__ == '__main__':
                            group_by='treatment',
                            control=control,
                            save_dir=stats_dir,
-                           feature_set=[FEATURE],
+                           feature_set=feature_set,
                            pvalue_threshold=args.pval_threshold,
                            fdr_method=args.fdr_method)
         
@@ -1007,12 +1005,11 @@ if __name__ == '__main__':
                               control=control,
                               stats_dir=stats_dir,
                               save_dir=plots_dir,
-                              feature_set=[FEATURE],
+                              feature_set=feature_set,
                               pvalue_threshold=args.pval_threshold,
                               fdr_method=args.fdr_method)
             
     # full timeseries plots - BW vs fepD for each motion mode
-    metadata['treatment'] = metadata['gene_name'] + '_' + metadata['antioxidant']
     mean_sample_size = metadata.groupby('treatment')['well_name'].count().mean()
     print("Mean sample size per treatment: %d" % round(mean_sample_size))
     
@@ -1020,40 +1017,40 @@ if __name__ == '__main__':
                             project_dir=Path(args.project_dir), 
                             save_dir=Path(args.save_dir) / 'timeseries',
                             n_wells=N_WELLS,
-                            control='wild_type_None',
+                            control=control,
                             group_by='treatment',
                             bluelight_windows_separately=False,
                             smoothing=10)
 
-    # timeseries plots BW vs fepD around each blue light window
+    # timeseries plots of motion mode BW vs fepD around each blue light window
     acute_rescue_timeseries(metadata, 
                             project_dir=Path(args.project_dir), 
                             save_dir=Path(args.save_dir) / 'timeseries',
                             n_wells=N_WELLS,
-                            control='wild_type_None',
+                            control=control,
                             group_by='treatment',
                             bluelight_windows_separately=True,
                             smoothing=5)    
- 
-    # TODO: deprecated
-    # acute_rescue_stats(features,
-    #                    metadata, 
-    #                    save_dir=save_dir, 
-    #                    control_strain=args.control_dict['gene_name'],
-    #                    control_antioxidant=args.control_dict['antioxidant'],
-    #                    control_window=args.control_dict['window'],
-    #                    fdr_method='fdr_by',
-    #                    pval_threshold=args.pval_threshold)
-
-    # analyse_acute_rescue(features, 
-    #                      metadata, 
-    #                      save_dir=plots_dir,
-    #                      control_strain=args.control_dict['gene_name'],
-    #                      control_antioxidant=args.control_dict['antioxidant'],
-    #                      control_window=args.control_dict['window'],
-    #                      fdr_method='fdr_by',
-    #                      pval_threshold=args.pval_threshold,
-    #                      remove_outliers=args.remove_outliers)
-
-
+    
+    # timeseries plots of speed for fepD vs BW control for each window
+    
+    BLUELIGHT_TIMEPOINTS_SECONDS = [(i*60,i*60+10) for i in BLUELIGHT_TIMEPOINTS_MINUTES]
+    treatment_list = [t for t in metadata['treatment'].unique() if 'vitC' in t or 'NAC' in t or 'None' in t]
+    
+    plot_window_timeseries_feature(metadata=metadata,
+                                   project_dir=Path(args.project_dir),
+                                   save_dir=Path(args.save_dir) / 'timeseries-speed',
+                                   group_by='treatment',
+                                   control=control,
+                                   groups_list=treatment_list,
+                                   feature='speed',
+                                   n_wells=6,
+                                   bluelight_timepoints_seconds=BLUELIGHT_TIMEPOINTS_SECONDS,
+                                   bluelight_windows_separately=True,
+                                   smoothing=10,
+                                   figsize=(15,5),
+                                   fps=FPS,
+                                   ylim_minmax=(-20,220),
+                                   video_length_seconds=VIDEO_LENGTH_SECONDS)
+    
     
