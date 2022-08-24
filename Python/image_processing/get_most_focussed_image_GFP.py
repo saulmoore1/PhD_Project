@@ -2,8 +2,8 @@
 # -*- coding: utf-8 -*-
 """
 Read Zeiss microscope (CZI) files, apply BREN (or GLVA) method focus measure to find best 
-focussed images based RFP channel only, and save the RFP channel image and corresponding 
-GFP channel image for each series
+focussed images based GFP channel only, and save the GFP channel image and corresponding 
+RFP channel image for each series
 
 Inputs
 -----------------
@@ -25,20 +25,22 @@ BREN: Brenner's (Santos, 97)
 import os, sys, time
 import numpy as np
 import pandas as pd
-import czifile #tifffile
+# from czifile import imread
+# from tifffile import imwrite
+from aicsimageio import AICSImage
 import javabridge
 import bioformats #unicodedata
-from matplotlib import pyplot as plt
+# from matplotlib import pyplot as plt
 from cv2 import subtract
 from pathlib import Path
 
 #%% Globals
 
 # max RAM to use (Gb)
-maxRAM = 10
+maxRAM = 6
 
 # save most focussed images in output directory?
-saveBestFocus = True        
+# saveBestFocus = True        
 
 # method for calculating best focussed image: ['BREN','GLVA']
 method = 'BREN'
@@ -148,37 +150,26 @@ def findFocussedCZI(file, output_dir, method='BREN', imageSizeThreshXY=None, sho
         imageSizeThreshXY (list/array) [int,int]: minimum threshold X,Y image size
     """
     
-    # extract metadata from filename
-    file = str(file)
-    
-    image_arrays = czifile.imread(file)
-    # image_arrays.shape
-    
-    # parse the CZI file
     file_info = []
+
+    reader = AICSImage(str(file))
+    scenes = list(reader.scenes)
     
-    totalseries = image_arrays.shape[1]
-    zslices = image_arrays.shape[3]
-    timepoints = image_arrays.shape[6]
-    assert timepoints == 1
-    
-    for s, sc in enumerate(range(totalseries)):
-        print("Series %d/%d (%.1f%%)" % (s+1, totalseries, ((s+1)/totalseries)*100))
+    # parse the CZI file, calculate focus measures + store results
+    for s, sc in enumerate(scenes):
+        print("%d/%d well: %s (%.1f%%)" % (s+1, len(scenes), sc.split('-')[-1], ((s+1)/len(scenes))*100))
+        
+        reader.set_scene(sc)
+        zslices = reader.shape[2]
         
         # find most focussed RFP image in z-stack for image series 
         for zc in range(zslices):
-            # image_arrays[:,:,ch,:,:,:,:]
-            # ch[0] == GFP, ch[1] == RFP                
-            GFP_img = image_arrays[0,sc,0,zc,:,:,0]
             
-            # crop image to size
-            GFP_img = crop_image_nonzero(GFP_img)
-
+            GFP_img = reader.data[0,0,zc,:,:]
+            
             if imageSizeThreshXY is not None:
                 x, y = GFP_img.shape
                 assert x > imageSizeThreshXY[0] and y > imageSizeThreshXY[1]
-            # plt.imshow(GFP_img, 'Reds')
-            # plt.show(), plt.pause(2)
             
             # measure focus of RFP image (uint16)
             fm = fmeasure(GFP_img, method)
@@ -187,7 +178,7 @@ def findFocussedCZI(file, output_dir, method='BREN', imageSizeThreshXY=None, sho
             file_info.append([file, sc, zc, fm])
 
     # create dataframe from list of recorded data
-    colnames = ['filepath','seriesID','z_slice_number','focus_measure']
+    colnames = ['filepath','seriesID','zslice','focus_measure']
     file_df = pd.DataFrame.from_records(file_info, columns=colnames)
     
     # get images with max focus for each well/GFP concentration
@@ -195,51 +186,46 @@ def findFocussedCZI(file, output_dir, method='BREN', imageSizeThreshXY=None, sho
                          file_df.groupby(['seriesID'])['focus_measure'].transform(max)]
     print("%d most focussed GFP images found." % focussed_images_df.shape[0])
 
+    # save focus measures to file
+    fm_outPath = os.path.join(output_dir, 'focus_measures_GFP.csv')
+    focussed_images_df.to_csv(fm_outPath, index=False)
+
+
     # save most focussed images
-    print("Saving GFP and RFP images separately for most focussed GFP images...")
+    print("Saving RFP and GFP images separately for most focussed GFP images...")
     
     # create most focussed folder for file
     if not os.path.exists(output_dir):
         os.makedirs(output_dir)
         
-    for i in range(focussed_images_df.shape[0]):
-        if (i+1) % 1 == 0:
-            print("%d/%d" % (i+1, focussed_images_df.shape[0]))
-
-        # extract image metadata from filename
-        img_info = focussed_images_df.iloc[i]            
-        sc = img_info['seriesID']
-        zc = img_info['z_slice_number']
+    n_focussed = focussed_images_df.shape[0]
+    for i in range(n_focussed):
+        sc = focussed_images_df.iloc[i]['seriesID']
+        zc = focussed_images_df.iloc[i]['zslice']
+        print("%d/%d well: %s (%.1f%%)" % (i+1, n_focussed, sc.split('-')[-1], ((i+1)/n_focussed)*100))
         
+        reader.set_scene(sc)
+
         # We do NOT want to rescale images if comparing between them
-        GFP_img = image_arrays[0,sc,0,zc,:,:,0]
-        RFP_img = image_arrays[0,sc,1,zc,:,:,0]
-        GFP_img = crop_image_nonzero(GFP_img)
-        RFP_img = crop_image_nonzero(RFP_img)
+        GFP_img = reader.data[0,0,zc,:,:]
+        RFP_img = reader.data[0,1,zc,:,:]
         assert GFP_img.size == RFP_img.size
         assert GFP_img.dtype == np.uint16 and RFP_img.dtype == np.uint16
     
-        if show:
-            plt.close('all')
-            plt.imshow(GFP_img); plt.pause(2)
-            plt.imshow(RFP_img); plt.pause(2)
-            
-        # save as TIFF image
-        outPath_GFP = os.path.join(output_dir, 'GFP', 's%dz%d' % (sc+1, zc+1) + '_GFP.tif')
-        outPath_RFP = os.path.join(output_dir, 'RFP', 's%dz%d' % (sc+1, zc+1) + '_RFP.tif')
+        # paths to output TIFF images
+        outPath_GFP = os.path.join(output_dir, 'GFP', 
+                                   '%s_z%d' % (sc.split('-')[-1], zc+1) + '_GFP.tif')
+        outPath_RFP = os.path.join(output_dir, 'RFP', 
+                                   '%s_z%d' % (sc.split('-')[-1], zc+1) + '_RFP.tif')
         
-        # Save as TIFF (bioformats)
+        # Save as TIFF
         bioformats.write_image(pathname=outPath_GFP, 
-                               pixels=GFP_img,
-                               pixel_type=bioformats.PT_UINT16)
+                                pixels=GFP_img,
+                                pixel_type=bioformats.PT_UINT16)
         bioformats.write_image(pathname=outPath_RFP,
-                               pixels=RFP_img,
-                               pixel_type=bioformats.PT_UINT16)
+                                pixels=RFP_img,
+                                pixel_type=bioformats.PT_UINT16)
     
-    # save focus measures to file
-    fm_outPath = os.path.join(output_dir, 'focus_measures_GFP.csv')
-    focussed_images_df.to_csv(fm_outPath, index=False)
-
     return focussed_images_df
     
 #%% Main
@@ -283,12 +269,11 @@ if __name__ == "__main__":
         assert str(file).endswith('czi')
     
         # find + save most focussed images
-        print("Finding most focussed images..")
+        print("Finding most focussed GFP images..")
         focussed_images_df = findFocussedCZI(file=file,
                                              output_dir=str(file).split('.')[0] + '_focussed',
                                              method=method,
-                                             imageSizeThreshXY=imageSizeThreshXY,
-                                             show=False)
+                                             imageSizeThreshXY=imageSizeThreshXY)
         
     ####################
     
