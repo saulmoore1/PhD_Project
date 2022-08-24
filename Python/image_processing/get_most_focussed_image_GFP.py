@@ -205,7 +205,7 @@ def findFocussedCZI(file, output_dir, method='BREN', imageSizeThreshXY=None, sho
         print("%d/%d well: %s (%.1f%%)" % (i+1, n_focussed, sc.split('-')[-1], ((i+1)/n_focussed)*100))
         
         reader.set_scene(sc)
-
+    
         # We do NOT want to rescale images if comparing between them
         GFP_img = reader.data[0,0,zc,:,:]
         RFP_img = reader.data[0,1,zc,:,:]
@@ -213,18 +213,16 @@ def findFocussedCZI(file, output_dir, method='BREN', imageSizeThreshXY=None, sho
         assert GFP_img.dtype == np.uint16 and RFP_img.dtype == np.uint16
     
         # paths to output TIFF images
-        outPath_GFP = os.path.join(output_dir, 'GFP', 
-                                   '%s_z%d' % (sc.split('-')[-1], zc+1) + '_GFP.tif')
-        outPath_RFP = os.path.join(output_dir, 'RFP', 
-                                   '%s_z%d' % (sc.split('-')[-1], zc+1) + '_RFP.tif')
+        outPath_GFP = Path(output_dir) / 'GFP' / ('%s_z%d' % (sc.split('-')[-1], zc+1) + '_GFP.tif')
+        outPath_RFP = Path(output_dir) / 'RFP' / ('%s_z%d' % (sc.split('-')[-1], zc+1) + '_RFP.tif')
+        
+        # create most focussed folder for file
+        Path(outPath_GFP).parent.mkdir(exist_ok=True, parents=True)
+        Path(outPath_RFP).parent.mkdir(exist_ok=True, parents=True)
         
         # Save as TIFF
-        bioformats.write_image(pathname=outPath_GFP, 
-                                pixels=GFP_img,
-                                pixel_type=bioformats.PT_UINT16)
-        bioformats.write_image(pathname=outPath_RFP,
-                                pixels=RFP_img,
-                                pixel_type=bioformats.PT_UINT16)
+        bioformats.write_image(pathname=outPath_GFP, pixels=GFP_img, pixel_type=bioformats.PT_UINT16)
+        bioformats.write_image(pathname=outPath_RFP, pixels=RFP_img, pixel_type=bioformats.PT_UINT16)
     
     return focussed_images_df
     
