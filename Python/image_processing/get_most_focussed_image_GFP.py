@@ -221,8 +221,8 @@ def findFocussedCZI(file, output_dir, method='BREN', imageSizeThreshXY=None, sho
         Path(outPath_RFP).parent.mkdir(exist_ok=True, parents=True)
         
         # Save as TIFF
-        bioformats.write_image(pathname=outPath_GFP, pixels=GFP_img, pixel_type=bioformats.PT_UINT16)
-        bioformats.write_image(pathname=outPath_RFP, pixels=RFP_img, pixel_type=bioformats.PT_UINT16)
+        bioformats.write_image(pathname=str(outPath_GFP), pixels=GFP_img, pixel_type=bioformats.PT_UINT16)
+        bioformats.write_image(pathname=str(outPath_RFP), pixels=RFP_img, pixel_type=bioformats.PT_UINT16)
     
     return focussed_images_df
     
