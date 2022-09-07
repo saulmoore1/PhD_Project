@@ -271,7 +271,8 @@ def plot_timeseries_feature(metadata,
             ax.set_xticks(xticks)
             ax.set_xticklabels([str(int(x/fps/60)) for x in xticks])   
             ax.set_xlabel('Time (minutes)', fontsize=12, labelpad=10)
-            ax.set_ylabel(feature, fontsize=12, labelpad=10)
+            ylab = feature + " (um/sec)" if feature == 'speed' else feature
+            ax.set_ylabel(ylab, fontsize=12, labelpad=10)
             ax.legend([control, group], fontsize=12, frameon=False, loc='best', handletextpad=1)
             plt.subplots_adjust(left=0.1, top=0.95, bottom=0.1, right=0.95)
     
@@ -380,7 +381,8 @@ def plot_window_timeseries_feature(metadata,
                     if ylim_minmax is not None:
                         assert isinstance(ylim_minmax, tuple)
                         plt.ylim(ylim_minmax[0], ylim_minmax[1])
-                    ax.set_ylabel(feature, fontsize=12, labelpad=10)
+                    ylab = feature + " (um/sec)" if feature == 'speed' else feature
+                    ax.set_ylabel(ylab, fontsize=12, labelpad=10)
                     ax.set_title('{0} vs {1} (bluelight pulse {2} = {3} min)'.format(
                         group, control, pulse, int(frame[0]/fps/60)), fontsize=12, pad=10)
                     ax.legend([control, group], fontsize=12, frameon=False, loc='best',
@@ -425,7 +427,8 @@ def plot_window_timeseries_feature(metadata,
                     assert isinstance(ylim_minmax, tuple)
                     plt.ylim(ylim_minmax[0], ylim_minmax[1])
 
-                ax.set_ylabel(feature, fontsize=12, labelpad=10)
+                ylab = feature + " (um/sec)" if feature == 'speed' else feature
+                ax.set_ylabel(ylab, fontsize=12, labelpad=10)
                 ax.set_title('%s vs %s' % (group, control), fontsize=12, pad=10)
                 ax.legend([control, group], fontsize=12, frameon=False, loc='best', handletextpad=1)
                 plt.subplots_adjust(left=0.1, top=0.95, bottom=0.1, right=0.95)

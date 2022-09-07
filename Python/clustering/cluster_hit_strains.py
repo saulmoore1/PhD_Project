@@ -140,7 +140,6 @@ def cluster_linkage_seaborn(features,
 def cluster_linkage_pdist(features, 
                           metadata, 
                           groupby='gene_name', 
-                          saveDir=None,
                           method='average', 
                           metric='euclidean'):
     """ METHOD 1 
@@ -455,7 +454,6 @@ if __name__ == "__main__":
     _Z, _X = cluster_linkage_pdist(features, 
                                    metadata, 
                                    groupby='gene_name',
-                                   saveDir=save_path, 
                                    method=LINKAGE_METHOD, 
                                    metric=DISTANCE_METRIC)
     

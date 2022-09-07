@@ -14,8 +14,8 @@ from tqdm import tqdm
 from pathlib import Path
 
 
-FOLDER = "/Volumes/hermes$/Keio_Fast_Effect/RawVideos/20211116"
-STRING = "000025"
+FOLDER = "/Volumes/hermes$/Keio_Worm_Stress_Mutants/MaskedVideos/20220730"
+STRING = "000000"
 
 
 def delete_files(folder_path, string):

@@ -156,17 +156,21 @@ def findFocussedCZI(file, output_dir, method='BREN', imageSizeThreshXY=None, sho
     scenes = list(reader.scenes)
     
     # parse the CZI file, calculate focus measures + store results
+    # err_log = []
     for s, sc in enumerate(scenes):
         print("%d/%d well: %s (%.1f%%)" % (s+1, len(scenes), sc.split('-')[-1], ((s+1)/len(scenes))*100))
         
         reader.set_scene(sc)
+        
+        # try:
         zslices = reader.shape[2]
         
         # find most focussed RFP image in z-stack for image series 
         for zc in range(zslices):
-            
+            # print(reader.dims)
+            # print(reader.channel_names)
             GFP_img = reader.data[0,0,zc,:,:]
-            
+                
             if imageSizeThreshXY is not None:
                 x, y = GFP_img.shape
                 assert x > imageSizeThreshXY[0] and y > imageSizeThreshXY[1]
@@ -176,6 +180,9 @@ def findFocussedCZI(file, output_dir, method='BREN', imageSizeThreshXY=None, sho
             
             # store image info
             file_info.append([file, sc, zc, fm])
+
+        # except Exception as E:
+        #     err_log.append((sc, zc, E))
 
     # create dataframe from list of recorded data
     colnames = ['filepath','seriesID','zslice','focus_measure']
@@ -187,17 +194,13 @@ def findFocussedCZI(file, output_dir, method='BREN', imageSizeThreshXY=None, sho
     print("%d most focussed GFP images found." % focussed_images_df.shape[0])
 
     # save focus measures to file
-    fm_outPath = os.path.join(output_dir, 'focus_measures_GFP.csv')
-    focussed_images_df.to_csv(fm_outPath, index=False)
-
+    fm_outPath = Path(output_dir) / 'focus_measures_GFP.csv'
+    fm_outPath.parent.mkdir(exist_ok=True, parents=True)
+    focussed_images_df.to_csv(str(fm_outPath), index=False)
 
     # save most focussed images
     print("Saving RFP and GFP images separately for most focussed GFP images...")
-    
-    # create most focussed folder for file
-    if not os.path.exists(output_dir):
-        os.makedirs(output_dir)
-        
+            
     n_focussed = focussed_images_df.shape[0]
     for i in range(n_focussed):
         sc = focussed_images_df.iloc[i]['seriesID']

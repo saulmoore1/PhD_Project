@@ -297,21 +297,30 @@ def errorbar_sigfeats(features, metadata, group_by, fset, control=None, rank_by=
         # Errorbar plot
         if rank_by == 'median':
             order = median_strain[feat].sort_values(ascending=True).index.to_list()
+            median_ordered = median_strain.reindex(order).reset_index(drop=False)[[group_by, feat]]  
         elif rank_by == 'mean':
             order = mean_strain[feat].sort_values(ascending=True).index.to_list()
-            
+            mean_ordered = mean_strain.reindex(order).reset_index(drop=False)[[group_by, feat]]  
+
         error = [sem(features.loc[metadata[group_by]==strain, feat]) for strain in order]
         #error = [1.98 * features.loc[metadata[group_by]==strain, feat].std() for strain in order]
 
-        mean_ordered = mean_strain.reindex(order).reset_index(drop=False)[[group_by, feat]]  
-        
         if control is not None:
-            colour = ['blue' if s == control else 'grey' for s in mean_ordered[group_by]]
+            if rank_by == 'median':
+                colour = ['blue' if s == control else 'grey' for s in median_ordered[group_by]]
+            elif rank_by == 'mean':
+                colour = ['blue' if s == control else 'grey' for s in mean_ordered[group_by]]
         else:
-            colour = ['grey' for s in mean_ordered[group_by]]
+            if rank_by == 'median':
+                colour = ['grey' for s in median_ordered[group_by]]
+            elif rank_by == 'mean':
+                colour = ['grey' for s in mean_ordered[group_by]]
             
         if highlight_subset is not None:
-            highlight_idxs = np.where(mean_ordered[group_by].isin(highlight_subset))[0]
+            if rank_by == 'median':
+                highlight_idxs = np.where(median_ordered[group_by].isin(highlight_subset))[0]
+            elif rank_by == 'mean':
+                highlight_idxs = np.where(mean_ordered[group_by].isin(highlight_subset))[0]
             _arr = np.array(colour)
             _arr[highlight_idxs] = 'red'
             colour = list(_arr)
@@ -321,14 +330,16 @@ def errorbar_sigfeats(features, metadata, group_by, fset, control=None, rank_by=
         ax.errorbar(x=group_by,
                     y=feat, 
                     yerr=error,
-                    data=mean_ordered, 
+                    data=mean_ordered if rank_by == 'mean' else median_ordered, 
                     ecolor=colour, c='dimgray', **kwargs)
         _ = plt.xticks(rotation=90, fontsize=fontsize, color=colour)
         _ = [t.set_color(i) for (i,t) in zip(colour, ax.xaxis.get_ticklabels())]
         #ax.tick_params(axis="x", color=colour)
-        
+                
         if rank_by == 'median':
             plt.axhline(median_strain.loc[control, feat], c='dimgray', ls='--')
+            #med_of_med = median_ordered.median() # FOR PLOTTING MEDIAN OF MEDIANS
+            #plt.axhline(med_of_med, c='', ls='--')
         elif rank_by == 'mean':
             plt.axhline(mean_strain.loc[control, feat], c='dimgray', ls='--')
             

@@ -1,14 +1,10 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Analyse Proteomics Mutants
-
-Investigate whether the arousal phenotype is present in any of the double-knockout and 
-over-expression mutants prepared to investigate the differentially regulated genes between 
-fepD and BW highlighted by proteomics analysis
+Analysis of the C. elegans microbiome (CeMBio) data collected in November 2020
 
 @author: sm5911
-@date: 28/06/2022
+@date: 29/08/2022
 
 """
 
@@ -16,41 +12,45 @@ fepD and BW highlighted by proteomics analysis
 
 import pandas as pd
 from pathlib import Path
+
 from preprocessing.compile_hydra_data import compile_metadata, process_feature_summaries
 from filter_data.clean_feature_summaries import clean_summary_results
-from visualisation.plotting_helper import sig_asterix, boxplots_sigfeats
-from write_data.write import write_list_to_file
-from time_series.plot_timeseries import selected_strains_timeseries, plot_timeseries_feature
-# from analysis.keio_screen.check_keio_screen_worm_trajectories import check_tracked_objects
-
-from tierpsytools.analysis.statistical_tests import univariate_tests, get_effect_sizes
 from tierpsytools.preprocessing.filter_data import select_feat_set
+from write_data.write import write_list_to_file
+from visualisation.plotting_helper import sig_asterix, boxplots_sigfeats
+from tierpsytools.analysis.statistical_tests import univariate_tests, get_effect_sizes
+from time_series.plot_timeseries import plot_timeseries_feature, selected_strains_timeseries
 
 #%% Globals
 
-PROJECT_DIR = "/Volumes/hermes$/Keio_Proteomics_Mutants_6WP"
-SAVE_DIR = "/Users/sm5911/Documents/Keio_Proteomics_Mutants"
+PROJECT_DIR = "/Volumes/behavgenom$/Saul/CeMbioScreen"
+SAVE_DIR = "/Users/sm5911/Documents/CeMBio_Screen"
 
-N_WELLS = 6
-FPS = 25
+N_WELLS = 96
+IMAGING_DATES = ['20201102','20201103']
 
-nan_threshold_row = 0.8
-nan_threshold_col = 0.05
+NAN_THRESH_SAMPLE = 0.8
+NAN_THRESH_FEATURE = 0.05
+MIN_SKEL_PER_VIDEO = None
+MIN_SKEL_SUM = 6000
 
-FEATURE_SET = ['motion_mode_forward_fraction_bluelight', 'speed_50th_bluelight']
+FEATURE_SET = None
+
+P_VALUE_THRESHOLD = 0.05
+FDR_METHOD = 'fdr_by'
 
 BLUELIGHT_TIMEPOINTS_SECONDS = [(60, 70),(160, 170),(260, 270)]
 
 #%% Functions
 
-def proteomics_mutants_stats(metadata,
-                             features,
-                             group_by='treatment',
-                             control='BW',
-                             save_dir=None,
-                             feature_set=None,
-                             pvalue_threshold=0.05,
-                             fdr_method='fdr_by'):
+def cembio_stats(metadata,
+                 features,
+                 group_by='food_type',
+                 control='OP50',
+                 save_dir=None,
+                 feature_set=None,
+                 pvalue_threshold=0.05,
+                 fdr_method='fdr_by'):
     
     # check case-sensitivity
     assert len(metadata[group_by].unique()) == len(metadata[group_by].str.upper().unique())
@@ -61,15 +61,16 @@ def proteomics_mutants_stats(metadata,
         assert(all(f in features.columns for f in feature_set))
     else:
         feature_set = features.columns.tolist()
-    features = features[feature_set]
+        
+    features = features[feature_set].reindex(metadata.index)
 
     # print mean sample size
     sample_size = metadata.groupby(group_by).count()
-    print("Mean sample size of %s/window: %d" % (group_by, 
-                                                 int(sample_size[sample_size.columns[-1]].mean())))
+    print("Mean sample size of %s: %d" % (group_by, int(sample_size[sample_size.columns[-1]].mean())))
 
-    fset = []
     n = len(metadata[group_by].unique())
+        
+    fset = []
     if n > 2:
    
         # Perform ANOVA - is there variation among strains at each window?
@@ -137,17 +138,19 @@ def proteomics_mutants_stats(metadata,
     print("%d significant features between any %s vs %s (t-test, P<%.2f, %s)" %\
           (nsig, group_by, control, pvalue_threshold, fdr_method))
 
-    return #anova_results, ttest_results
+    return
 
-def proteomics_mutants_boxplots(metadata,
-                                features,
-                                group_by='treatment',
-                                control='BW',
-                                save_dir=None,
-                                stats_dir=None,
-                                feature_set=None,
-                                pvalue_threshold=0.05):
-    
+def cembio_boxplots(metadata,
+                    features,
+                    group_by='food_type',
+                    control='OP50',
+                    save_dir=None,
+                    stats_dir=None,
+                    feature_set=None,
+                    pvalue_threshold=0.05,
+                    drop_insignificant=False,
+                    scale_outliers=False,
+                    ylim_minmax=None):
     
     feature_set = features.columns.tolist() if feature_set is None else feature_set
     assert isinstance(feature_set, list) and all(f in features.columns for f in feature_set)
@@ -162,16 +165,16 @@ def proteomics_mutants_boxplots(metadata,
     boxplots_sigfeats(features,
                       y_class=metadata[group_by],
                       control=control,
-                      pvals=pvals if stats_dir is not None else None,
+                      pvals=pvals,
                       z_class=None,
                       feature_set=feature_set,
                       saveDir=Path(save_dir),
-                      drop_insignificant=True if feature_set is None else False,
+                      drop_insignificant=drop_insignificant,
                       p_value_threshold=pvalue_threshold,
-                      scale_outliers=True)
-        
+                      scale_outliers=scale_outliers,
+                      ylim_minmax=ylim_minmax)
+    
     return
-
 
 #%% Main
 
@@ -184,12 +187,16 @@ if __name__ == '__main__':
     features_path_local = Path(SAVE_DIR) / 'features.csv'
     
     if not metadata_path_local.exists() and not features_path_local.exists():
-        metadata, metadata_path = compile_metadata(aux_dir, n_wells=N_WELLS, from_source_plate=True)
+        metadata, metadata_path = compile_metadata(aux_dir,
+                                                   imaging_dates=IMAGING_DATES,
+                                                   n_wells=N_WELLS, 
+                                                   add_well_annotations=False,
+                                                   from_source_plate=False)
         
         features, metadata = process_feature_summaries(metadata_path, 
                                                        results_dir=res_dir, 
                                                        compile_day_summaries=True, 
-                                                       imaging_dates=None, 
+                                                       imaging_dates=IMAGING_DATES, 
                                                        align_bluelight=True, 
                                                        window_summaries=False,
                                                        n_wells=N_WELLS)
@@ -198,14 +205,17 @@ if __name__ == '__main__':
         features, metadata = clean_summary_results(features, 
                                                    metadata,
                                                    feature_columns=None,
-                                                   nan_threshold_row=nan_threshold_row,
-                                                   nan_threshold_col=nan_threshold_col,
-                                                   max_value_cap=1e15,
+                                                   nan_threshold_row=NAN_THRESH_SAMPLE,
+                                                   nan_threshold_col=NAN_THRESH_FEATURE,
+                                                   max_value_cap=None,
                                                    imputeNaN=True,
-                                                   min_nskel_per_video=None,
-                                                   min_nskel_sum=None,
+                                                   min_nskel_per_video=MIN_SKEL_PER_VIDEO,
+                                                   min_nskel_sum=MIN_SKEL_SUM,
                                                    drop_size_related_feats=False,
                                                    norm_feats_only=False)
+        
+        assert not metadata['worm_strain'].isna().any()
+        assert not metadata['food_type'].isna().any()
         
         # save clean metadata and features
         metadata.to_csv(metadata_path_local, index=False)
@@ -229,59 +239,45 @@ if __name__ == '__main__':
             features = features[FEATURE_SET].copy()
     feature_list = features.columns.tolist()
 
-    # perform anova and t-tests comparing each treatment to BW control
-    metadata['treatment'] = metadata[['food_type','drug_type']].astype(str).agg('-'.join, axis=1)
-    metadata['treatment'] = [i.replace('-nan','') for i in metadata['treatment']]
+    strain_list = list(metadata['food_type'].unique())
 
-    strain_list = list(metadata['treatment'].unique())
+    # perform anova and t-tests comparing each treatment to control
+    cembio_stats(metadata,
+                 features,
+                 group_by='food_type',
+                 control='OP50',
+                 save_dir=Path(SAVE_DIR) / 'Stats',
+                 feature_set=FEATURE_SET,
+                 pvalue_threshold=P_VALUE_THRESHOLD,
+                 fdr_method=FDR_METHOD)
     
-    proteomics_mutants_stats(metadata,
-                             features,
-                             group_by='treatment',
-                             control='BW',
-                             save_dir=Path(SAVE_DIR) / 'Stats',
-                             feature_set=feature_list,
-                             pvalue_threshold=0.05,
-                             fdr_method='fdr_by')
+    # boxplots comparing each treatment to control for each feature
+    cembio_boxplots(metadata,
+                    features,
+                    group_by='food_type',
+                    control='OP50',
+                    save_dir=Path(SAVE_DIR) / 'Plots',
+                    stats_dir=Path(SAVE_DIR) / 'Stats',
+                    feature_set=feature_list,
+                    pvalue_threshold=P_VALUE_THRESHOLD,
+                    drop_insignificant=True,
+                    scale_outliers=False,
+                    ylim_minmax=None)
     
-    # boxplots comparing each treatment to BW control for each feature
-    proteomics_mutants_boxplots(metadata,
-                                features,
-                                group_by='treatment',
-                                control='BW',
-                                feature_set=feature_list,
-                                save_dir=Path(SAVE_DIR) / 'Plots',
-                                stats_dir=Path(SAVE_DIR) / 'Stats',
-                                pvalue_threshold=0.05)
-    
-    # timeseries motion mode fraction for each treatment vs BW control
-    selected_strains_timeseries(metadata,
-                                project_dir=Path(PROJECT_DIR), 
-                                save_dir=Path(SAVE_DIR) / 'timeseries', 
-                                strain_list=strain_list,
-                                group_by='treatment',
-                                control='BW',
-                                n_wells=6,
-                                bluelight_stim_type='bluelight',
-                                video_length_seconds=360,
-                                bluelight_timepoints_seconds=BLUELIGHT_TIMEPOINTS_SECONDS,
-                                motion_modes=['forwards','paused','backwards'],
-                                smoothing=10,
-                                fps=FPS)    
-    
-    # timeseries plots of speed for each treatment vs control
+    # timeseries plots of speed for each treatment vs 'N2-BW-nan' control
     plot_timeseries_feature(metadata,
                             project_dir=Path(PROJECT_DIR),
                             save_dir=Path(SAVE_DIR) / 'timeseries-speed',
-                            group_by='treatment',
-                            control='BW',
+                            group_by='food_type',
+                            control='OP50',
                             groups_list=strain_list,
                             feature='speed',
-                            n_wells=6,
+                            n_wells=N_WELLS,
                             bluelight_stim_type='bluelight',
                             video_length_seconds=360,
                             bluelight_timepoints_seconds=BLUELIGHT_TIMEPOINTS_SECONDS,
                             smoothing=10,
-                            fps=FPS,
-                            ylim_minmax=(-10,310)) # fixed the scale across plots to -10 to 310 um/sec
-    
+                            fps=25,
+                            ylim_minmax=None) # ylim_minmax for speed feature only
+
+   

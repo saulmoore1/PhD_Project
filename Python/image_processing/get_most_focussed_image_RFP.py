@@ -187,8 +187,9 @@ def findFocussedCZI(file, output_dir, method='BREN', imageSizeThreshXY=None, sho
     print("%d most focussed RFP images found." % focussed_images_df.shape[0])
 
     # save focus measures to file
-    fm_outPath = os.path.join(output_dir, 'focus_measures_RFP.csv')
-    focussed_images_df.to_csv(fm_outPath, index=False)
+    fm_outPath = Path(output_dir) / 'focus_measures_RFP.csv'
+    fm_outPath.parent.mkdir(exist_ok=True, parents=True)
+    focussed_images_df.to_csv(str(fm_outPath), index=False)
 
     # save most focussed images
     print("Saving GFP and RFP images separately for most focussed RFP images...")

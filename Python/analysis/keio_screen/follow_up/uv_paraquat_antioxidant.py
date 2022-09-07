@@ -331,7 +331,8 @@ if __name__ == '__main__':
                             video_length_seconds=360,
                             bluelight_timepoints_seconds=BLUELIGHT_TIMEPOINTS_SECONDS,
                             smoothing=10,
-                            fps=FPS)    
+                            fps=FPS,
+                            ylim_minmax=(-10,310))    
     
     # timeseries plots of fraction of worms on food
     #XXX: Use script to label lawns prior to executing these functions
