@@ -37,7 +37,7 @@ FPS = 25
 nan_threshold_row = 0.8
 nan_threshold_col = 0.05
 
-FEATURE_SET = ['motion_mode_forward_fraction_bluelight', 'speed_50th_bluelight']
+FEATURE_SET = ['speed_50th_bluelight']
 
 BLUELIGHT_TIMEPOINTS_SECONDS = [(60, 70),(160, 170),(260, 270)]
 
@@ -148,6 +148,9 @@ def proteomics_mutants_boxplots(metadata,
                                 feature_set=None,
                                 pvalue_threshold=0.05):
     
+    from matplotlib import pyplot as plt
+    from matplotlib import transforms
+    import seaborn as sns
     
     feature_set = features.columns.tolist() if feature_set is None else feature_set
     assert isinstance(feature_set, list) and all(f in features.columns for f in feature_set)
@@ -169,7 +172,64 @@ def proteomics_mutants_boxplots(metadata,
                       drop_insignificant=True if feature_set is None else False,
                       p_value_threshold=pvalue_threshold,
                       scale_outliers=True)
+
+    # load t-test results for window
+    if stats_dir is not None:
+        ttest_path = Path(str(stats_dir) + '_fepD')  / 't-test' / 't-test_results.csv'
+        ttest_df = pd.read_csv(ttest_path, header=0, index_col=0)
+        pvals = ttest_df[[c for c in ttest_df.columns if 'pval' in c]]
+        pvals.columns = [c.replace('pvals_','') for c in pvals.columns]
+
+    fepD_strains = [s for s in strain_list if 'fepD' in s]
+    meta_fepD = metadata[metadata['treatment'].isin(fepD_strains)]
+    feat_fepD = features.reindex(meta_fepD.index)
+
+    # all-in-one boxplots
+    for feat in [feature_set]:
+        save_path = save_dir / 'all-in-one' / 'fepD_{}.pdf'.format(feat)
+        save_path.parent.mkdir(exist_ok=True, parents=True)
         
+        plt.close('all')
+        fig, ax = plt.subplots(figsize=(30,6))
+        strain_list = sorted(meta_fepD['treatment'].unique())
+        plot_df = meta_fepD[['treatment']].join(feat_fepD[[feat]])
+        sns.boxplot(x='treatment', 
+                    y=feat, 
+                    showfliers=False,
+                    showmeans=False,
+                    order=strain_list, 
+                    data=plot_df)
+        sns.stripplot(x='treatment',
+                      y=feat,
+                      order=strain_list,
+                      data=plot_df,
+                      s=10,
+                      color='gray',
+                      marker=".",
+                      edgecolor='k',
+                      linewidth=.3)
+        # plt.title(feat.replace('_',' '), fontsize=15, pad=20)
+        plt.xticks(rotation=90)
+        plt.ylabel(feat.replace('_',' '), labelpad=20, fontsize=15)
+        ax.axes.get_xaxis().get_label().set_visible(False) # remove x axis label
+        # ax.axes.get_yaxis().get_label().set_visible(False) # remove y axis label
+        
+        # Add p-value to plot
+        feat_pvals = pvals.loc[feat]
+        for i, strain in enumerate(strain_list):
+            if strain == 'fepD':
+                continue
+            p = feat_pvals.loc[strain]
+            text = ax.get_xticklabels()[i]
+            assert text.get_text() == strain
+            trans = transforms.blended_transform_factory(ax.transData, ax.transAxes) #y=scaled
+            # plt.plot([0, 0, 1, 1], [0.98, 0.99, 0.99, 0.98], lw=1.5, c='k', transform=trans)
+            p_text = 'P < 0.001' if p < 0.001 else 'P = %.3f' % p
+            ax.text(i, 1.01, p_text, fontsize=10, ha='center', va='bottom', transform=trans)
+        
+        plt.subplots_adjust(bottom=0.32, top=0.95, left=0.05, right=0.98)
+        plt.savefig(save_path, dpi=600)
+
     return
 
 
@@ -244,6 +304,18 @@ if __name__ == '__main__':
                              pvalue_threshold=0.05,
                              fdr_method='fdr_by')
     
+    fepD_strains = [s for s in strain_list if 'fepD' in s]
+    meta_fepD = metadata[metadata['treatment'].isin(fepD_strains)]
+    feat_fepD = features.reindex(meta_fepD.index)
+    proteomics_mutants_stats(meta_fepD,
+                             feat_fepD,
+                             group_by='treatment',
+                             control='fepD',
+                             save_dir=Path(SAVE_DIR) / 'Stats_fepD',
+                             feature_set=feature_list,
+                             pvalue_threshold=0.05,
+                             fdr_method='fdr_bh')
+        
     # boxplots comparing each treatment to BW control for each feature
     proteomics_mutants_boxplots(metadata,
                                 features,
@@ -284,4 +356,5 @@ if __name__ == '__main__':
                             smoothing=10,
                             fps=FPS,
                             ylim_minmax=(-10,310)) # fixed the scale across plots to -10 to 310 um/sec
+  
     

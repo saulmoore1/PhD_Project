@@ -254,205 +254,6 @@ def compile_metadata(aux_dir,
             
     return metadata, metadata_path
 
-# =============================================================================
-# # TODO: Deprecated. Remove this function
-# def process_metadata(aux_dir, 
-#                      imaging_dates=None, 
-#                      add_well_annotations=True,
-#                      update_day_meta=False,
-#                      update_colnames=False, 
-#                      n_wells=96):
-#     """ Compile metadata from individual day metadata CSV files
-#     
-#         Parameters
-#         ----------
-#         aux_dir : str
-#             Path to "AuxiliaryFiles" containing metadata 
-#         update_day_meta : bool
-#             Update existing day metadata files 
-#         imaging_dates : list of str, None
-#             List of day metadata imaging dates to compile
-#         add_well_annotations : bool
-#             Add annotations from WellAnnotator GUI
-#         update_colnames : bool
-#             Rename columns names for compatibility with 'tierpsytools' functions
-#         n_wells : int
-#             Choose from either 96 or 6. NB: 'camera_serial' information is required 
-#             in metadata if n_wells is not 96
-# 
-#         Returns
-#         -------
-#         Updated metadata
-#         compiled metadata path
-#     """
-#     
-#     from tierpsytools.hydra.hydra_helper import add_imgstore_name
-#     from tierpsytools.hydra.match_wells_annotations import update_metadata_with_wells_annotations
-#     # from tierpsytools.hydra.match_wells_annotations import (import_wells_annotations_in_folder,
-#     #                                                         match_rawvids_annotations, update_metadata)
-#     
-#     compiled_metadata_path = Path(aux_dir) / "metadata.csv"
-#     
-#     if compiled_metadata_path.exists():
-#         # Load metadata
-#         meta_df = pd.read_csv(compiled_metadata_path, dtype={"comments":str, 
-#                                                              "source_plate_id":str}, header=0)
-#         # subset for imaging dates
-#         if imaging_dates is not None:
-#             assert type(imaging_dates) == list
-#             assert 'date_yyyymmdd' in meta_df.columns
-#             meta_df = meta_df[meta_df['date_yyyymmdd'].astype(str).isin(imaging_dates)]
-#             
-#         print("Metadata loaded.")
-#         
-#     else:
-#         # Compile metadata
-#         print("Metadata not found.\nCompiling from day metadata in: %s" % aux_dir)
-#         
-#         AuxFileList = os.listdir(aux_dir)
-#         dates = sorted([date for date in AuxFileList if re.match(r'\d{8}', date)])
-#         if imaging_dates:
-#             assert all(i in dates for i in imaging_dates)
-#         else:
-#             imaging_dates = dates
-#     
-#         day_meta_list = []
-#         for date in imaging_dates:
-#             day_meta_path = Path(aux_dir) / date / '{}_day_metadata.csv'.format(date)
-#                     
-#             day_meta = pd.read_csv(day_meta_path, dtype={"comments":str})
-# 
-#             # if update_colnames:
-#             #     # Rename old metadata column names for compatibility with TierpsyTools functions 
-#             #     day_meta = day_meta.rename(columns={'date_recording_yyyymmdd': 'date_yyyymmdd',
-#             #                                         'well_number': 'well_name',
-#             #                                         'plate_number': 'imaging_plate_id',
-#             #                                         'run_number': 'imaging_run_number',
-#             #                                         'camera_number': 'camera_serial'})
-#              
-#             # day_meta = day_meta.rename(columns={'channel':'old_channel'})
-#             day_meta_col_order = list(day_meta.columns)
-#             day_meta['row_order'] = np.arange(len(day_meta))
-# 
-#             # Get path to RawVideo directory for day metadata
-#             rawDir = Path(str(day_meta_path).replace("AuxiliaryFiles", "RawVideos")).parent
-#             
-#             # Get imgstore name
-#             if 'imgstore_name' not in day_meta.columns:
-# 
-#                 # Delete camera_serial column as it will be recreated
-#                 if 'camera_serial' in day_meta_col_order:
-#                      day_meta = day_meta.drop(columns='camera_serial')
-# 
-#                 # day_meta['well_name'] = day_meta['old_channel'].map({1:'A1', 2:'B1', 
-#                 #                                                      3:'A2', 4:'B2', 
-#                 #                                                      5:'A3', 6:'B3'})
-#                 
-#                 # add imgstore_name (camera_serial added if n_wells=96)
-#                 day_meta = add_imgstore_name(day_meta, rawDir, n_wells=n_wells)
-# 
-#             else:
-#                 assert not day_meta['imgstore_name'].isna().any()
-#             
-#             # Get filename
-#             day_meta['filename'] = [rawDir.parent / day_meta.loc[i,'imgstore_name']\
-#                                     for i in range(day_meta.shape[0])]
-#             
-#             # save day metadata, keeping original row order
-#             day_meta = day_meta.sort_values(by='row_order').reset_index(drop=True)
-#             day_meta = day_meta.drop(columns='row_order')
-#             
-#             newcols = list(set(day_meta.columns) - set(day_meta_col_order))
-#             day_meta_col_order.extend(newcols)
-#             
-#             if update_day_meta:
-#                 day_meta[day_meta_col_order].to_csv(day_meta_path, index=False)
-#             
-#             # Append to compiled metadata list
-#             day_meta_list.append(day_meta[day_meta_col_order])
-#         
-#         # Concatenate list of day metadata into full metadata
-#         meta_df = pd.concat(day_meta_list, axis=0, ignore_index=True, sort=False)
-# 
-#         # Ensure no NA values for filename or date recorded
-#         assert not any(meta_df['filename'].isna())
-#         
-#         # Ensure no NA values in any columns with 'date' in the name (and drop if all NA) for 
-#         # compatibility with fix_dtypes from tierpsytools platechecker
-#         check_na_cols = [col for col in meta_df.columns if 'date' in col]
-#         for col in check_na_cols:
-#             if all(meta_df[col].isna()):
-#                 print("Removing column '%s' from metadata (all NA)" % col)
-#                 meta_df = meta_df.drop(columns=[col])
-#             else:
-#                 assert not any(meta_df[col].isna())
-#                 
-#         # Convert 'date_yyyymmdd' column to string (factor)
-#         meta_df['date_yyyymmdd'] = meta_df['date_yyyymmdd'].astype(str)
-#         
-#         # drop any wells annotations columns that might exist as will throw an error when re-added
-#         meta_df = meta_df.drop(columns=['is_bad_well', 'well_label'], errors='ignore')
-#         
-#         # Save metadata
-#         meta_df.to_csv(compiled_metadata_path, index=None) 
-#         print("Metadata saved to: %s" % compiled_metadata_path)
-#     
-#     # Add annotations to metadata
-#     if add_well_annotations and n_wells == 96:        
-#         annotated_metadata_path = Path(str(compiled_metadata_path).replace('.csv', 
-#                                                                            '_annotated.csv'))
-#         if not annotated_metadata_path.exists():
-#             print("Adding annotations to metadata")
-#             
-#             meta_df = update_metadata_with_wells_annotations(aux_dir=aux_dir, 
-#                                                              saveto=annotated_metadata_path, 
-#                                                              del_if_exists=False)
-# 
-#             # annotations_df = import_wells_annotations_in_folder(aux_dir=aux_dir)
-#             # matched_long = match_rawvids_annotations(rawvid_dir=aux_dir.parent / "RawVideos", 
-#             #                                          annotations_df=annotations_df)
-#             
-#             # if imaging_dates is not None:
-#             #     _idx = [i for i in matched_long.index if 
-#             #             matched_long.loc[i, 'imgstore'].split('_')[-2] in imaging_dates]
-#             #     matched_long = matched_long.loc[_idx, :]
-#         
-#             # # annotate metadata + save
-#             # meta_df = update_metadata(aux_dir=aux_dir, 
-#             #                           matched_long=matched_long, 
-#             #                           saveto=annotated_metadata_path,
-#             #                           del_if_exists=False)
-# 
-#             if imaging_dates is not None:
-#                 imaging_dates = [float(i) for i in imaging_dates]
-#                 meta_df = meta_df.loc[meta_df['date_yyyymmdd'].isin(imaging_dates),:]
-#                 meta_df['date_yyyymmdd'] = meta_df['date_yyyymmdd'].astype(int).astype(str)
-#                 # NB: Also omits missing video data for some wells (ie. due to single camera failure)
-# 
-#                 meta_df.to_csv(annotated_metadata_path, index=None)
-#                 print("Saving annotated metadata to: %s" % annotated_metadata_path)
-#     
-#             assert annotated_metadata_path.exists()
-#            
-#         # Load annotated metadata
-#         meta_df = pd.read_csv(annotated_metadata_path, dtype={"comments":str,
-#                                                               "source_plate_id":str}, header=0)
-#         if imaging_dates is not None:
-#             imaging_dates = [float(i) for i in imaging_dates]
-#             meta_df = meta_df.loc[meta_df['date_yyyymmdd'].isin(imaging_dates),:]
-#             meta_df['date_yyyymmdd'] = meta_df['date_yyyymmdd'].astype(int).astype(str)
-#         
-#         compiled_metadata_path = annotated_metadata_path
-#                           
-#         if not 'is_bad_well' in meta_df.columns:
-#             raise Warning("Bad well annotations not found in metadata!")
-#         else:
-#             prop_bad = meta_df['is_bad_well'].sum()/len(meta_df['is_bad_well'])
-#             print("%.1f%% of data are labelled as 'bad well' data" % (prop_bad*100))
-#                             
-#     return meta_df, compiled_metadata_path
-# =============================================================================
-
 def process_feature_summaries(metadata_path, 
                               results_dir, 
                               compile_day_summaries=True,
@@ -545,15 +346,19 @@ def process_feature_summaries(metadata_path,
     # Read metadata + record column order
     metadata = pd.read_csv(metadata_path, dtype={"comments":str, "source_plate_id":str,
                                                  "imaging_run_number":str})
-    meta_col_order = metadata.columns.tolist()
+    meta_col_order = metadata.columns.tolist()    
 
     feat_id_cols = ['file_id', 'n_skeletons', 'well_name', 'is_good_well']
 
     # if there are no well annotations in metadata, omit 'is_good_well' from feat_id_cols
     bad_well_annotations = True
-    if 'is_good_well' not in meta_col_order:
+    if not 'is_good_well' in meta_col_order:
         feat_id_cols = [f for f in feat_id_cols if f != 'is_good_well']
         bad_well_annotations = False
+    # if n_skeletons is not in compiled_feats_path, omit 'n_skeletons' from feat_id_cols   
+    feat_df = pd.read_csv(compiled_feats_path, comment='#')
+    if not 'n_skeletons' in feat_df.columns:
+        feat_id_cols = [f for f in feat_id_cols if f != 'n_skeletons']
     if window_summaries:
         feat_id_cols.append('window')
         
@@ -624,4 +429,5 @@ if __name__ == "__main__":
                                                    n_wells=args.n_wells)   
     print("\nMetadata:\n", metadata.head())
     print("\nFeatures:\n", features.head())
+    
     

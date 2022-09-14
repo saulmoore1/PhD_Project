@@ -32,7 +32,7 @@ N_WELLS = 6
 
 FPS = 25
 
-FEATURE_SET = ['speed_50th_bluelight'] # 'motion_mode_forward_fraction_bluelight'
+FEATURE_SET = ['motion_mode_forward_fraction_bluelight','speed_50th_bluelight']
 
 nan_threshold_row = 0.8
 nan_threshold_col = 0.05
@@ -324,4 +324,9 @@ if __name__ == '__main__':
     #                         smoothing=10,
     #                         fps=FPS,
     #                         ylim_minmax=(-20,330)) # ylim_minmax for speed feature only
+
+    # TODO: Worms were NOT ON FOOD in iron(III)sulphate + enterobactin plates
+    # Experiment 1: N2 and VC2591 (flp-2) worms - source plates: [2,7,11,12,13,14,15,16] 
+    # Experiment 2: N2 with iron(III)sulphate + enterobactin - source plates: [1,3,4,5,6,8,9,10] 
+    # with control H2O plates for iron: [7,11,14] wells [A1,A2,A3] only (from Experiment 1)
 

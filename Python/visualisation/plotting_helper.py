@@ -297,43 +297,41 @@ def errorbar_sigfeats(features, metadata, group_by, fset, control=None, rank_by=
         # Errorbar plot
         if rank_by == 'median':
             order = median_strain[feat].sort_values(ascending=True).index.to_list()
-            median_ordered = median_strain.reindex(order).reset_index(drop=False)[[group_by, feat]]  
+            df_ordered = median_strain.reindex(order).reset_index(drop=False)[[group_by, feat]]  
         elif rank_by == 'mean':
             order = mean_strain[feat].sort_values(ascending=True).index.to_list()
-            mean_ordered = mean_strain.reindex(order).reset_index(drop=False)[[group_by, feat]]  
+            df_ordered = mean_strain.reindex(order).reset_index(drop=False)[[group_by, feat]]  
 
-        error = [sem(features.loc[metadata[group_by]==strain, feat]) for strain in order]
+        df_ordered['error'] = [sem(features.loc[metadata[group_by]==strain, feat]) for strain in order]
         #error = [1.98 * features.loc[metadata[group_by]==strain, feat].std() for strain in order]
 
         if control is not None:
-            if rank_by == 'median':
-                colour = ['blue' if s == control else 'grey' for s in median_ordered[group_by]]
-            elif rank_by == 'mean':
-                colour = ['blue' if s == control else 'grey' for s in mean_ordered[group_by]]
+            df_ordered['colour'] = ['blue' if s == control else 'grey' for s in df_ordered[group_by]]
         else:
-            if rank_by == 'median':
-                colour = ['grey' for s in median_ordered[group_by]]
-            elif rank_by == 'mean':
-                colour = ['grey' for s in mean_ordered[group_by]]
-            
+            df_ordered['colour'] = ['grey' for s in df_ordered[group_by]]
+
         if highlight_subset is not None:
-            if rank_by == 'median':
-                highlight_idxs = np.where(median_ordered[group_by].isin(highlight_subset))[0]
-            elif rank_by == 'mean':
-                highlight_idxs = np.where(mean_ordered[group_by].isin(highlight_subset))[0]
-            _arr = np.array(colour)
-            _arr[highlight_idxs] = 'red'
-            colour = list(_arr)
-         
+            df_ordered.loc[np.where(df_ordered[group_by].isin(highlight_subset))[0],'colour'] = 'red'
+                    
         plt.close('all')
         fig, ax = plt.subplots(figsize=figsize)
         ax.errorbar(x=group_by,
                     y=feat, 
-                    yerr=error,
-                    data=mean_ordered if rank_by == 'mean' else median_ordered, 
-                    ecolor=colour, c='dimgray', **kwargs)
-        _ = plt.xticks(rotation=90, fontsize=fontsize, color=colour)
-        _ = [t.set_color(i) for (i,t) in zip(colour, ax.xaxis.get_ticklabels())]
+                    yerr='error',
+                    data=df_ordered, 
+                    # ecolor=list(df_ordered['colour']), 
+                    color='dimgray', **kwargs)
+        
+        idxs = np.where(df_ordered['colour']!='grey')[0]
+        values = df_ordered.loc[idxs,feat].values
+        errors = df_ordered.loc[idxs,'error'].values
+        colours = df_ordered.loc[idxs,'colour'].values
+            
+        for pos, y, err, colour in zip(idxs, values, errors, colours):
+            ax.errorbar(pos, y, err, color=colour)
+                
+        _ = plt.xticks(rotation=90, ha='center', fontsize=fontsize, color=df_ordered['colour'])
+        _ = [t.set_color(i) for (i,t) in zip(df_ordered['colour'], ax.xaxis.get_ticklabels())]
         #ax.tick_params(axis="x", color=colour)
                 
         if rank_by == 'median':
@@ -343,12 +341,12 @@ def errorbar_sigfeats(features, metadata, group_by, fset, control=None, rank_by=
         elif rank_by == 'mean':
             plt.axhline(mean_strain.loc[control, feat], c='dimgray', ls='--')
             
-        plt.tick_params(
-            axis='x',          # changes apply to the x-axis
-            which='both',      # both major and minor ticks are affected
-            bottom=False,      # ticks along the bottom edge are off
-            top=False,         # ticks along the top edge are off
-            labelbottom=True)  # labels along the bottom edge are off
+        # plt.tick_params(
+        #     axis='x',          # changes apply to the x-axis
+        #     which='both',      # both major and minor ticks are affected
+        #     bottom=False,      # ticks along the bottom edge are off
+        #     top=False,         # ticks along the top edge are off
+        #     labelbottom=True)  # labels along the bottom edge are off
         plt.title(feat, pad=10)
         
         if tight_layout is not None:
@@ -527,9 +525,12 @@ def boxplots_sigfeats(features,
                     IQR = Q3 - Q1
                     plt.ylim(min(y_bar) - 2.5 * max(IQR), max(y_bar) + 2.5 * max(IQR))
     
-                elif ylim_minmax is not None:
+                #XXX ylim_minmax for speed only
+                elif ylim_minmax is not None and 'speed_50th' in feature: 
                     assert isinstance(ylim_minmax, tuple)
                     plt.ylim(ylim_minmax[0], ylim_minmax[1])
+                # elif 'motion_mode' in feature:
+                #     plt.ylim(0, 1)
                     
                 # Add p-value to plot
                 p = strain_pvals.loc[feature]

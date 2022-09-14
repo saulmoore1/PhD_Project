@@ -24,7 +24,7 @@ PROJECT_DIR = "/Users/sm5911/Documents/Keio_Screen"
 
 WALHOUT_SI_PATH = "/Users/sm5911/Documents/Keio_Screen/Walhout_2019_arousal_crossref/Walhout_2019_SI_Table1.xlsx"
 
-FEATURE_LIST = ['motion_mode_paused_fraction', 'motion_mode_paused_frequency']
+FEATURE_LIST = ['speed_50th']
 
 STIMULUS_LIST = ['prestim', 'bluelight', 'poststim']
 
@@ -107,7 +107,22 @@ def main():
         # save full Keio ranking
         order = order.reset_index(drop=False).rename({'index':'rank'}, axis='columns')
         order.to_csv(str(save_path).replace('.csv','_full.csv'), header=True, index=False)
-        
+ 
+    # errorbar plots for all genes (highlighting fep genes)
+    fep_list = ['fepB','fepC','fepD','fepG']
+    errorbar_sigfeats(features, metadata, 
+                      group_by='gene_name',
+                      fset=fset,
+                      control='wild_type',
+                      highlight_subset=[s for s in list(metadata.gene_name.unique()) if s in fep_list],
+                      rank_by='mean',
+                      figsize=(150,6),
+                      fontsize=3,
+                      ms=6,
+                      elinewidth=1.2,
+                      fmt='.',
+                      tight_layout=[0.01,0.01,0.99,0.99],
+                      saveDir=save_dir / 'errorbar' / 'fep_labelled')
         
 #%% Main
 
