@@ -355,12 +355,11 @@ def process_feature_summaries(metadata_path,
     if not 'is_good_well' in meta_col_order:
         feat_id_cols = [f for f in feat_id_cols if f != 'is_good_well']
         bad_well_annotations = False
+        
     # if n_skeletons is not in compiled_feats_path, omit 'n_skeletons' from feat_id_cols   
     feat_df = pd.read_csv(compiled_feats_path, comment='#')
     if not 'n_skeletons' in feat_df.columns:
         feat_id_cols = [f for f in feat_id_cols if f != 'n_skeletons']
-    if window_summaries:
-        feat_id_cols.append('window')
         
     # Read features summaries + metadata and add bluelight column if aligning bluelight video results
     features, metadata = read_hydra_metadata(compiled_feats_path, 
@@ -371,14 +370,22 @@ def process_feature_summaries(metadata_path,
     if not bad_well_annotations and 'is_good_well' in features.columns:
         features = features.drop(columns='is_good_well')
 
-    if align_bluelight:
+    merge_on_cols = ['date_yyyymmdd','imaging_run_number','imaging_plate_id','well_name']
+    
+    # meta_col_order.append('window')
+    if window_summaries:
+        print("Not aligning bluelight as feature summaries have been calculated for defined windows\n" +
+              "Please manually subset metadata by stimulus type and desired window")
+        
+        # transfer 'window' info over to metadata
+        metadata['window'] = features['window']
+        features = features.drop('window', axis=1)
+        
+    elif align_bluelight:
         features, metadata = align_bluelight_conditions(feat=features, 
                                                         meta=metadata, 
                                                         how='outer',
-                                                        merge_on_cols=['date_yyyymmdd',
-                                                                       'imaging_run_number',
-                                                                       'imaging_plate_id',
-                                                                       'well_name'])
+                                                        merge_on_cols=merge_on_cols)
         meta_col_order.remove('imgstore_name')
             
     assert set(features.index) == set(metadata.index)

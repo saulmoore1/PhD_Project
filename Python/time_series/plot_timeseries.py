@@ -207,8 +207,13 @@ def plot_timeseries_feature(metadata,
     groups_list = [g for g in groups_list if g != control]
     assert control in metadata[group_by].unique()
     
-    if bluelight_stim_type is not None:
+    if bluelight_stim_type is not None and 'window' not in metadata.columns:
         metadata['imgstore_name'] = metadata['imgstore_name_{}'.format(bluelight_stim_type)]
+        
+    if 'window' in metadata.columns:
+        assert bluelight_stim_type is not None
+        stimtype_videos = [i for i in metadata['imgstore_name'] if bluelight_stim_type in i]
+        metadata = metadata[metadata['imgstore_name'].isin(stimtype_videos)]
     
     if bluelight_timepoints_seconds is not None:
         bluelight_frames = [(i*fps, j*fps) for (i, j) in bluelight_timepoints_seconds]
@@ -288,7 +293,6 @@ def plot_window_timeseries_feature(metadata,
                                    group_by='gene_name',
                                    control='BW',
                                    groups_list=None,
-                                   window_list=None,
                                    feature='speed',
                                    n_wells=6,
                                    bluelight_timepoints_seconds=None,
@@ -401,24 +405,24 @@ def plot_window_timeseries_feature(metadata,
                 plt.close('all')
                 fig, ax = plt.subplots(figsize=figsize, dpi=300)
                 ax = plot_timeseries(df=control_ts,
-                             feature=feature,
-                             error=True, 
-                             max_n_frames=(video_length_seconds*fps if video_length_seconds
-                                           is not None else None), 
-                             smoothing=smoothing*fps, 
-                             ax=ax,
-                             bluelight_frames=bluelight_frames,
-                             colour=col_dict[control])
+                                     feature=feature,
+                                     error=True, 
+                                     max_n_frames=(video_length_seconds*fps if video_length_seconds
+                                                   is not None else None), 
+                                     smoothing=smoothing*fps, 
+                                     ax=ax,
+                                     bluelight_frames=bluelight_frames,
+                                     colour=col_dict[control])
         
                 ax = plot_timeseries(df=group_ts,
-                             feature=feature,
-                             error=True, 
-                             max_n_frames=(video_length_seconds*fps if video_length_seconds
-                                           is not None else None), 
-                             smoothing=smoothing*fps, 
-                             ax=ax,
-                             bluelight_frames=bluelight_frames,
-                             colour=col_dict[group])
+                                     feature=feature,
+                                     error=True, 
+                                     max_n_frames=(video_length_seconds*fps if video_length_seconds
+                                                   is not None else None), 
+                                     smoothing=smoothing*fps, 
+                                     ax=ax,
+                                     bluelight_frames=bluelight_frames,
+                                     colour=col_dict[group])
                 xticks = np.linspace(0, video_length_seconds*fps, int(video_length_seconds/60)+1)
                 ax.set_xticks(xticks)
                 ax.set_xticklabels([str(int(x/fps/60)) for x in xticks])   
@@ -633,8 +637,13 @@ def selected_strains_timeseries(metadata,
         assert all(s in metadata[group_by].unique() for s in strain_list)
     strain_list = [s for s in strain_list if s != control]
     
-    metadata['imgstore_name'] = metadata['imgstore_name_{}'.format(bluelight_stim_type)]
+    if 'window' not in metadata.columns:
+        metadata['imgstore_name'] = metadata['imgstore_name_{}'.format(bluelight_stim_type)]
     
+    if 'window' in metadata.columns:
+        stimtype_videos = [i for i in metadata['imgstore_name'] if bluelight_stim_type in i]
+        metadata = metadata[metadata['imgstore_name'].isin(stimtype_videos)]
+
     # remove entries with missing video filename info
     n_nan = len([s for s in metadata['imgstore_name'].unique() if not isinstance(s, str)])
     if n_nan > 1:

@@ -39,17 +39,17 @@ FPS = 25
 VIDEO_LENGTH_SECONDS = 38*60
 SMOOTH_WINDOW_SECONDS = 5
 
-N_TOP_FEATS = 16 # Tierpsy feature set to use: 16, 256, '2k', None
+N_TOP_FEATS = None # Tierpsy feature set to use: 16, 256, '2k', None
 IMAGING_DATES = ['20220418']
 
 nan_threshold_row = 0.8
 nan_threshold_col = 0.05
-motion_modes = ['forwards','backwards','stationary']
+# motion_modes = ['forwards','backwards','stationary']
 
-WINDOW_DICT_SECONDS = {0:(1830,1860), 1:(1890,1920), 2:(1950,1980)}
+# WINDOW_DICT_SECONDS = {0:(1830,1860), 1:(1890,1920), 2:(1950,1980)}
 
 window_list = sorted(WINDOW_DICT_SECONDS.keys()) # [8]
-feature_set = ['motion_mode_forward_fraction','speed_50th']
+feature_set = ['speed_50th']
 control_treatment = 'BW-none-nan-H2O'
 
 
@@ -455,11 +455,12 @@ if __name__ == '__main__':
     
     # subset metadata for a single window to avoid duplicate filename in metadata for timeseries
     metadata = metadata.query("window==0")
-    antioxidants_timeseries(metadata, 
-                            control=control_treatment,
-                            group_by='treatment',
-                            project_dir=Path(PROJECT_DIR),
-                            save_dir=Path(SAVE_DIR) / 'timeseries')
+    # antioxidants_timeseries(metadata, 
+    #                         control=control_treatment,
+    #                         group_by='treatment',
+    #                         project_dir=Path(PROJECT_DIR),
+    #                         save_dir=Path(SAVE_DIR) / 'timeseries')
+    # TODO: Get timeseries for speed
     
     # # Check length/area of tracked objects - prop bad skeletons
     # results_df = check_tracked_objects(metadata, 

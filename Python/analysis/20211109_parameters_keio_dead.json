@@ -27,6 +27,6 @@
                  "dead": false},
 "n_sig_features": null,
 "pval_threshold": 0.05,
-"fdr_method": "fdr_by",
+"fdr_method": "fdr_bh",
 "use_corrected_pvals" : true
 }

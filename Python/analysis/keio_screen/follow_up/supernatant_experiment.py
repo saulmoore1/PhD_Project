@@ -15,28 +15,24 @@ Adding fepD culture to BW lawns
 
 #%% Imports
 
-import numpy as np
 import pandas as pd
 import seaborn as sns
 from tqdm import tqdm
 from pathlib import Path
-from matplotlib import transforms
-from matplotlib import pyplot as plt
-from matplotlib.lines import Line2D
-from matplotlib import patches as mpatches
 from preprocessing.compile_hydra_data import compile_metadata, process_feature_summaries
 from filter_data.clean_feature_summaries import clean_summary_results
-from visualisation.plotting_helper import sig_asterix
-from statistical_testing.stats_helper import do_stats
-from time_series.time_series_helper import get_strain_timeseries
-from time_series.plot_timeseries import plot_timeseries_motion_mode, plot_window_timeseries_feature
-from analysis.keio_screen.check_keio_screen_worm_trajectories import check_tracked_objects
+from visualisation.plotting_helper import sig_asterix, all_in_one_boxplots
+from write_data.write import write_list_to_file
+from time_series.plot_timeseries import plot_window_timeseries_feature #plot_timeseries_motion_mode
+# from analysis.keio_screen.check_keio_screen_worm_trajectories import check_tracked_objects
+
+from tierpsytools.analysis.statistical_tests import univariate_tests, get_effect_sizes
+from tierpsytools.preprocessing.filter_data import select_feat_set
 
 #%% Globals
 
 PROJECT_DIR = '/Volumes/hermes$/Keio_Supernatants_6WP'
 SAVE_DIR = '/Users/sm5911/Documents/Keio_Supernatants'
-IMAGING_DATES = ['20220412']
 N_WELLS = 6
 
 NAN_THRESHOLD_ROW = 0.8
@@ -44,841 +40,119 @@ NAN_THRESHOLD_COL = 0.05
 MIN_NSKEL_PER_VIDEO = None
 MIN_NSKEL_SUM = 500
 
-FEATURE = 'speed_50th' #'motion_mode_forward_fraction'
-motion_modes = ['forwards']
+FEATURE_SET = ['speed_50th'] #'motion_mode_forward_fraction'
 
-WINDOW_DICT_SECONDS = {0:(1790,1800), 1:(1805,1815), 2:(1815,1825),
-                       3:(1850,1860), 4:(1865,1875), 5:(1875,1885),
-                       6:(1910,1920), 7:(1925,1935), 8:(1935,1945)}
+# Featsums 10 seconds centred on end of each BL pulse and also 20-30 seconds after end of each BL pulse
+WINDOW_DICT_SECONDS = {0:(1805,1815), 1:(1830,1840), 2:(1865,1875),
+                       3:(1890,1900), 4:(1925,1935), 5:(1950,1960)}
 
-WINDOW_DICT_STIM_TYPE = {0:'prestim\n(30min)',1:'bluelight\n(30min)',2:'poststim\n(30min)',
-                         3:'prestim\n(31min)',4:'bluelight\n(31min)',5:'poststim\n(31min)',
-                         6:'prestim\n(32min)',7:'bluelight\n(32min)',8:'poststim\n(32min)'}
+WINDOW_NAME_DICT = {0:"blue light 1", 1: "20-30 seconds after blue light 1",
+                    2:"blue light 2", 3: "20-30 seconds after blue light 2",
+                    4:"blue light 3", 5: "20-30 seconds after blue light 3"}
 
-WINDOW_NUMBER = 3
 BLUELIGHT_TIMEPOINTS_MINUTES = [30,31,32]
 FPS = 25
 VIDEO_LENGTH_SECONDS = 38*60
 SMOOTH_WINDOW_SECONDS = 5
 BLUELIGHT_WINDOWS_ONLY_TS = True
 
-drug_type_list = ['none','fepD']
-extract_type_list = ['none','supernatant','lysate']
-culture_type_list = ['none','liquid','solid']
-is_dead_list = ['N','Y']
-solvent_list = ['none','PBS','DMSO','PBS/DMSO','NGM/DMSO']
-killing_method_list = ['none', 'ultraviolet', 'sonication', 'ultraviolet/sonication',
-                       'methanol/sonication', 'ultraviolet/methanol/sonication']
-treatment_list = ['none-none-none','fepD-lysate-solid','fepD-lysate-liquid',  
-                  'fepD-supernatant-solid', 'fepD-supernatant-liquid']
-
-all_treatment_control = 'none-none-none-N-none'
-
 #%% Functions
 
-def supernatants_stats(metadata, 
-                       features, 
-                       save_dir,
-                       window=WINDOW_NUMBER,
-                       feature_list=[FEATURE],
-                       pvalue_threshold=0.05,
-                       fdr_method='fdr_by'):
-    """ T-tests comparing each of the following for BW vs BW+fepD:
-        - fepD cell lysate vs supernatant
-        - extracted from solid vs liquid media
-        - added to live vs UV-killed BW25113 control bacteria (BW)
-    """
-    
-    assert metadata.shape[0] == features.shape[0]
-    
-    window_meta = metadata.query("window==@window")  
-    save_dir = Path(save_dir) / 'window_{}'.format(window)
-    save_dir.mkdir(exist_ok=True, parents=True)
-
-    ### Compare each treatment to BW control
-    window_meta['treatment'] = window_meta[['drug_type','cell_extract_type','culture_type',
-                                            'is_dead','solvent']
-                                           ].agg('-'.join, axis=1)    
-
-    # compare all treatments to BW control (correcting for multiple comparisons)
-    do_stats(metadata=window_meta,
-             features=features.reindex(window_meta.index),
-             group_by='treatment',
-             control=all_treatment_control,
-             save_dir=save_dir / 'all_treatments',
-             feat=feature_list,
-             pvalue_threshold=pvalue_threshold,
-             fdr_method=fdr_method)
-    
-    # TODO: Correct p-values for multiple t-test comparisons for the all of the following tests:
-
-    control_meta = window_meta.query("drug_type=='none' and is_dead=='N' and solvent=='none'")
-
-    # live BW + fepD solid lysate
-    fepD_live_solid_lysate_meta = window_meta.query("culture_type=='solid' and " +
-                                                    "cell_extract_type=='lysate' and " +
-                                                    "killing_method=='sonication' and " +
-                                                    "is_dead=='N'")
-    test_meta = pd.concat([control_meta, fepD_live_solid_lysate_meta], axis=0)
-    do_stats(metadata=test_meta, 
-             features=features.reindex(test_meta.index), 
-             group_by='drug_type',
-             control='none',
-             save_dir=save_dir / 'fepD_lysate_solid_on_live_BW',
-             feat=feature_list,
-             pvalue_threshold=pvalue_threshold,
-             fdr_method=fdr_method)
-    
-    # live BW + fepD solid supernatant
-    fepD_live_solid_supernatant_meta = window_meta.query("culture_type=='solid' and " +
-                                                         "cell_extract_type=='supernatant' and " +
-                                                         "is_dead=='N'")
-    
-    test_meta = pd.concat([control_meta, fepD_live_solid_supernatant_meta], axis=0)
-    do_stats(metadata=test_meta, 
-             features=features.reindex(test_meta.index), 
-             group_by='drug_type',
-             control='none',
-             save_dir=save_dir / 'fepD_supernatant_solid_on_live_BW',
-             feat=feature_list,
-             pvalue_threshold=pvalue_threshold,
-             fdr_method=fdr_method)
-    
-    # live BW + fepD liquid lysate 
-    fepD_live_liquid_lysate_meta = window_meta.query("culture_type=='liquid' and " +
-                                                     "cell_extract_type=='lysate' and " +
-                                                     "killing_method=='sonication' and " +
-                                                     "is_dead=='N'")
-    test_meta = pd.concat([control_meta, fepD_live_liquid_lysate_meta], axis=0)
-    do_stats(metadata=test_meta, 
-             features=features.reindex(test_meta.index), 
-             group_by='drug_type',
-             control='none',
-             save_dir=save_dir / 'fepD_lysate_liquid_on_live_BW',
-             feat=feature_list,
-             pvalue_threshold=pvalue_threshold,
-             fdr_method=fdr_method)
-    
-    # live BW + fepD liquid supernatant
-    fepD_live_liquid_supernatant_meta = window_meta.query("culture_type=='liquid' and " +
-                                                          "cell_extract_type=='supernatant' and " +
-                                                          "is_dead=='N'")
-    
-    test_meta = pd.concat([control_meta, fepD_live_liquid_supernatant_meta], axis=0)
-    do_stats(metadata=test_meta, 
-             features=features.reindex(test_meta.index), 
-             group_by='drug_type',
-             control='none',
-             save_dir=save_dir / 'fepD_supernatant_liquid_on_live_BW',
-             feat=feature_list,
-             pvalue_threshold=pvalue_threshold,
-             fdr_method=fdr_method)   
-    
-    # dead BW + fepD solid lysate
-    fepD_dead_solid_lysate_meta = window_meta.query("culture_type=='solid' and " +
-                                                    "cell_extract_type=='lysate' and " +
-                                                    "killing_method=='sonication' and " +
-                                                    "is_dead=='Y'")
-    test_meta = pd.concat([control_meta, fepD_dead_solid_lysate_meta], axis=0)
-    do_stats(metadata=test_meta, 
-             features=features.reindex(test_meta.index), 
-             group_by='drug_type',
-             control='none',
-             save_dir=save_dir / 'fepD_lysate_solid_on_dead_BW',
-             feat=feature_list,
-             pvalue_threshold=pvalue_threshold,
-             fdr_method=fdr_method)
-    
-    # dead BW + fepD solid supernatant
-    fepD_dead_solid_supernatant_meta = window_meta.query("culture_type=='solid' and " +
-                                                         "cell_extract_type=='supernatant' and " +
-                                                         "is_dead=='Y'")
-    
-    test_meta = pd.concat([control_meta, fepD_dead_solid_supernatant_meta], axis=0)
-    do_stats(metadata=test_meta, 
-             features=features.reindex(test_meta.index), 
-             group_by='drug_type',
-             control='none',
-             save_dir=save_dir / 'fepD_supernatant_solid_on_dead_BW',
-             feat=feature_list,
-             pvalue_threshold=pvalue_threshold,
-             fdr_method=fdr_method)
-    
-    # dead BW + fepD liquid lysate 
-    fepD_dead_liquid_lysate_meta = window_meta.query("culture_type=='liquid' and " +
-                                                     "cell_extract_type=='lysate' and " +
-                                                     "killing_method=='sonication' and " +
-                                                     "is_dead=='Y'")
-    test_meta = pd.concat([control_meta, fepD_dead_liquid_lysate_meta], axis=0)
-    do_stats(metadata=test_meta, 
-             features=features.reindex(test_meta.index), 
-             group_by='drug_type',
-             control='none',
-             save_dir=save_dir / 'fepD_lysate_liquid_on_dead_BW',
-             feat=feature_list,
-             pvalue_threshold=pvalue_threshold,
-             fdr_method=fdr_method)
-    
-    # dead BW + fepD liquid supernatant
-    fepD_dead_liquid_supernatant_meta = window_meta.query("culture_type=='liquid' and " +
-                                                          "cell_extract_type=='supernatant' and " +
-                                                          "is_dead=='Y'")
-    
-    test_meta = pd.concat([control_meta, fepD_dead_liquid_supernatant_meta], axis=0)
-    do_stats(metadata=test_meta, 
-             features=features.reindex(test_meta.index), 
-             group_by='drug_type',
-             control='none',
-             save_dir=save_dir / 'fepD_supernatant_liquid_on_dead_BW',
-             feat=feature_list,
-             pvalue_threshold=pvalue_threshold,
-             fdr_method=fdr_method)   
- 
-    
-    ### SOLVENT: is there a difference between solvents used on BW control?
-    
-    BW_solvent_meta = window_meta.query("drug_type=='none' and is_dead=='N'")
-    do_stats(metadata=BW_solvent_meta,
-             features=features.reindex(BW_solvent_meta.index),
-             group_by='solvent',
-             control='none',
-             save_dir=save_dir / 'BW_solvents',
-             feat=feature_list,
-             pvalue_threshold=pvalue_threshold,
-             fdr_method=fdr_method)
-    
-    # Were worms on PBS/DMSO significantly different from worms on just PBS? 
-    BW_PBS_meta = BW_solvent_meta[['PBS' in s for s in BW_solvent_meta['solvent']]]
-    do_stats(metadata=BW_PBS_meta,
-             features=features.reindex(BW_PBS_meta.index),
-             group_by='solvent',
-             control='PBS',
-             save_dir=save_dir / 'BW_solvents' / 'PBS vs PBS-DMSO',
-             feat=feature_list,
-             pvalue_threshold=pvalue_threshold,
-             fdr_method=fdr_method)
-    
-    
-    ### UV KILLING: BW control - dead vs alive
-    
-    BW_UV_meta = window_meta.query("drug_type=='none' and solvent=='none'")
-    do_stats(metadata=BW_UV_meta,
-             features=features.reindex(BW_UV_meta.index),
-             group_by='is_dead',
-             control='N',
-             save_dir=save_dir / 'BW_UV_killed',
-             feat=feature_list,
-             pvalue_threshold=pvalue_threshold,
-             fdr_method=fdr_method)
-    
-
-    ### UV KILLING: fepD added to live vs dead BW
-
-    # fepD - supernatant vs lysate, from solid vs liquid culture, on dead vs live BW
-    fepD_meta = metadata.query("drug_type=='fepD'")
-    
-    # fepD solid lysate on live vs dead BW
-    fepD_solid_lysate_meta = fepD_meta.query("culture_type=='solid' and " +
-                                             "cell_extract_type=='lysate'")
-    do_stats(metadata=fepD_solid_lysate_meta,
-             features=features.reindex(fepD_solid_lysate_meta.index),
-             group_by='is_dead',
-             control='N',
-             save_dir=save_dir / 'live_vs_dead_BW' / 'fepD_solid_lysate',
-             feat=feature_list,
-             pvalue_threshold=pvalue_threshold,
-             fdr_method=fdr_method)
-    
-    # fepD liquid lysate on live vs dead BW
-    fepD_liquid_lysate_meta = fepD_meta.query("culture_type=='liquid' and " +
-                                              "cell_extract_type=='lysate'")
-    do_stats(metadata=fepD_liquid_lysate_meta,
-             features=features.reindex(fepD_liquid_lysate_meta.index),
-             group_by='is_dead',
-             control='N',
-             save_dir=save_dir / 'live_vs_dead_BW' / 'fepD_liquid_lysate',
-             feat=feature_list,
-             pvalue_threshold=pvalue_threshold,
-             fdr_method=fdr_method)
-    
-    # fepD solid supernatant on live vs dead BW
-    fepD_solid_supernatant_meta = fepD_meta.query("culture_type=='solid' and " +
-                                                  "cell_extract_type=='supernatant'")
-    do_stats(metadata=fepD_solid_supernatant_meta,
-             features=features.reindex(fepD_solid_supernatant_meta.index),
-             group_by='is_dead',
-             control='N',
-             save_dir=save_dir / 'live_vs_dead_BW' / 'fepD_solid_supernatant',
-             feat=feature_list,
-             pvalue_threshold=pvalue_threshold,
-             fdr_method=fdr_method)
-    
-    # fepD liquid supernatant on live vs dead BW
-    fepD_liquid_supernatant_meta = fepD_meta.query("culture_type=='liquid' and " +
-                                                   "cell_extract_type=='supernatant'")
-    do_stats(metadata=fepD_liquid_supernatant_meta,
-             features=features.reindex(fepD_liquid_supernatant_meta.index),
-             group_by='is_dead',
-             control='N',
-             save_dir=save_dir / 'live_vs_dead_BW' / 'fepD_liquid_supernatant',
-             feat=feature_list,
-             pvalue_threshold=pvalue_threshold,
-             fdr_method=fdr_method) 
-    
-    
-    ### SUPERNATANT vs LYSATE - fepD added to BW lawns
-    
-    # fepD supernatant vs lysate (from solid culture added to live BW)
-    fepD_live_solid_meta = fepD_meta.query("is_dead=='N' and culture_type=='solid'")
-    do_stats(metadata=fepD_live_solid_meta,
-             features=features.reindex(fepD_live_solid_meta.index),
-             group_by='cell_extract_type',
-             control='lysate',
-             save_dir=save_dir / 'fepD_supernatant_vs_lysate' / 'solid_culture_on_live_BW',
-             feat=feature_list,
-             pvalue_threshold=pvalue_threshold,
-             fdr_method=fdr_method)
-        
-    # fepD supernatant vs lysate (from liquid culture added to live BW)
-    fepD_live_liquid_meta = fepD_meta.query("is_dead=='N' and culture_type=='liquid'")
-    do_stats(metadata=fepD_live_liquid_meta,
-             features=features.reindex(fepD_live_liquid_meta.index),
-             group_by='cell_extract_type',
-             control='lysate',
-             save_dir=save_dir / 'fepD_supernatant_vs_lysate' / 'liquid_culture_on_live_BW',
-             feat=feature_list,
-             pvalue_threshold=pvalue_threshold,
-             fdr_method=fdr_method)
-    
-    # fepD supernatant vs lysate (from solid culture added to dead BW)
-    fepD_dead_solid_meta = fepD_meta.query("is_dead=='Y' and culture_type=='solid'")
-    do_stats(metadata=fepD_dead_solid_meta,
-             features=features.reindex(fepD_dead_solid_meta.index),
-             group_by='cell_extract_type',
-             control='lysate',
-             save_dir=save_dir / 'fepD_supernatant_vs_lysate' / 'solid_culture_on_dead_BW',
-             feat=feature_list,
-             pvalue_threshold=pvalue_threshold,
-             fdr_method=fdr_method)
-    
-    # fepD supernatant vs lysate (from liquid culture added to dead BW)
-    fepD_dead_liquid_meta = fepD_meta.query("is_dead=='Y' and culture_type=='liquid'")
-    do_stats(metadata=fepD_dead_liquid_meta,
-             features=features.reindex(fepD_dead_liquid_meta.index),
-             group_by='cell_extract_type',
-             control='lysate',
-             save_dir=save_dir / 'fepD_supernatant_vs_lysate' / 'liquid_culture_on_dead_BW',
-             feat=feature_list,
-             pvalue_threshold=pvalue_threshold,
-             fdr_method=fdr_method)
-    
-    
-    ### SOLID vs LIQUID CULTURE - fepD extracted from either O/N liquid culture or seeded lawns
-    
-    # fepD solid vs liquid culture (lysate on live BW)
-    fepD_live_lysate_meta = fepD_meta.query("is_dead=='N' and cell_extract_type=='lysate'")
-    do_stats(metadata=fepD_live_lysate_meta,
-             features=features.reindex(fepD_live_lysate_meta.index),
-             group_by='culture_type',
-             control='solid',
-             save_dir=save_dir / 'fepD_solid_vs_liquid_culture' / 'lysate_on_live_BW',
-             feat=feature_list,
-             pvalue_threshold=pvalue_threshold,
-             fdr_method=fdr_method)
-    
-    # fepD solid vs liquid culture (supernatant on live BW)
-    fepD_live_supernatant_meta = fepD_meta.query("is_dead=='N' and " +
-                                                  "cell_extract_type=='supernatant'")
-    do_stats(metadata=fepD_live_supernatant_meta,
-             features=features.reindex(fepD_live_supernatant_meta.index),
-             group_by='culture_type',
-             control='solid',
-             save_dir=save_dir / 'fepD_solid_vs_liquid_culture' / 'supernatant_on_live_BW',
-             feat=feature_list,
-             pvalue_threshold=pvalue_threshold,
-             fdr_method=fdr_method)
-    
-    # fepD solid vs liquid culture (lysate on dead BW)
-    fepD_dead_lysate_meta = fepD_meta.query("is_dead=='Y' and cell_extract_type=='lysate'")
-    do_stats(metadata=fepD_dead_lysate_meta,
-             features=features.reindex(fepD_dead_lysate_meta.index),
-             group_by='culture_type',
-             control='solid',
-             save_dir=save_dir / 'fepD_solid_vs_liquid_culture' / 'lysate_on_dead_BW',
-             feat=feature_list,
-             pvalue_threshold=pvalue_threshold,
-             fdr_method=fdr_method)
-
-    # fepD solid vs liquid culture (supernatant on dead BW)
-    fepD_dead_supernatant_meta = fepD_meta.query("is_dead=='Y' and " +
-                                                 "cell_extract_type=='supernatant'")
-    do_stats(metadata=fepD_dead_supernatant_meta,
-             features=features.reindex(fepD_dead_supernatant_meta.index),
-             group_by='culture_type',
-             control='solid',
-             save_dir=save_dir / 'fepD_solid_vs_liquid_culture' / 'supernatant_on_dead_BW',
-             feat=feature_list,
-             pvalue_threshold=pvalue_threshold,
-             fdr_method=fdr_method)
-
-    
-    ### KILLING METHOD: Effect of use of methanol in addition to sonication for killing fepD lysate
-
-    # fepD lysate added to live BW - sonication vs methanol/sonication
-    do_stats(metadata=fepD_live_lysate_meta,
-             features=features.reindex(fepD_live_lysate_meta.index),
-             group_by='killing_method',
-             control='sonication',
-             save_dir=save_dir / 'fepD_killing_method' / 'liquid_lysate_on_live_BW',
-             feat=feature_list,
-             pvalue_threshold=pvalue_threshold,
-             fdr_method=fdr_method)
-        
-    # fepD lysate added to dead BW - sonication vs methanol/sonication
-    do_stats(metadata=fepD_dead_lysate_meta,
-             features=features.reindex(fepD_dead_lysate_meta.index),
-             group_by='killing_method',
-             control='sonication',
-             save_dir=save_dir / 'fepD_killing_method' / 'lysate_on_dead_BW',
-             feat=feature_list,
-             pvalue_threshold=pvalue_threshold,
-             fdr_method=fdr_method)
-   
-    return
-
-def supernatants_plots(metadata, 
+def supernatants_stats(metadata,
                        features,
-                       plot_dir,
-                       stats_dir,
-                       window=WINDOW_NUMBER,
-                       feature_list=[FEATURE],
-                       pvalue_threshold=0.05):
+                       group_by='treatment',
+                       control='BW',
+                       save_dir=None,
+                       feature_set=None,
+                       pvalue_threshold=0.05,
+                       fdr_method='fdr_bh'):
     
-    assert metadata.shape[0] == features.shape[0]
+    # check case-sensitivity
+    assert len(metadata[group_by].unique()) == len(metadata[group_by].str.upper().unique())
+    
+    if feature_set is not None:
+        feature_set = [feature_set] if isinstance(feature_set, str) else feature_set
+        assert isinstance(feature_set, list)
+        assert(all(f in features.columns for f in feature_set))
+    else:
+        feature_set = features.columns.tolist()
         
-    window_meta = metadata.query("window==@window")
-    stats_dir = Path(stats_dir) / 'window_{}'.format(window)
-    plot_dir = Path(plot_dir) / 'window_{}'.format(window)
+    features = features[feature_set].reindex(metadata.index)
 
-    for feature in tqdm(feature_list):
-        
-        # boxplots for all treatments vs BW control
-        window_meta['treatment'] = window_meta[['drug_type','cell_extract_type','culture_type',
-                                                'is_dead','solvent']
-                                               ].agg('-'.join, axis=1)    
-        treatment_order = sorted(window_meta['treatment'].unique(), reverse=True)
-        treatment_order = [all_treatment_control] + [t for t in treatment_order if 
-                                                     t != all_treatment_control]
-        plot_df = window_meta.join(features.reindex(window_meta.index))
-        plt.close('all')
-        fig, ax = plt.subplots(figsize=(30,4), dpi=80)
-        sns.boxplot(x='treatment', y=feature, order=treatment_order, ax=ax, data=plot_df,
-                    palette='plasma', showfliers=False)
-        sns.stripplot(x='treatment', y=feature, order=treatment_order, ax=ax, data=plot_df,
-                      s=5, marker='D', color='k')
-        # annotate p-values - load t-test results for each treatment vs BW control
-        ttest_path = stats_dir / 'all_treatments' / 'treatment_ttest_results.csv'
-        ttest_df = pd.read_csv(ttest_path, index_col=0)
-        for ii, treatment in enumerate(treatment_order):
-            if treatment == all_treatment_control:
-                continue
-            p = ttest_df.loc[feature, 'pvals_{}'.format(treatment)]
-            text = ax.get_xticklabels()[ii]
-            assert text.get_text() == treatment
-            p_text = '***\nP < 0.001' if p < 0.001 else sig_asterix([p])[0] + '\nP = %.3f' % p
-            trans = transforms.blended_transform_factory(ax.transData, ax.transAxes)
-            ax.text(ii, 1.01, p_text, fontsize=9, ha='center', va='bottom', transform=trans)
-        ax.set_xlabel('')
-        ax.set_ylabel(feature.replace('_',' '), fontsize=12, labelpad=10)
-        ax.set_xticklabels([s.get_text().replace('-','\n') for s in ax.get_xticklabels()])
-        plt.tight_layout(rect=(0.01, 0.01, 0.99, 0.99))
-        # save figure
-        save_path = Path(plot_dir) / 'all_treatments' / '{}.pdf'.format(feature)
-        save_path.parent.mkdir(parents=True, exist_ok=True)
-        plt.savefig(save_path)
-        
+    # print mean sample size
+    sample_size = metadata.groupby(group_by).count()
+    print("Mean sample size of %s: %d" % (group_by, int(sample_size[sample_size.columns[-1]].mean())))
 
-        window_meta['treatment'] = window_meta[['drug_type', 'cell_extract_type', 'culture_type']
-                                               ].agg('-'.join, axis=1)
-    
-        # boxplots for live BW vs fepD supernatant/lysate from solid/liquid culture added to live BW
-        live_meta = window_meta.query("is_dead=='N'")
-        plot_df = live_meta.join(features.reindex(live_meta.index))
-        plt.close('all')
-        fig, ax = plt.subplots(figsize=(12,8))
-        sns.boxplot(x='treatment', y=feature, order=treatment_list, ax=ax, data=plot_df,
-                    palette='plasma', showfliers=False) 
-                    #hue='is_dead', hue_order=is_dead_list, dodge=True
-        sns.stripplot(x='treatment', y=feature, order=treatment_list, ax=ax, data=plot_df,
-                      s=5, marker='D', color='k')
-        ax.set_xlabel('')
-        ax.set_ylabel(feature.replace('_',' '), fontsize=12, labelpad=10)
-        ax.set_title('Addition of fepD lysate or supernatant (from solid or liquid culture) to live BW', 
-                     pad=30, fontsize=18)
-        # annotate p-values - load t-test results for each treatment vs BW control
-        for ii, treatment in enumerate(treatment_list):
-            if treatment == 'none-none-none':
-                continue
-            ttest_path = stats_dir / (treatment.replace('-','_') + '_on_live_BW') /\
-                'drug_type_ttest_results.csv'
-            ttest_df = pd.read_csv(ttest_path, index_col=0)
-            p = ttest_df.loc[feature, 'pvals_fepD']
-            text = ax.get_xticklabels()[ii]
-            assert text.get_text() == treatment
-            p_text = '***\nP < 0.001' if p < 0.001 else sig_asterix([p])[0] + '\nP = %.3f' % p
-            trans = transforms.blended_transform_factory(ax.transData, ax.transAxes)
-            # plt.plot([ii-.2,ii-.2,ii+.2,ii+.2],[0.98,0.99,0.99,0.98],lw=1.5,c='k',transform=trans)
-            ax.text(ii, 0.97, p_text, fontsize=9, ha='center', va='bottom', transform=trans)
-        save_path = Path(plot_dir) / 'fepD_added_to_live_BW' / '{}.pdf'.format(feature)
-        save_path.parent.mkdir(parents=True, exist_ok=True)
-        plt.savefig(save_path, dpi=300)
+    n = len(metadata[group_by].unique())
         
-    
-        # boxplots for dead BW vs fepD supernatant/lysate from solid/liquid culture added to dead BW
-        dead_meta = window_meta.query("is_dead=='Y'")
-        plot_df = dead_meta.join(features.reindex(dead_meta.index))
-        plt.close('all')
-        fig, ax = plt.subplots(figsize=(12,8))
-        sns.boxplot(x='treatment', y=feature, order=treatment_list, ax=ax, data=plot_df,
-                    palette='plasma', showfliers=False) 
-                    #hue='is_dead', hue_order=is_dead_list, dodge=True
-        sns.stripplot(x='treatment', y=feature, order=treatment_list, ax=ax, data=plot_df,
-                      s=5, marker='D', color='k')
-        ax.set_xlabel('')
-        ax.set_ylabel(feature.replace('_',' '), fontsize=12, labelpad=10)
-        ax.set_title('Addition of fepD lysate or supernatant (from solid or liquid culture) to dead BW', 
-                     pad=30, fontsize=18)
-        # annotate p-values - load t-test results for each treatment vs BW control
-        for ii, treatment in enumerate(treatment_list):
-            if treatment == 'none-none-none':
-                continue
-            ttest_path = stats_dir / (treatment.replace('-','_') + '_on_dead_BW') /\
-                'drug_type_ttest_results.csv'
-            ttest_df = pd.read_csv(ttest_path, index_col=0)
-            p = ttest_df.loc[feature, 'pvals_fepD']
-            text = ax.get_xticklabels()[ii]
-            assert text.get_text() == treatment
-            p_text = '***\nP < 0.001' if p < 0.001 else sig_asterix([p])[0] + '\nP = %.3f' % p
-            trans = transforms.blended_transform_factory(ax.transData, ax.transAxes)
-            # plt.plot([ii-.2,ii-.2,ii+.2,ii+.2],[0.98,0.99,0.99,0.98],lw=1.5,c='k',transform=trans)
-            ax.text(ii, 0.97, p_text, fontsize=9, ha='center', va='bottom', transform=trans)
-        save_path = Path(plot_dir) / 'fepD_added_to_dead_BW' / '{}.pdf'.format(feature)
-        save_path.parent.mkdir(parents=True, exist_ok=True)
-        plt.savefig(save_path, dpi=300)
-        
-        
-        ### SOLVENTS
-        
-        # Boxplots of differences in effect of solvent used on BW control (no fepD added)
-        BW_live_solvent_meta = window_meta.query("drug_type=='none' and is_dead=='N'")
-        plot_df = BW_live_solvent_meta.join(features.reindex(BW_live_solvent_meta.index))
-        plt.close('all')
-        fig, ax = plt.subplots(figsize=(10,8))
-        sns.boxplot(x='solvent', y=feature, order=solvent_list, ax=ax, data=plot_df, 
-                    palette='plasma', showfliers=False)
-        sns.stripplot(x='solvent', y=feature, order=solvent_list, ax=ax, data=plot_df, 
-                      s=5, marker='D', color='k')
-        ax.set_xlabel('')
-        ax.set_ylabel(feature.replace('_',' '), fontsize=12, labelpad=10)
-        ax.set_title('Effect of solvent added to BW control', pad=30, fontsize=18)
-        # load t-test results for each solvent vs 'none'
-        ttest_path = Path(stats_dir) / 'BW_solvents' / 'solvent_ttest_results.csv'
-        ttest_df = pd.read_csv(ttest_path, index_col=0)
-        pvals = ttest_df[[c for c in ttest_df.columns if 'pvals_' in c]]
-        # annotate p-values
-        for ii, solvent in enumerate(solvent_list):
-            if solvent == 'none':
-                continue
-            p = pvals.loc[feature, 'pvals_' + solvent]
-            text = ax.get_xticklabels()[ii]
-            assert text.get_text() == solvent
-            p_text = '***\nP < 0.001' if p < 0.001 else sig_asterix([p])[0] + '\nP = %.3f' % p
-            trans = transforms.blended_transform_factory(ax.transData, ax.transAxes)
-            # plt.plot([ii-.2,ii-.2,ii+.2,ii+.2],[0.98,0.99,0.99,0.98],lw=1.5,c='k',transform=trans)
-            ax.text(ii, 0.97, p_text, fontsize=9, ha='center', va='bottom', transform=trans)
-        save_path = Path(plot_dir) / 'BW_control' / 'effect_of_solvent_used' / '{}.pdf'.format(feature)
-        save_path.parent.mkdir(parents=True, exist_ok=True)
-        plt.savefig(save_path, dpi=300)
-        
-        
-        ### UV KILLING - No difference whether alive vs dead for BW control (no fepD added)
-        
-        # Boxplots of differences in worm motion mode on live vs dead BW control bacteria
-        BW_UV_meta = window_meta.query("drug_type=='none' and solvent=='none'")
-        plot_df = BW_UV_meta.join(features.reindex(BW_UV_meta.index))
-        plt.close('all')
-        fig, ax = plt.subplots(figsize=(10,8))
-        sns.boxplot(x='is_dead', y=feature, order=is_dead_list, ax=ax, data=plot_df,
-                    palette='Paired', showfliers=False)
-        sns.stripplot(x='is_dead', y=feature, order=is_dead_list, ax=ax, data=plot_df,
-                      color='k', s=5, marker='D')
-        ax.set_xlabel('UV-killed?', fontsize=12, labelpad=10)
-        ax.set_ylabel(feature.replace('_',' '), fontsize=12, labelpad=10)
-        ax.set_title('No effect of UV-killing control BW bacteria on worm motion mode', 
-                     pad=30, fontsize=18)
-        # load t-test results for is dead 'Y' (Yes, dead) vs 'N' (No, alive)
-        ttest_path = Path(stats_dir) / 'BW_UV_killed' / 'is_dead_ttest_results.csv'
-        ttest_df = pd.read_csv(ttest_path, index_col=0)
-        pvals = ttest_df[[c for c in ttest_df.columns if 'pvals_' in c]]
-        # annotate p-values
-        for ii, is_dead in enumerate(is_dead_list):
-            if is_dead == 'N':
-                continue
-            p = pvals.loc[feature, 'pvals_' + is_dead]
-            text = ax.get_xticklabels()[ii]
-            assert text.get_text() == is_dead
-            p_text = '***\nP < 0.001' if p < 0.001 else sig_asterix([p])[0] + '\nP = %.3f' % p
-            trans = transforms.blended_transform_factory(ax.transData, ax.transAxes)
-            ax.text(ii, 1.01, p_text, fontsize=9, ha='center', va='bottom', transform=trans)
-        ax.set_xticklabels(['No','Yes'])
-        save_path = Path(plot_dir) / 'BW_control' / 'effect_of_UV_killing' / '{}.pdf'.format(feature)
-        save_path.parent.mkdir(parents=True, exist_ok=True)
-        plt.savefig(save_path, dpi=300)
-        
-        
-        ### UV KILLING - fepD lysate
-            
-        # Boxplots of differences in worm motion mode when fepD killed in different ways is added to 
-        # BW that is either dead or alive
-        fepD_lysate_meta = window_meta.query("drug_type=='fepD' and cell_extract_type=='lysate'")
-        plot_df = fepD_lysate_meta.join(features.reindex(fepD_lysate_meta.index))
-        plt.close('all')
-        fig, ax = plt.subplots(figsize=(10,8))
-        col_dict1 = dict(zip(culture_type_list[1:], sns.color_palette('Paired', len(culture_type_list[1:]))))
-        sns.boxplot(x='is_dead', y=feature, order=is_dead_list, 
-                    hue='culture_type', hue_order=culture_type_list[1:], dodge=True,
-                    ax=ax, data=plot_df, palette=col_dict1, showfliers=False)
-        kill_labs = [i for i in killing_method_list if i in plot_df['killing_method'].unique()]
-        col_dict2 = dict(zip(kill_labs, sns.color_palette('plasma', len(kill_labs))))
-        for k, kill in enumerate(kill_labs):
-            sns.stripplot(x='is_dead', y=feature, order=is_dead_list, 
-                          hue='culture_type', hue_order=culture_type_list[1:], dodge=True,
-                          ax=ax, data=plot_df.query("killing_method==@kill"),
-                          s=10, marker='D', color=sns.set_palette(palette=[col_dict2[kill]], 
-                                                                  n_colors=len(culture_type_list[1:])))
-        handles, labels = [], []
-        for ct in culture_type_list[1:]:
-            handles.append(mpatches.Patch(color=col_dict1[ct]))
-            labels.append(ct)
-        for kt in kill_labs:
-            handles.append(Line2D([0], [0], marker='D', color='w', markersize=10,
-                                  markerfacecolor=col_dict2[kt]))
-            labels.append(kt)
-        ax.legend(handles, labels, loc='best', frameon=False)
-        # annotate p-values
-        for ii, is_dead in enumerate(is_dead_list):
-            ttest_path = stats_dir / 'fepD_solid_vs_liquid_culture' /\
-                'lysate_on_{}_BW'.format('live' if is_dead=='N' else 'dead') /\
-                'culture_type_ttest_results.csv'
-            ttest_df = pd.read_csv(ttest_path, index_col=0)
-            p = ttest_df.loc[feature, 'pvals_liquid']
-            text = ax.get_xticklabels()[ii]
-            assert text.get_text() == is_dead
-            p_text = '***\nP < 0.001' if p < 0.001 else sig_asterix([p])[0] + '\nP = %.3f' % p
-            trans = transforms.blended_transform_factory(ax.transData, ax.transAxes)
-            ax.text(ii, 1.01, p_text, fontsize=9, ha='center', va='bottom', transform=trans)
-        ax.set_xlabel('UV-killed?', fontsize=12, labelpad=10)
-        ax.set_ylabel(feature.replace('_',' '), fontsize=12, labelpad=10)
-        ax.set_title('Effect of culture type and killing method', pad=30, fontsize=18)
-        ax.set_xticklabels(['No','Yes'])
-        # save figure
-        save_path = Path(plot_dir) / 'fepD_lysate' / 'solid_vs_liquid_on_dead_vs_alive_BW' /\
-            '{}.pdf'.format(feature)
-        save_path.parent.mkdir(parents=True, exist_ok=True)
-        plt.savefig(save_path, dpi=300)
-    
-        
-        ### SUPERNATANT vs LYSATE - fepD on live BW
-        
-        fepD_live_meta = window_meta.query("drug_type=='fepD' and is_dead=='N'")
-        plot_df = fepD_live_meta.join(features.reindex(fepD_live_meta.index))
-        plt.close('all')
-        fig, ax = plt.subplots(figsize=(10,8))
-        col_dict = dict(zip(culture_type_list[1:], sns.color_palette('Paired_r', len(culture_type_list[1:]))))
-        sns.boxplot(x='cell_extract_type', y=feature, order=extract_type_list[1:], 
-                    hue='culture_type', hue_order=culture_type_list[1:], 
-                    ax=ax, data=plot_df, palette=col_dict, dodge=True, showfliers=False)
-        sns.stripplot(x='cell_extract_type', y=feature, order=extract_type_list[1:], 
-                      hue='culture_type', hue_order=culture_type_list[1:], 
-                      ax=ax, data=plot_df, color='k', dodge=True, marker='D', s=8)
-        handles = []
-        for label in col_dict.keys():
-            handles.append(mpatches.Patch(color=col_dict[label]))
-        ax.legend(handles, col_dict.keys(), loc='best', frameon=False)
-        # annotate p-values
-        for ii, extract_type in enumerate(extract_type_list[1:]):
-            ttest_path = stats_dir / 'fepD_solid_vs_liquid_culture' /\
-                '{}_on_live_BW'.format(extract_type) / 'culture_type_ttest_results.csv'
-            ttest_df = pd.read_csv(ttest_path, index_col=0)
-            p = ttest_df.loc[feature, 'pvals_liquid']
-            text = ax.get_xticklabels()[ii]
-            assert text.get_text() == extract_type
-            p_text = '***\nP < 0.001' if p < 0.001 else sig_asterix([p])[0] + '\nP = %.3f' % p
-            trans = transforms.blended_transform_factory(ax.transData, ax.transAxes)
-            ax.text(ii, 1.01, p_text, fontsize=9, ha='center', va='bottom', transform=trans)
-        ax.set_xlabel('cell extract type', fontsize=12, labelpad=10)
-        ax.set_ylabel(feature.replace('_',' '), fontsize=12, labelpad=10)
-        ax.set_title('fepD supernatant and lysate (solid vs liquid culture)\nadded to live BW', 
-                     pad=30, fontsize=18)
-        # save figure
-        save_path = Path(plot_dir) / 'fepD_culture_type' / 'fepD_solid_vs_liquid_culture_on_live_BW' /\
-            '{}.pdf'.format(feature)
-        save_path.parent.mkdir(parents=True, exist_ok=True)
-        plt.savefig(save_path, dpi=300)
-    
-        ### SUPERNATANT vs LYSATE - fepD on dead BW
-        
-        fepD_dead_meta = window_meta.query("drug_type=='fepD' and is_dead=='Y'")
-        plot_df = fepD_dead_meta.join(features.reindex(fepD_dead_meta.index))
-        plt.close('all')
-        fig, ax = plt.subplots(figsize=(10,8))
-        col_dict = dict(zip(culture_type_list[1:], sns.color_palette('Paired_r', len(culture_type_list[1:]))))
-        sns.boxplot(x='cell_extract_type', y=feature, order=extract_type_list[1:], 
-                    hue='culture_type', hue_order=culture_type_list[1:], 
-                    ax=ax, data=plot_df, palette=col_dict, dodge=True, showfliers=False)
-        sns.stripplot(x='cell_extract_type', y=feature, order=extract_type_list[1:], 
-                      hue='culture_type', hue_order=culture_type_list[1:], 
-                      ax=ax, data=plot_df, color='k', dodge=True, marker='D', s=8)
-        handles = []
-        for label in col_dict.keys():
-            handles.append(mpatches.Patch(color=col_dict[label]))
-        ax.legend(handles, col_dict.keys(), loc='best', frameon=False)
-        # annotate p-values
-        for ii, extract_type in enumerate(extract_type_list[1:]):
-            ttest_path = stats_dir / 'fepD_solid_vs_liquid_culture' /\
-                '{}_on_dead_BW'.format(extract_type) / 'culture_type_ttest_results.csv'
-            ttest_df = pd.read_csv(ttest_path, index_col=0)
-            p = ttest_df.loc[feature, 'pvals_liquid']
-            text = ax.get_xticklabels()[ii]
-            assert text.get_text() == extract_type
-            p_text = '***\nP < 0.001' if p < 0.001 else sig_asterix([p])[0] + '\nP = %.3f' % p
-            trans = transforms.blended_transform_factory(ax.transData, ax.transAxes)
-            ax.text(ii, 1.01, p_text, fontsize=9, ha='center', va='bottom', transform=trans)
-        ax.set_xlabel('cell extract type', fontsize=12, labelpad=10)
-        ax.set_ylabel(feature.replace('_',' '), fontsize=12, labelpad=10)
-        ax.set_title('fepD supernatant and lysate (solid vs liquid culture)\nadded to UV-killed BW', 
-                     pad=30, fontsize=18)
-        # save figure
-        save_path = Path(plot_dir) / 'fepD_culture_type' / 'fepD_solid_vs_liquid_culture_on_dead_BW' /\
-            '{}.pdf'.format(feature)
-        save_path.parent.mkdir(parents=True, exist_ok=True)
-        plt.savefig(save_path, dpi=300)
-    
-    return
+    fset = []
+    if n > 2:
+   
+        # Perform ANOVA - is there variation among strains at each window?
+        anova_path = Path(save_dir) / 'ANOVA' / 'ANOVA_results.csv'
+        anova_path.parent.mkdir(parents=True, exist_ok=True)
 
-def supernatants_timeseries(metadata, 
-                            project_dir=PROJECT_DIR, 
-                            save_dir=SAVE_DIR, 
-                            window=WINDOW_NUMBER):
-    """ Time series plots comparing each treatment with control with respect to motion mode """
+        stats, pvals, reject = univariate_tests(X=features, 
+                                                y=metadata[group_by], 
+                                                control=control, 
+                                                test='ANOVA',
+                                                comparison_type='multiclass',
+                                                multitest_correction=fdr_method,
+                                                alpha=pvalue_threshold,
+                                                n_permutation_test=None)
+
+        # get effect sizes
+        effect_sizes = get_effect_sizes(X=features,
+                                        y=metadata[group_by],
+                                        control=control,
+                                        effect_type=None,
+                                        linked_test='ANOVA')
+
+        # compile + save results
+        test_results = pd.concat([stats, effect_sizes, pvals, reject], axis=1)
+        test_results.columns = ['stats','effect_size','pvals','reject']     
+        test_results['significance'] = sig_asterix(test_results['pvals'])
+        test_results = test_results.sort_values(by=['pvals'], ascending=True) # rank by p-value
+        test_results.to_csv(anova_path, header=True, index=True)
+
+        # use reject mask to find significant feature set
+        fset = pvals.loc[reject['ANOVA']].sort_values(by='ANOVA', ascending=True).index.to_list()
+
+        if len(fset) > 0:
+            print("%d significant features found by ANOVA by '%s' (P<%.2f, %s)" %\
+                  (len(fset), group_by, pvalue_threshold, fdr_method))
+            anova_sigfeats_path = anova_path.parent / 'ANOVA_sigfeats.txt'
+            write_list_to_file(fset, anova_sigfeats_path)
+             
+    # Perform t-tests
+    stats_t, pvals_t, reject_t = univariate_tests(X=features,
+                                                  y=metadata[group_by],
+                                                  control=control,
+                                                  test='t-test',
+                                                  comparison_type='binary_each_group',
+                                                  multitest_correction=fdr_method,
+                                                  alpha=pvalue_threshold)
     
-    metadata = metadata.query("window==@window")
-            
-    # boxplots for all treatments vs BW control
-    metadata['treatment'] = metadata[['drug_type','cell_extract_type','culture_type',
-                                      'is_dead','solvent']].agg('-'.join, axis=1) 
-    metadata['treatment'] = [s.replace('/',':') for s in metadata['treatment']]
-    # https://stackoverflow.com/questions/13298434/colon-appears-as-forward-slash-when-creating-file-name
-        
-    ### Each treatment vs control: BW vs BW + lysate // BW vs BW + supernatant
-    control_list = ['none-none-none-N-PBS','none-none-none-N-DMSO',
-                    'none-none-none-N-none','none-none-none-N-none',
-                    'none-none-none-N-PBS','none-none-none-N-PBS:DMSO',
-                    'none-none-none-N-PBS','none-none-none-N-NGM:DMSO',
-                    'none-none-none-Y-none','none-none-none-Y-DMSO',
-                    'none-none-none-Y-none','none-none-none-Y-DMSO']
-    treatment_list = ['none-none-none-N-PBS:DMSO','none-none-none-N-NGM:DMSO',
-                      'none-none-none-N-PBS','none-none-none-N-DMSO',
-                      'fepD-lysate-solid-N-PBS','fepD-supernatant-solid-N-PBS:DMSO',
-                      'fepD-lysate-liquid-N-NGM:PBS','fepD-supernatant-liquid-N-NGM:DMSO',
-                      'fepD-lysate-solid-Y-PBS','fepD-supernatant-solid-Y-PBS:DMSO',
-                      'fepD-lysate-liquid-Y-NGM:PBS','fepD-supernatant-liquid-Y-NGM:DMSO']
-    title_list = ['Addition of PBS and DMSO','Addition of NGM and DMSO',
-                  'Addition of PBS','Addition of DMSO',
-                  'fepD lysate (solid)','fepD supernatant (solid)',
-                  'fepD lysate (liquid)','fepD supernatant (liquid)',
-                  'fepD lysate (solid) on dead BW','fepD supernatant (solid) on dead BW',
-                  'fepD lysate (liquid) on dead BW','fepD supernatant (liquid) on dead BW']
-    labs = [('BW + PBS', 'BW + PBS/DMSO'),('BW + DMSO', 'BW + NGM/DMSO'),
-            ('BW', 'BW + PBS'),('BW', 'BW + DMSO'),
-            ('BW + PBS', 'BW + fepD lysate solid + PBS'),('BW + PBS/DMSO', 'BW + fepD supernatant solid + PBS/DMSO'),
-            ('BW + PBS', 'BW + fepD lysate liquid + NGM/PBS'),('BW + NGM/DMSO', 'BW + fepD supernatant liquid + NGM/DMSO'),
-            ('dead BW', 'dead BW + fepD lysate solid + PBS'),('dead BW + DMSO', 'dead BW + fepD supernatant solid + PBS/DMSO'),
-            ('dead BW', 'dead BW + fepD lysate liquid + NGM/PBS'),('dead BW + DMSO', 'dead BW + fepD supernatant liquid + NGM/DMSO')]
+    effect_sizes_t = get_effect_sizes(X=features,
+                                      y=metadata[group_by],
+                                      control=control,
+                                      linked_test='t-test')
     
-    for control, treatment, title, lab in zip(control_list, treatment_list, title_list, labs):
-        
-        for mode in motion_modes:
-        
-            # get timeseries for control data
-            control_ts = get_strain_timeseries(metadata[metadata['treatment']==control], 
-                                               project_dir=project_dir, 
-                                               strain=control,
-                                               group_by='treatment',
-                                               n_wells=N_WELLS,
-                                               save_dir=Path(save_dir) / 'Data' / control,
-                                               verbose=False)
-            treatment_ts = get_strain_timeseries(metadata[metadata['treatment']==treatment], 
-                                               project_dir=project_dir, 
-                                               strain=treatment,
-                                               group_by='treatment',
-                                               n_wells=N_WELLS,
-                                               save_dir=Path(save_dir) / 'Data' / treatment,
-                                               verbose=False)
-            
-            print("Plotting timeseries '%s' fraction for '%s' vs '%s'..." %\
-                  (mode, treatment, control))
+    stats_t.columns = ['stats_' + str(c) for c in stats_t.columns]
+    pvals_t.columns = ['pvals_' + str(c) for c in pvals_t.columns]
+    reject_t.columns = ['reject_' + str(c) for c in reject_t.columns]
+    effect_sizes_t.columns = ['effect_size_' + str(c) for c in effect_sizes_t.columns]
+    ttest_results = pd.concat([stats_t, pvals_t, reject_t, effect_sizes_t], axis=1)
     
-            plt.close('all')
-            fig, ax = plt.subplots(figsize=(15,5), dpi=200)
-            colour_dict = dict(zip([control, treatment], sns.color_palette("pastel", 2)))
-            bluelight_frames = [(i*60*FPS, i*60*FPS+10*FPS) for i in BLUELIGHT_TIMEPOINTS_MINUTES]
+    # save results
+    ttest_path = Path(save_dir) / 't-test' / 't-test_results.csv'
+    ttest_path.parent.mkdir(exist_ok=True, parents=True)
+    ttest_results.to_csv(ttest_path, header=True, index=True)
     
-            ax = plot_timeseries_motion_mode(df=control_ts,
-                                             window=SMOOTH_WINDOW_SECONDS*FPS,
-                                             error=True,
-                                             mode=mode,
-                                             max_n_frames=VIDEO_LENGTH_SECONDS*FPS,
-                                             title=None,
-                                             saveAs=None,
-                                             ax=ax,
-                                             bluelight_frames=bluelight_frames,
-                                             colour=colour_dict[control],
-                                             alpha=0.25)
-            
-            ax = plot_timeseries_motion_mode(df=treatment_ts,
-                                             window=SMOOTH_WINDOW_SECONDS*FPS,
-                                             error=True,
-                                             mode=mode,
-                                             max_n_frames=VIDEO_LENGTH_SECONDS*FPS,
-                                             title=None,
-                                             saveAs=None,
-                                             ax=ax,
-                                             bluelight_frames=bluelight_frames,
-                                             colour=colour_dict[treatment],
-                                             alpha=0.25)
-        
-            xticks = np.linspace(0, VIDEO_LENGTH_SECONDS*FPS, int(VIDEO_LENGTH_SECONDS/60)+1)
-            ax.set_xticks(xticks)
-            ax.set_xticklabels([str(int(x/FPS/60)) for x in xticks])   
-            ax.set_xlabel('Time (minutes)', fontsize=12, labelpad=10)
-            ax.set_ylabel('Fraction {}'.format(mode), fontsize=12, labelpad=10)
-            ax.set_title(title, fontsize=12, pad=10)
-            ax.legend([lab[0], lab[1]], fontsize=12, frameon=False, loc='best')
-    
-            if BLUELIGHT_WINDOWS_ONLY_TS:
-                ts_plot_dir = Path(save_dir) / 'Plots' / 'timeseries_bluelight' / treatment
-                ax.set_xlim([min(BLUELIGHT_TIMEPOINTS_MINUTES)*60*FPS-60*FPS, 
-                             max(BLUELIGHT_TIMEPOINTS_MINUTES)*60*FPS+70*FPS])
-            else:   
-                ts_plot_dir = Path(save_dir) / 'Plots' / 'timeseries' / treatment
-    
-            #plt.tight_layout()
-            ts_plot_dir.mkdir(exist_ok=True, parents=True)
-            save_path = ts_plot_dir / '{0}_{1}.pdf'.format(treatment, mode)
-            print("Saving to: %s" % save_path)
-            plt.savefig(save_path)  
-    
+    nsig = sum(reject_t.sum(axis=1) > 0)
+    print("%d significant features between any %s vs %s (t-test, P<%.2f, %s)" %\
+          (nsig, group_by, control, pvalue_threshold, fdr_method))
+
     return
 
 #%% Main
@@ -895,16 +169,16 @@ if __name__ == '__main__':
     
         # compile metadata
         metadata, metadata_path = compile_metadata(aux_dir=AUX_DIR, 
-                                                   imaging_dates=IMAGING_DATES, 
+                                                   imaging_dates=None, 
                                                    n_wells=N_WELLS,
-                                                   add_well_annotations=N_WELLS==96,
+                                                   add_well_annotations=False,
                                                    from_source_plate=True)
         
         # compile window summaries
         features, metadata = process_feature_summaries(metadata_path=metadata_path, 
                                                        results_dir=RES_DIR, 
                                                        compile_day_summaries=True,
-                                                       imaging_dates=IMAGING_DATES, 
+                                                       imaging_dates=None, 
                                                        align_bluelight=False,
                                                        window_summaries=True,
                                                        n_wells=N_WELLS)
@@ -935,26 +209,116 @@ if __name__ == '__main__':
         metadata = pd.read_csv(META_PATH, dtype={'comments':str, 'source_plate_id':str})
         features = pd.read_csv(FEAT_PATH, index_col=None)
         
-    supernatants_stats(metadata, 
-                       features, 
-                       save_dir=Path(SAVE_DIR) / "Stats",
-                       window=WINDOW_NUMBER,
-                       feature_list=[FEATURE])
+    # load feature set
+    if FEATURE_SET is not None:
+        # subset for selected feature set (and remove path curvature features)
+        if isinstance(FEATURE_SET, int) and FEATURE_SET in [8,16,256]:
+            features = select_feat_set(features, 'tierpsy_{}'.format(FEATURE_SET), append_bluelight=True)
+            features = features[[f for f in features.columns if 'path_curvature' not in f]]
+        elif isinstance(FEATURE_SET, list) or isinstance(FEATURE_SET, set):
+            assert all(f in features.columns for f in FEATURE_SET)
+            features = features[FEATURE_SET].copy()
+    feature_list = features.columns.tolist()
+
+    # subset metadata results for bluelight videos only 
+    bluelight_videos = [i for i in metadata['imgstore_name'] if 'bluelight' in i]
+    metadata = metadata[metadata['imgstore_name'].isin(bluelight_videos)]
+
+    metadata['window'] = metadata['window'].astype(int)
+    window_list = list(metadata['window'].unique())
     
-    supernatants_plots(metadata,
-                       features,
-                       plot_dir=Path(SAVE_DIR) / "Plots",
-                       stats_dir=Path(SAVE_DIR) / "Stats",
-                       window=WINDOW_NUMBER,
-                       feature_list=[FEATURE])
+    treatment_cols = ['drug_type','cell_extract_type','culture_type','solvent']
+    metadata['treatment'] = metadata[treatment_cols].astype(str).agg('-'.join, axis=1)    
+    treatment_dict = {'none-none-none-none':"BW",
+                      'none-none-none-DMSO':"BW\n(DMSO)",
+                      'none-none-none-PBS':"BW\n(PBS)",
+                      'none-none-none-PBS/DMSO':"BW\n(PBS-DMSO)",
+                      'none-none-none-NGM/DMSO':"BW\n(NGM-DMSO)",
+                      'fepD-lysate-solid-PBS':"BW + fepD solid lysate\n(PBS)",
+                      'fepD-lysate-solid-DMSO':"BW + fepD solid lysate\n(DMSO)",
+                      'fepD-lysate-liquid-NGM/PBS':"BW + fepD liquid lysate\n(NGM-PBS)",
+                      'fepD-supernatant-solid-PBS/DMSO':"BW + fepD solid supernatant\n(PBS-DMSO)",
+                      'fepD-supernatant-liquid-NGM/DMSO':"BW + fepD liquid supernatant\n(NGM-DMSO)"}    
+    metadata['treatment'] = metadata['treatment'].map(treatment_dict)
+
+    # T-tests comparing each of the following for BW vs BW+fepD:
+    # - fepD cell lysate vs supernatant
+    # - extracted from solid vs liquid media
+    # - added to live vs UV-killed BW25113 control bacteria (BW)
+
+    # live BW + supernatant/lysate
+    for window in tqdm(window_list):
+        meta_window = metadata[metadata['window']==window]
+        feat_window = features.reindex(meta_window.index)
+
+        stats_dir = Path(SAVE_DIR) / 'Stats' / WINDOW_NAME_DICT[window]
+        plot_dir = Path(SAVE_DIR) / 'Plots' / WINDOW_NAME_DICT[window]
+
+        # live BW
+        live_meta = meta_window.query("is_dead=='N'")
+        live_feat = feat_window.reindex(live_meta.index)
+        supernatants_stats(live_meta,
+                           live_feat,
+                           group_by='treatment',
+                           control='BW',
+                           save_dir=stats_dir / 'live_BW',
+                           feature_set=FEATURE_SET,
+                           pvalue_threshold=0.05,
+                           fdr_method='fdr_bh')
+        
+        colour_labels = sns.color_palette('tab10', 2)
+        colours = [colour_labels[1] if 'fepD' in s else colour_labels[0] for s in treatment_dict.values()]
+        colour_dict = {key:col for (key,col) in zip(treatment_dict.values(), colours)}
+        all_in_one_boxplots(live_meta,
+                            live_feat,
+                            group_by='treatment',
+                            control='BW',
+                            save_dir=plot_dir / 'all-in-one' / 'live_BW',
+                            ttest_path=stats_dir / 'live_BW' / 't-test' / 't-test_results.csv',
+                            feature_set=feature_list,
+                            pvalue_threshold=0.05,
+                            order=list(treatment_dict.values()),
+                            colour_dict=colour_dict,
+                            figsize=(30,10),
+                            # ylim_minmax=(-20,130),
+                            vline_boxpos=[4],
+                            fontsize=20,
+                            subplots_adjust={'bottom':0.5,'top':0.95,'left':0.05,'right':0.98})        
     
-    supernatants_timeseries(metadata,
-                            project_dir=Path(PROJECT_DIR),
-                            save_dir=Path(SAVE_DIR),
-                            window=WINDOW_NUMBER)
+        # dead BW
+        dead_meta = meta_window.query("is_dead=='Y'")
+        dead_feat = feat_window.reindex(dead_meta.index)
+        supernatants_stats(dead_meta,
+                           dead_feat,
+                           group_by='treatment',
+                           control='BW',
+                           save_dir=stats_dir / 'dead_BW',
+                           feature_set=FEATURE_SET,
+                           pvalue_threshold=0.05,
+                           fdr_method='fdr_bh')
+        
+        colour_labels = sns.color_palette('tab10', 2)
+        colours = [colour_labels[1] if 'fepD' in s else colour_labels[0] for s in treatment_dict.values()]
+        colour_dict = {key:col for (key,col) in zip(treatment_dict.values(), colours)}
+        all_in_one_boxplots(dead_meta,
+                            dead_feat,
+                            group_by='treatment',
+                            control='BW',
+                            save_dir=plot_dir / 'all-in-one' / 'dead_BW',
+                            ttest_path=stats_dir / 'dead_BW' / 't-test' / 't-test_results.csv',
+                            feature_set=feature_list,
+                            pvalue_threshold=0.05,
+                            order=[s for s in list(treatment_dict.values()) if s in dead_meta['treatment'].unique()],
+                            colour_dict=colour_dict,
+                            figsize=(30,10),
+                            # ylim_minmax=(-20,130),
+                            vline_boxpos=[1],
+                            fontsize=20,
+                            subplots_adjust={'bottom':0.5,'top':0.95,'left':0.05,'right':0.98})        
     
+    metadata = metadata[metadata['window']==0]
+
     # timeseries plots of speed for fepD vs BW control
-    
     BLUELIGHT_TIMEPOINTS_SECONDS = [(i*60,i*60+10) for i in BLUELIGHT_TIMEPOINTS_MINUTES]
     metadata['treatment'] = metadata[['drug_type','cell_extract_type','culture_type',
                                       'is_dead','solvent']].agg('-'.join, axis=1)   

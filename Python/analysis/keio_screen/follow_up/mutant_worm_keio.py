@@ -11,29 +11,28 @@ Keio Mutant Worm Screen - Response to BW vs fepD bacteria
 
 #%% Imports
 
-import numpy as np
 import pandas as pd
 import seaborn as sns
 from tqdm import tqdm
 from pathlib import Path
-from matplotlib import transforms
-from matplotlib import pyplot as plt
+
 from preprocessing.compile_hydra_data import compile_metadata, process_feature_summaries
 from filter_data.clean_feature_summaries import clean_summary_results
-from statistical_testing.stats_helper import window_stats
-from time_series.time_series_helper import get_strain_timeseries
-from time_series.plot_timeseries import plot_timeseries_motion_mode, plot_window_timeseries_feature
-# from tierpsytools.analysis.statistical_tests import univariate_tests, get_effect_sizes
+from time_series.plot_timeseries import plot_window_timeseries_feature #plot_timeseries_motion_mode
+from write_data.write import write_list_to_file
+from visualisation.plotting_helper import sig_asterix, all_in_one_boxplots
+
+from tierpsytools.preprocessing.filter_data import select_feat_set
+from tierpsytools.analysis.statistical_tests import univariate_tests, get_effect_sizes
 
 #%% Globals
 
 PROJECT_DIR = "/Volumes/hermes$/Keio_Mutant_Worm_6WP"
 SAVE_DIR = "/Users/sm5911/Documents/Keio_Mutant_Worm"
 
-IMAGING_DATES = ['20220305','20220314','20220321']
 N_WELLS = 6
 
-FEATURE = 'speed_50th' #'motion_mode_forward_fraction'
+FEATURE_SET = ['speed_50th'] #'motion_mode_forward_fraction'
 
 NAN_THRESHOLD_ROW = 0.8
 NAN_THRESHOLD_COL = 0.05
@@ -48,428 +47,202 @@ BLUELIGHT_WINDOWS_ONLY_TS = True
 BIN_SIZE_SECONDS = 5
 SMOOTH_WINDOW_SECONDS = 5
 
-WINDOW_DICT_SECONDS = {0:(1790,1800), 1:(1805,1815), 2:(1815,1825),
-                       3:(1850,1860), 4:(1865,1875), 5:(1875,1885),
-                       6:(1910,1920), 7:(1925,1935), 8:(1935,1945)}
+WINDOW_DICT = {0:(1805,1815),1:(1830,1840),
+               2:(1865,1875),3:(1890,1900),
+               4:(1925,1935),5:(1950,1960)}
 
-WINDOW_DICT_STIM_TYPE = {0:'prestim\n(30min)',1:'bluelight\n(30min)',2:'poststim\n(30min)',
-                         3:'prestim\n(31min)',4:'bluelight\n(31min)',5:'poststim\n(31min)',
-                         6:'prestim\n(32min)',7:'bluelight\n(32min)',8:'poststim\n(32min)'}
-
-scale_outliers_box = True
+WINDOW_NAME_DICT = {0:"blue light 1", 1: "20-30 seconds after blue light 1",
+                    2:"blue light 2", 3: "20-30 seconds after blue light 2",
+                    4:"blue light 3", 5: "20-30 seconds after blue light 3"}
 
 #%% Functions
 
-# =============================================================================
-# def single_feature_window_mutant_worm_stats(metadata,
-#                                             features,
-#                                             save_dir,
-#                                             window=2,
-#                                             feature='motion_mode_forward_fraction',
-#                                             pvalue_threshold=0.05,
-#                                             fdr_method='fdr_by'):
-#     """ T-tests comparing BW vs fepD for each mutant worm """
-#     
-#     # 7 worm strains:       N2 vs 'cat-2', 'eat-4', 'osm-5', 'pdfr-1', 'tax-2', 'unc-25'
-#     # 2 bacteria strains:   BW vs fepD
-#     # 1 feature:            'motion_mode_paused_fraction'
-#     # 1 window:             2 (corresponding to 30 minutes on food, just after first BL stimulus)
-# 
-#     # focus on just one window = 30min just after BL (window=2)
-#     window_metadata = metadata[metadata['window']==window]
-# 
-#     # statistics: perform t-tests comparing fepD vs BW for each worm strain
-#     worm_strain_list = list(window_metadata['worm_strain'].unique())
-# 
-#     ttest_list = []
-#     for worm in worm_strain_list:
-#         worm_window_meta = window_metadata[window_metadata['worm_strain']==worm]
-#         worm_window_feat = features[[feature]].reindex(worm_window_meta.index)
-#         
-#         stats, pvals, reject = univariate_tests(X=worm_window_feat,
-#                                                 y=worm_window_meta['bacteria_strain'],
-#                                                 control='BW',
-#                                                 test='t-test',
-#                                                 comparison_type='binary_each_group',
-#                                                 multitest_correction=fdr_method,
-#                                                 alpha=PVAL_THRESH,
-#                                                 n_permutation_test=None)
-# 
-#         # get effect sizes
-#         effect_sizes = get_effect_sizes(X=worm_window_feat, 
-#                                         y=worm_window_meta['bacteria_strain'],
-#                                         control='BW',
-#                                         effect_type=None,
-#                                         linked_test='t-test')
-#         
-#         # compile t-test results
-#         stats.columns = ['stats_' + str(c) for c in stats.columns]
-#         pvals.columns = ['pvals_' + str(c) for c in pvals.columns]
-#         reject.columns = ['reject_' + str(c) for c in reject.columns]
-#         effect_sizes.columns = ['effect_size_' + str(c) for c in effect_sizes.columns]
-#         ttest_df = pd.concat([stats, effect_sizes, pvals, reject], axis=1)
-#     
-#         # record the worm strain as the index instead of the feature
-#         ttest_df = ttest_df.rename(index={feature:worm})
-#         ttest_list.append(ttest_df)
-# 
-#     ttest_path = Path(save_dir) / 'pairwise_ttests' /\
-#         'ttest_mutant_worm_fepD_vs_BW_window_{}_results.csv'.format(window)
-#     ttest_path.parent.mkdir(exist_ok=True, parents=True)
-#     ttest_results = pd.concat(ttest_list, axis=0)
-#     ttest_results.to_csv(ttest_path, header=True, index=True)
-#         
-#     return
-# 
-# def plot_1window_fepD_vs_BW(metadata,
-#                             features, 
-#                             feat='motion_mode_forward_fraction', 
-#                             window=2,
-#                             save_dir=None):
-#     """ Plot paired boxplots of BW vs fepD for each worm strain side-by-side """
-#     
-#     # subset for window only 
-#     window_metadata = metadata[metadata['window']==window]
-#     window_features = features.reindex(window_metadata.index)
-#     
-#     plot_df = window_metadata[['worm_strain','bacteria_strain','date_yyyymmdd']
-#                               ].join(window_features[[feat]])
-#     
-#     worm_strain_list = list(plot_df['worm_strain'].unique())
-#     bacteria_strain_list = list(plot_df['bacteria_strain'].unique())
-#     
-#     plt.close('all')
-#     fig, ax = plt.subplots(figsize=(12,6))
-#     sns.boxplot(x='worm_strain', 
-#                 y=feat, 
-#                 order=worm_strain_list, 
-#                 hue='bacteria_strain', 
-#                 hue_order=bacteria_strain_list, 
-#                 dodge=True, 
-#                 ax=ax, 
-#                 data=plot_df,
-#                 palette='tab10', 
-#                 showfliers=False)
-#     dates = list(plot_df['date_yyyymmdd'].unique())
-#     date_col_dict = dict(zip(dates, sns.color_palette('Greys', n_colors=len(dates))))
-#     for date in dates:
-#         sns.stripplot(x='worm_strain', 
-#                       y=feat, 
-#                       order=worm_strain_list,
-#                       hue='bacteria_strain', 
-#                       hue_order=bacteria_strain_list, 
-#                       dodge=True, 
-#                       ax=ax, 
-#                       data=plot_df[plot_df['date_yyyymmdd']==date], 
-#                       s=3, 
-#                       marker='D',
-#                       color=sns.set_palette(palette=[date_col_dict[date]], 
-#                                             n_colors=len(bacteria_strain_list)))
-#     
-#     # scale plot y-axis
-#     scale_outliers = False
-#     if scale_outliers:
-#         grouped_strain = plot_df.groupby('worm_strain')
-#         y_bar = grouped_strain[feat].median() # median is less skewed by outliers
-#         Q1, Q3 = grouped_strain[feat].quantile(0.25), grouped_strain[feat].quantile(0.75)
-#         IQR = Q3 - Q1
-#         plt.ylim(min(y_bar) - 2.5 * max(IQR), max(y_bar) + 2.5 * max(IQR))
-# 
-#     # load t-test results: fepD vs BW (for each worm strain)
-#     t_test_path = stats_dir / 'bacteria_strain' / 'pairwise_ttests' /\
-#         'ttest_mutant_worm_fepD_vs_BW_window_{}_results.csv'.format(window)
-#     pvals = pd.read_csv(t_test_path, index_col=0)['pvals_fepD']
-#         
-#     # annotate p-values
-#     for ii, strain in enumerate(worm_strain_list):
-#         p = pvals.loc[strain]
-#         text = ax.get_xticklabels()[ii]
-#         assert text.get_text() == strain
-#         p_text = 'P < 0.001' if p < 0.001 else 'P = %.3f' % p
-#         #y = (y_bar[antiox] + 2 * IQR[antiox]) if scale_outliers_box else plot_df[feature].max()
-#         #h = (max(IQR) / 10) if scale_outliers_box else (y - plot_df[feature].min()) / 50
-#         trans = transforms.blended_transform_factory(ax.transData, ax.transAxes)
-#         plt.plot([ii-.2, ii-.2, ii+.2, ii+.2], 
-#                  [0.98, 0.99, 0.99, 0.98], lw=1.5, c='k', transform=trans)
-#         ax.text(ii, 1.01, p_text, fontsize=9, ha='center', va='bottom', transform=trans)
-# 
-#     # legend and labels
-#     n_labs = len(bacteria_strain_list)
-#     handles, labels = ax.get_legend_handles_labels()
-#     ax.legend(handles[:n_labs], labels[:n_labs], fontsize=15, frameon=False, loc=(1.01, 0.9),
-#               handletextpad=0.5)
-#     ax.set_xlabel('')
-#     ax.set_ylabel(feat.replace('_',' '), fontsize=12, labelpad=10)
-#     ax.set_title('Window {0}: {1}'.format(window, WINDOW_DICT_STIM_TYPE[window].replace('\n',' ')),
-#                  loc='left', pad=30, fontsize=18)
-# 
-#     if save_dir is not None:
-#         save_path = Path(save_dir) / '{}.pdf'.format(feat)
-#         save_path.parent.mkdir(parents=True, exist_ok=True)
-#         plt.savefig(save_path, dpi=300)
-#     else:
-#         plt.show()
-# 
-#     return 
-#     
-# def plot_1worm_fepD_vs_BW(metadata, 
-#                           features, 
-#                           feat='motion_mode_forward_fraction',
-#                           worm_strain='N2',
-#                           save_dir=None):
-#     
-#     # subset for worm strain to plot
-#     worm_metadata = metadata[metadata['worm_strain']==worm_strain]
-#     worm_features = features.reindex(worm_metadata.index)
-#     
-#     plot_df = worm_metadata[['bacteria_strain','window','date_yyyymmdd']
-#                             ].join(worm_features[[feat]])
-#     
-#     window_list = list(plot_df['window'].unique())
-#     bacteria_strain_list = list(plot_df['bacteria_strain'].unique())
-#     
-#     plt.close('all')
-#     fig, ax = plt.subplots(figsize=(15,6))
-#     sns.boxplot(x='window', 
-#                 y=feat, 
-#                 order=window_list, 
-#                 hue='bacteria_strain', 
-#                 hue_order=bacteria_strain_list, 
-#                 dodge=True, 
-#                 ax=ax, 
-#                 data=plot_df,
-#                 palette='tab10', 
-#                 showfliers=False)
-#     dates = list(plot_df['date_yyyymmdd'].unique())
-#     date_col_dict = dict(zip(dates, sns.color_palette('Greys', n_colors=len(dates))))
-#     for date in dates:
-#         sns.stripplot(x='window', 
-#                       y=feat, 
-#                       order=window_list,
-#                       hue='bacteria_strain', 
-#                       hue_order=bacteria_strain_list, 
-#                       dodge=True, 
-#                       ax=ax, 
-#                       data=plot_df[plot_df['date_yyyymmdd']==date], 
-#                       s=3, 
-#                       marker='D',
-#                       color=sns.set_palette(palette=[date_col_dict[date]], 
-#                                             n_colors=len(bacteria_strain_list)))
-#     
-#     # scale plot y-axis
-#     scale_outliers = False
-#     if scale_outliers:
-#         grouped_strain = plot_df.groupby('window')
-#         y_bar = grouped_strain[feat].median() # median is less skewed by outliers
-#         Q1, Q3 = grouped_strain[feat].quantile(0.25), grouped_strain[feat].quantile(0.75)
-#         IQR = Q3 - Q1
-#         plt.ylim(min(y_bar) - 2.5 * max(IQR), max(y_bar) + 2.5 * max(IQR))
-#         
-#     # annotate p-values
-#     for ii, window in enumerate(window_list):
-#         # load t-test results for window and subset for fepD vs BW results for worm strain
-#         t_test_path = stats_dir / 'bacteria_strain' / 'pairwise_ttests' /\
-#             'ttest_mutant_worm_fepD_vs_BW_window_{}_results.csv'.format(window)
-#         pvals = pd.read_csv(t_test_path, index_col=0)['pvals_fepD']
-#         p = pvals.loc[worm_strain]
-#         text = ax.get_xticklabels()[ii]
-#         assert text.get_text() == str(window)
-#         p_text = 'P < 0.001' if p < 0.001 else 'P = %.3f' % p
-#         trans = transforms.blended_transform_factory(ax.transData, ax.transAxes)
-#         plt.plot([ii-.2, ii-.2, ii+.2, ii+.2], 
-#                  [0.98, 0.99, 0.99, 0.98], lw=1.5, c='k', transform=trans)
-#         ax.text(ii, 1.01, p_text, fontsize=9, ha='center', va='bottom', transform=trans)
-# 
-#     # legend and labels
-#     n_labs = len(bacteria_strain_list)
-#     handles, labels = ax.get_legend_handles_labels()
-#     ax.legend(handles[:n_labs], labels[:n_labs], fontsize=15, frameon=False, loc=(1.01, 0.9),
-#               handletextpad=0.5)
-#     ax.set_xlabel('')
-#     ax.set_xticklabels([WINDOW_DICT_STIM_TYPE[w] for w in window_list])
-#     ax.set_ylabel(feat.replace('_',' '), fontsize=12, labelpad=10)
-#     ax.set_title(worm_strain, loc='left', pad=30, fontsize=18)
-# 
-#     if save_dir is not None:
-#         save_path = Path(save_dir) / '{}.pdf'.format(feat)
-#         save_path.parent.mkdir(parents=True, exist_ok=True)
-#         plt.savefig(save_path, dpi=300)
-#     else:
-#         plt.show()
-# 
-#     return 
-# =============================================================================
-
-def boxplots(metadata, 
-             features,
-             save_dir=None,
-             stats_dir=None,
-             feature_list=None,
-             window_list=None):
+def mutant_worm_stats(metadata,
+                      features,
+                      group_by='treatment',
+                      control='N2-BW',
+                      save_dir=None,
+                      feature_set=None,
+                      pvalue_threshold=0.05,
+                      fdr_method='fdr_bh'):
     
-    if feature_list is not None:
-        assert isinstance(feature_list, list) and all(f in features.columns 
-                                                      for f in feature_list)
-    else:
-        feature_list = features.columns.tolist()
+    # check case-sensitivity
+    assert len(metadata[group_by].unique()) == len(metadata[group_by].str.upper().unique())
     
-    if window_list is not None:
-        assert isinstance(window_list, list) and all(f in metadata['window'].unique() 
-                                                     for f in window_list)
+    if feature_set is not None:
+        feature_set = [feature_set] if isinstance(feature_set, str) else feature_set
+        assert isinstance(feature_set, list)
+        assert(all(f in features.columns for f in feature_set))
     else:
-        window_list = sorted(metadata['window'].unique())
+        feature_set = features.columns.tolist()
         
-    for window in tqdm(window_list):
-        # for food in metadata['bacteria_strain'].unique():
-        #     print("Plotting boxplots comparing mutant worms vs N2 on %s" % food)
-            
-        window_meta = metadata.query("window == @window").copy()
-        window_feat = features.reindex(window_meta.index).copy()
-        plot_df = window_meta.join(window_feat)
+    features = features[feature_set].reindex(metadata.index)
 
-        dates = plot_df['date_yyyymmdd'].unique()
-        date_lut = dict(zip(dates, sns.color_palette('Greys', n_colors=len(dates))))
+    # print mean sample size
+    sample_size = metadata.groupby(group_by).count()
+    print("Mean sample size of %s: %d" % (group_by, int(sample_size[sample_size.columns[-1]].mean())))
+
+    n = len(metadata[group_by].unique())
         
-        worm_strain_list = ['N2'] + [w for w in sorted(plot_df['worm_strain'].unique()) 
-                                     if w != 'N2']
-        bacteria_strain_list = ['BW', 'fepD']
-        
-        # load t-test results
-        ttest_path = Path(stats_dir) / 't-tests' / 't-test_results_window_{}.csv'.format(window)
-        ttest_df = pd.read_csv(ttest_path, index_col=0)
-        pvals = ttest_df[[c for c in ttest_df.columns if 'pvals_' in c]]
-        pvals.columns = [c.split('pvals_')[-1] for c in pvals.columns]
+    fset = []
+    if n > 2:
+   
+        # Perform ANOVA - is there variation among strains at each window?
+        anova_path = Path(save_dir) / 'ANOVA' / 'ANOVA_results.csv'
+        anova_path.parent.mkdir(parents=True, exist_ok=True)
 
-        for feat in tqdm(feature_list):
-            
-            plt.close('all')
-            fig, ax = plt.subplots(figsize=(12,8), dpi=300)
-            sns.boxplot(x='worm_strain', 
-                        y=feat, 
-                        order=worm_strain_list, 
-                        hue='bacteria_strain',
-                        hue_order=bacteria_strain_list, 
-                        dodge=True,
-                        data=plot_df, 
-                        palette='tab10',
-                        ax=ax, 
-                        showfliers=False)
-            for date in date_lut.keys():
-                date_df = plot_df.query("date_yyyymmdd == @date")
-                ax = sns.stripplot(x='worm_strain', 
-                                   y=feat, 
-                                   order=worm_strain_list, 
-                                   hue='bacteria_strain', 
-                                   hue_order=bacteria_strain_list,
-                                   dodge=True,
-                                   data=date_df, 
-                                   ax=ax, 
-                                   color=sns.set_palette(palette=[date_lut[date]], 
-                                                         n_colors=len(worm_strain_list)),
-                                   marker='D',
-                                   alpha=0.7,
-                                   size=4)
-            bacteria_lut = dict(zip(bacteria_strain_list, 
-                                    sns.color_palette('tab10', len(bacteria_strain_list))))
-            markers = [plt.Line2D([0,0],[0,0], color=color, marker='o', linestyle='') 
-                       for color in bacteria_lut.values()]
-            plt.legend(markers, bacteria_lut.keys(), numpoints=1, frameon=False, 
-                       loc='best', markerscale=0.75, fontsize=8, handletextpad=0.2)
-            
-            # annotate p-values on plot
-            trans = transforms.blended_transform_factory(ax.transData, ax.transAxes)
+        stats, pvals, reject = univariate_tests(X=features, 
+                                                y=metadata[group_by], 
+                                                control=control, 
+                                                test='ANOVA',
+                                                comparison_type='multiclass',
+                                                multitest_correction=fdr_method,
+                                                alpha=pvalue_threshold,
+                                                n_permutation_test=None)
 
-            for ii, worm in enumerate(worm_strain_list):                        
-                text = ax.get_xticklabels()[ii]
-                assert text.get_text() == worm
-                if worm == 'N2':
-                    p = pvals.loc[feat, 'N2-fepD']
-                    p_text = 'P<0.001' if p < 0.001 else 'P=%.3f' % p
-                    ax.text(ii+0.2, 1.02, p_text, fontsize=6, ha='center', va='bottom', transform=trans)
-                    continue
-                else:
-                    p1 = pvals.loc[feat, str(worm) + '-' + bacteria_strain_list[0]]
-                    p2 = pvals.loc[feat, str(worm) + '-' + bacteria_strain_list[1]]
-                    p1_text = 'P<0.001' if p1 < 0.001 else 'P=%.3f' % p1
-                    p2_text = 'P<0.001' if p2 < 0.001 else 'P=%.3f' % p2
-                    ax.text(ii+0.2, 1.02, p1_text, fontsize=6, ha='center', va='bottom', transform=trans)
-                    ax.text(ii-0.2, 1.02, p2_text, fontsize=6, ha='center', va='bottom', transform=trans)
+        # get effect sizes
+        effect_sizes = get_effect_sizes(X=features,
+                                        y=metadata[group_by],
+                                        control=control,
+                                        effect_type=None,
+                                        linked_test='ANOVA')
 
-            ax.set_xlabel('Worm - Bacteria', fontsize=15, labelpad=10)
-            ax.set_ylabel(feat.replace('_',' '), fontsize=15, labelpad=10)
-            
-            save_path = Path(save_dir) / 'window_{}'.format(window) / '{}.pdf'.format(feat)
-            save_path.parent.mkdir(parents=True, exist_ok=True)
-            plt.savefig(save_path)
+        # compile + save results
+        test_results = pd.concat([stats, effect_sizes, pvals, reject], axis=1)
+        test_results.columns = ['stats','effect_size','pvals','reject']     
+        test_results['significance'] = sig_asterix(test_results['pvals'])
+        test_results = test_results.sort_values(by=['pvals'], ascending=True) # rank by p-value
+        test_results.to_csv(anova_path, header=True, index=True)
+
+        # use reject mask to find significant feature set
+        fset = pvals.loc[reject['ANOVA']].sort_values(by='ANOVA', ascending=True).index.to_list()
+
+        if len(fset) > 0:
+            print("%d significant features found by ANOVA by '%s' (P<%.2f, %s)" %\
+                  (len(fset), group_by, pvalue_threshold, fdr_method))
+            anova_sigfeats_path = anova_path.parent / 'ANOVA_sigfeats.txt'
+            write_list_to_file(fset, anova_sigfeats_path)
+             
+    # Perform t-tests
+    stats_t, pvals_t, reject_t = univariate_tests(X=features,
+                                                  y=metadata[group_by],
+                                                  control=control,
+                                                  test='t-test',
+                                                  comparison_type='binary_each_group',
+                                                  multitest_correction=fdr_method,
+                                                  alpha=pvalue_threshold)
+    
+    effect_sizes_t = get_effect_sizes(X=features,
+                                      y=metadata[group_by],
+                                      control=control,
+                                      linked_test='t-test')
+    
+    stats_t.columns = ['stats_' + str(c) for c in stats_t.columns]
+    pvals_t.columns = ['pvals_' + str(c) for c in pvals_t.columns]
+    reject_t.columns = ['reject_' + str(c) for c in reject_t.columns]
+    effect_sizes_t.columns = ['effect_size_' + str(c) for c in effect_sizes_t.columns]
+    ttest_results = pd.concat([stats_t, pvals_t, reject_t, effect_sizes_t], axis=1)
+    
+    # save results
+    ttest_path = Path(save_dir) / 't-test' / 't-test_results.csv'
+    ttest_path.parent.mkdir(exist_ok=True, parents=True)
+    ttest_results.to_csv(ttest_path, header=True, index=True)
+    
+    nsig = sum(reject_t.sum(axis=1) > 0)
+    print("%d significant features between any %s vs %s (t-test, P<%.2f, %s)" %\
+          (nsig, group_by, control, pvalue_threshold, fdr_method))
 
     return
 
-def timeseries_motion_mode(metadata):
+def mutant_worm_boxplots(metadata, 
+                         features,
+                         save_dir=None,
+                         ttest_path=None,
+                         feature_list=None):
     
-    worm_strain_list = ['N2'] + [w for w in sorted(metadata['worm_strain'].unique()) 
-                                 if w != 'N2']
+    from matplotlib import pyplot as plt
+    from matplotlib import transforms
+    
+    if feature_list is not None:
+        assert isinstance(feature_list, list) and all(f in features.columns for f in feature_list)
+    else:
+        feature_list = features.columns.tolist()
+            
+    plot_df = metadata.join(features)
+
+    dates = plot_df['date_yyyymmdd'].unique()
+    date_lut = dict(zip(dates, sns.color_palette('Greys', n_colors=len(dates))))
+    
+    worm_strain_list = ['N2'] + [w for w in sorted(plot_df['worm_strain'].unique()) if w != 'N2']
     bacteria_strain_list = ['BW', 'fepD']
     
-    # timeseries: motion mode paused fraction over time
-    for worm in worm_strain_list:
+    # load t-test results
+    ttest_df = pd.read_csv(ttest_path, index_col=0)
+    pvals = ttest_df[[c for c in ttest_df.columns if 'pvals_' in c]]
+    pvals.columns = [c.split('pvals_')[-1] for c in pvals.columns]
+
+    for feat in tqdm(feature_list):
         
-        # both bacteria together, for each worm/motion mode
-        for mode in ['forwards','backwards','stationary']:
-            print("Plotting timeseries '%s' fraction for %s..." % (mode, worm)) 
+        plt.close('all')
+        fig, ax = plt.subplots(figsize=(12,8), dpi=300)
+        sns.boxplot(x='worm_strain', 
+                    y=feat, 
+                    order=worm_strain_list, 
+                    hue='bacteria_strain',
+                    hue_order=bacteria_strain_list, 
+                    dodge=True,
+                    data=plot_df, 
+                    palette='tab10',
+                    ax=ax, 
+                    showfliers=False)
+        for date in date_lut.keys():
+            date_df = plot_df.query("date_yyyymmdd == @date")
+            ax = sns.stripplot(x='worm_strain', 
+                                y=feat, 
+                                order=worm_strain_list, 
+                                hue='bacteria_strain', 
+                                hue_order=bacteria_strain_list,
+                                dodge=True,
+                                data=date_df, 
+                                ax=ax, 
+                                color=sns.set_palette(palette=[date_lut[date]], 
+                                                      n_colors=len(worm_strain_list)),
+                                marker='.',
+                                alpha=0.7,
+                                size=4)
+        bacteria_lut = dict(zip(bacteria_strain_list, 
+                                sns.color_palette('tab10', len(bacteria_strain_list))))
+        markers = [plt.Line2D([0,0],[0,0], color=color, marker='o', linestyle='') 
+                    for color in bacteria_lut.values()]
+        plt.legend(markers, bacteria_lut.keys(), numpoints=1, frameon=False, 
+                    loc='best', markerscale=0.75, fontsize=8, handletextpad=0.2)
+        
+        # annotate p-values on plot
+        trans = transforms.blended_transform_factory(ax.transData, ax.transAxes)
 
-            plt.close('all')
-            fig, ax = plt.subplots(figsize=(15,5))
-
-            colours = sns.color_palette(palette="tab10", n_colors=len(bacteria_strain_list))
-            bluelight_frames = [(i*60*FPS, i*60*FPS+10*FPS) for i in BLUELIGHT_TIMEPOINTS_MINUTES]
-                    
-            for b, bacteria in enumerate(bacteria_strain_list):
-                
-                strain_metadata = metadata[np.logical_and(metadata['worm_strain']==worm,
-                                                          metadata['bacteria_strain']==bacteria)]
-            
-                # get timeseries data for worm strain
-                strain_timeseries = get_strain_timeseries(strain_metadata, 
-                                                          project_dir=PROJECT_DIR, 
-                                                          strain=bacteria,
-                                                          group_by='bacteria_strain',
-                                                          n_wells=N_WELLS,
-                                                          save_dir=Path(SAVE_DIR) / 'Data' / worm,
-                                                          verbose=False)
-    
-                ax = plot_timeseries_motion_mode(df=strain_timeseries,
-                                                 window=SMOOTH_WINDOW_SECONDS*FPS,
-                                                 error=True,
-                                                 mode=mode,
-                                                 max_n_frames=VIDEO_LENGTH_SECONDS*FPS,
-                                                 title=None,
-                                                 #figsize=(15,5), 
-                                                 saveAs=None, #saveAs=save_path,
-                                                 ax=ax, #ax=None,
-                                                 bluelight_frames=bluelight_frames,
-                                                 colour=colours[b],
-                                                 alpha=0.25)
-            
-            xticks = np.linspace(0, VIDEO_LENGTH_SECONDS*FPS, int(VIDEO_LENGTH_SECONDS/60)+1)
-            ax.set_xticks(xticks)
-            ax.set_xticklabels([str(int(x/FPS/60)) for x in xticks])   
-            ax.set_xlabel('Time (minutes)', fontsize=15, labelpad=10)
-            ax.set_ylabel('Fraction {}'.format(mode), fontsize=15, labelpad=10)
-            ax.legend(bacteria_strain_list, fontsize=12, frameon=False, loc='best')
-            ax.set_title('motion mode fraction {}'.format(mode), fontsize=15, pad=10)
-
-            if BLUELIGHT_WINDOWS_ONLY_TS:
-                ts_plot_dir = plot_dir / 'timeseries_bluelight' / worm
-                ax.set_xlim([min(BLUELIGHT_TIMEPOINTS_MINUTES)*60*FPS-60*FPS, 
-                             max(BLUELIGHT_TIMEPOINTS_MINUTES)*60*FPS+70*FPS])
+        for ii, worm in enumerate(worm_strain_list):                        
+            text = ax.get_xticklabels()[ii]
+            assert text.get_text() == worm
+            if worm == 'N2':
+                p = pvals.loc[feat, 'N2-fepD']
+                p_text = 'P<0.001' if p < 0.001 else 'P=%.3f' % p
+                ax.text(ii+0.2, 1.02, p_text, fontsize=6, ha='center', va='bottom', transform=trans)
+                continue
             else:
-                ts_plot_dir = plot_dir / 'timeseries' / worm
-    
-            # save plot
-            ts_plot_dir.mkdir(exist_ok=True, parents=True)
-            plt.savefig(ts_plot_dir / '{0}_{1}.pdf'.format(worm, mode), dpi=300)  
-            plt.close()
-    
+                p1 = pvals.loc[feat, str(worm) + '-' + bacteria_strain_list[0]]
+                p2 = pvals.loc[feat, str(worm) + '-' + bacteria_strain_list[1]]
+                p1_text = 'P<0.001' if p1 < 0.001 else 'P=%.3f' % p1
+                p2_text = 'P<0.001' if p2 < 0.001 else 'P=%.3f' % p2
+                ax.text(ii-0.2, 1.02, p1_text, fontsize=6, ha='center', va='bottom', transform=trans)
+                ax.text(ii+0.2, 1.02, p2_text, fontsize=6, ha='center', va='bottom', transform=trans)
+
+        ax.set_xlabel('Worm - Bacteria', fontsize=15, labelpad=10)
+        ax.set_ylabel(feat.replace('_',' '), fontsize=15, labelpad=10)
+        
+        save_path = Path(save_dir) / '{}.pdf'.format(feat)
+        save_path.parent.mkdir(parents=True, exist_ok=True)
+        plt.savefig(save_path)
+
     return
 
 #%% Main
@@ -486,16 +259,16 @@ if __name__ == '__main__':
     
         # compile metadata
         metadata, metadata_path = compile_metadata(aux_dir=AUX_DIR, 
-                                                   imaging_dates=IMAGING_DATES, 
+                                                   imaging_dates=None, 
                                                    n_wells=N_WELLS,
-                                                   add_well_annotations=N_WELLS==96,
+                                                   add_well_annotations=False,
                                                    from_source_plate=False)
         
         # compile window summaries
         features, metadata = process_feature_summaries(metadata_path=metadata_path, 
                                                        results_dir=RES_DIR, 
                                                        compile_day_summaries=True,
-                                                       imaging_dates=IMAGING_DATES, 
+                                                       imaging_dates=None, 
                                                        align_bluelight=False,
                                                        window_summaries=True,
                                                        n_wells=N_WELLS)
@@ -526,66 +299,76 @@ if __name__ == '__main__':
         metadata = pd.read_csv(META_PATH, dtype={'comments':str, 'source_plate_id':str})
         features = pd.read_csv(FEAT_PATH, index_col=None)
 
-    stats_dir =  Path(SAVE_DIR) / "Stats"
-    plot_dir = Path(SAVE_DIR) / "Plots"
+    # load feature set
+    if FEATURE_SET is not None:
+        # subset for selected feature set (and remove path curvature features)
+        if isinstance(FEATURE_SET, int) and FEATURE_SET in [8,16,256]:
+            features = select_feat_set(features, 'tierpsy_{}'.format(FEATURE_SET), append_bluelight=True)
+            features = features[[f for f in features.columns if 'path_curvature' not in f]]
+        elif isinstance(FEATURE_SET, list) or isinstance(FEATURE_SET, set):
+            assert all(f in features.columns for f in FEATURE_SET)
+            features = features[FEATURE_SET].copy()
+    feature_list = features.columns.tolist()
+
+    # subset metadata results for bluelight videos only 
+    bluelight_videos = [i for i in metadata['imgstore_name'] if 'bluelight' in i]
+    metadata = metadata[metadata['imgstore_name'].isin(bluelight_videos)]
     
-    window_list = sorted(WINDOW_DICT_SECONDS.keys())
-    worm_strain_list = list(metadata['worm_strain'].unique())
-    bacteria_strain_list = sorted(metadata['bacteria_strain'].unique())
+    metadata['treatment'] = metadata[['worm_strain','bacteria_strain']].agg('-'.join, axis=1)
+    control = 'N2-BW'
+
+    metadata['window'] = metadata['window'].astype(int)
+    window_list = list(metadata['window'].unique())
+    
+    # worm_strain_list = list(metadata['worm_strain'].unique())
+    # bacteria_strain_list = sorted(metadata['bacteria_strain'].unique())
 
     # ANOVA and t-tests comparing mutant worms on fepD/BW vs N2 on BW (for each window)
-    metadata['treatment'] = metadata[['worm_strain','bacteria_strain']].agg('-'.join, axis=1)
-    window_stats(metadata,
-                 features,
-                 group_by='treatment',
-                 control='N2-BW',
-                 feature_list=[FEATURE],
-                 save_dir=stats_dir,
-                 windows=window_list,
-                 pvalue_threshold=PVAL_THRESH,
-                 fdr_method='fdr_by')
+    for window in tqdm(window_list):
+        meta_window = metadata[metadata['window']==window]
+        feat_window = features.reindex(meta_window.index)
+
+        stats_dir = Path(SAVE_DIR) / 'Stats' / WINDOW_NAME_DICT[window]
+        plot_dir = Path(SAVE_DIR) / 'Plots' / WINDOW_NAME_DICT[window]
+
+        mutant_worm_stats(meta_window,
+                          feat_window,
+                          group_by='treatment',
+                          control=control,
+                          save_dir=stats_dir,
+                          feature_set=FEATURE_SET,
+                          pvalue_threshold=0.05,
+                          fdr_method='fdr_bh')
+        order = sorted(meta_window['treatment'].unique())
+        colour_labels = sns.color_palette('tab10', 2)
+        colours = [colour_labels[0] if 'BW' in s else colour_labels[1] for s in order]
+        colour_dict = {key:col for (key,col) in zip(order, colours)}
+        all_in_one_boxplots(meta_window,
+                            feat_window,
+                            group_by='treatment',
+                            control=control,
+                            save_dir=plot_dir,
+                            ttest_path=stats_dir / 't-test' / 't-test_results.csv',
+                            feature_set=FEATURE_SET,
+                            pvalue_threshold=0.05,
+                            order=order,
+                            colour_dict=colour_dict,
+                            figsize=(30, 10),
+                            ylim_minmax=None,
+                            vline_boxpos=[1,3,5,7,9,11],
+                            fontsize=15,
+                            subplots_adjust={'bottom': 0.2, 'top': 0.95, 'left': 0.05, 'right': 0.98})
     
-    # boxplots for each bacteria strain comparing mutants with control at each window
-    boxplots(metadata, 
-             features,
-             save_dir=plot_dir,
-             stats_dir=stats_dir,
-             feature_list=[FEATURE],
-             window_list=window_list)
-    
-    # plot timeseries comparing forwards fraction of each mutant worms on BW vs fepD bacteria
-    # timeseries_motion_mode(metadata)
-    
-    # # statistics: pairwise t-test of BW vs fepB for each mutant worm (at each window)
-    # for window in window_list: 
-    #     single_feature_window_mutant_worm_stats(metadata,
-    #                                             features,
-    #                                             save_dir=stats_dir / 'bacteria_strain',
-    #                                             window=window,
-    #                                             feature=FEATURE,
-    #                                             pvalue_threshold=0.05,
-    #                                             fdr_method='fdr_by')
-    
-    # plotting: paired boxplots of BW vs fepD for each worm strain
-    
-    # # plot for each window
-    # for window in window_list:
-    #     plot_1window_fepD_vs_BW(metadata, 
-    #                             features, 
-    #                             feat=FEATURE, 
-    #                             window=window,
-    #                             save_dir=plot_dir / 'boxplots_BW_vs_fepD' / 'window_{}'.format(window))
-        
-    # # plot for each worm
-    # for worm in worm_strain_list:
-    #     plot_1worm_fepD_vs_BW(metadata, 
-    #                           features, 
-    #                           feat=FEATURE, 
-    #                           worm_strain=worm,
-    #                           save_dir=plot_dir / 'boxplots_BW_vs_fepD' / '{}'.format(worm))    
-        
+        # boxplots for each bacteria strain comparing mutants with control at each window
+        mutant_worm_boxplots(metadata, 
+                             features,
+                             save_dir=plot_dir,
+                             ttest_path=stats_dir / 't-test' / 't-test_results.csv',
+                             feature_list=FEATURE_SET)
+     
+    metadata = metadata[metadata['window']==0]
+
     # timeseries plots of speed for fepD vs BW control
-    
     BLUELIGHT_TIMEPOINTS_SECONDS = [(i*60,i*60+10) for i in BLUELIGHT_TIMEPOINTS_MINUTES]
     plot_window_timeseries_feature(metadata=metadata,
                                    project_dir=Path(PROJECT_DIR),

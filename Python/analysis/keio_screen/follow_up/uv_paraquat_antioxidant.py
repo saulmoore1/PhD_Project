@@ -13,15 +13,18 @@ or exacerbated by addition of paraquat (when bacteria are UV killed or not)
 
 #%% Imports
 
+import numpy as np
 import pandas as pd
+import seaborn as sns
+from tqdm import tqdm
 from pathlib import Path
 
 # from analysis.keio_screen.check_keio_screen_worm_trajectories import check_tracked_objects
 from preprocessing.compile_hydra_data import compile_metadata, process_feature_summaries
 from filter_data.clean_feature_summaries import clean_summary_results
 from write_data.write import write_list_to_file
-from visualisation.plotting_helper import sig_asterix, boxplots_sigfeats
-from time_series.plot_timeseries import selected_strains_timeseries, plot_timeseries_feature
+from visualisation.plotting_helper import sig_asterix, boxplots_sigfeats, all_in_one_boxplots
+from time_series.plot_timeseries import plot_timeseries_feature #selected_strains_timeseries
 from analysis.keio_screen.follow_up.lawn_leaving_rate import fraction_on_food, timeseries_on_food
 
 from tierpsytools.analysis.statistical_tests import univariate_tests, get_effect_sizes
@@ -38,13 +41,21 @@ FPS = 25
 nan_threshold_row = 0.8
 nan_threshold_col = 0.05
 
-FEATURE_SET = ['motion_mode_forward_fraction_bluelight', 'speed_50th_bluelight']
+FEATURE_SET = ['speed_50th']
 
 THRESHOLD_FILTER_DURATION = 25 # threshold trajectory length (n frames) / 25 fps => 1 second
 THRESHOLD_FILTER_MOVEMENT = 10 # threshold movement (n pixels) * 12.4 microns per pixel => 124 microns
 THRESHOLD_LEAVING_DURATION = 50 # n frames a worm has to leave food for => a true leaving event
 
 BLUELIGHT_TIMEPOINTS_SECONDS = [(60, 70),(160, 170),(260, 270)]
+
+WINDOW_DICT = {0:(65,75),1:(90,100),
+               2:(165,175),3:(190,200),
+               4:(265,275),5:(290,300)}
+
+WINDOW_NAME_DICT = {0:"blue light 1", 1: "20-30 seconds after blue light 1",
+                    2:"blue light 2", 3: "20-30 seconds after blue light 2",
+                    4:"blue light 3", 5: "20-30 seconds after blue light 3"}
 
 #%% Functions
 
@@ -55,7 +66,7 @@ def uv_paraquat_antioxidant_stats(metadata,
                                   save_dir=None,
                                   feature_set=None,
                                   pvalue_threshold=0.05,
-                                  fdr_method='fdr_by'):
+                                  fdr_method='fdr_bh'):
     
     # check case-sensitivity
     assert len(metadata[group_by].unique()) == len(metadata[group_by].str.upper().unique())
@@ -180,7 +191,7 @@ def uv_paraquat_antioxidant_boxplots(metadata,
 def masked_video_list_from_metadata(metadata, 
                                     group_by='treatment', 
                                     groups_list=['BW-nan-nan-N'],
-                                    imgstore_col='imgstore_name_bluelight',
+                                    imgstore_col='imgstore_name',
                                     project_dir=None,
                                     save_dir=None):
     
@@ -229,8 +240,8 @@ if __name__ == '__main__':
                                                        results_dir=res_dir, 
                                                        compile_day_summaries=True, 
                                                        imaging_dates=None, 
-                                                       align_bluelight=True, 
-                                                       window_summaries=False,
+                                                       align_bluelight=False, 
+                                                       window_summaries=True,
                                                        n_wells=N_WELLS)
 
         # Clean results - Remove bad well data + features with too many NaNs/zero std + impute NaNs
@@ -267,33 +278,19 @@ if __name__ == '__main__':
             assert all(f in features.columns for f in FEATURE_SET)
             features = features[FEATURE_SET].copy()
     feature_list = features.columns.tolist()
+
+    # subset metadata results for bluelight videos only 
+    bluelight_videos = [i for i in metadata['imgstore_name'] if 'bluelight' in i]
+    metadata = metadata[metadata['imgstore_name'].isin(bluelight_videos)]
     
     treatment_cols = ['food_type','drug_type','drug_imaging_plate_conc','is_dead']
     metadata['treatment'] = metadata[treatment_cols].astype(str).agg('-'.join, axis=1)
     control = 'BW-nan-nan-N'
-    
-    # perform anova and t-tests comparing each treatment to BW control
-    uv_paraquat_antioxidant_stats(metadata,
-                                  features,
-                                  group_by='treatment',
-                                  control=control,
-                                  save_dir=Path(SAVE_DIR) / 'Stats',
-                                  feature_set=feature_list,
-                                  pvalue_threshold=0.05,
-                                  fdr_method='fdr_by')
-    
-    # boxplots comparing each treatment to BW control for each feature
-    uv_paraquat_antioxidant_boxplots(metadata,
-                                     features,
-                                     group_by='treatment',
-                                     control=control,
-                                     save_dir=Path(SAVE_DIR) / 'Plots',
-                                     stats_dir=Path(SAVE_DIR) / 'Stats',
-                                     feature_set=feature_list,
-                                     pvalue_threshold=0.05)
- 
+
+    metadata['window'] = metadata['window'].astype(int)
+    window_list = list(metadata['window'].unique())
+
     # save video file list for treatments (for manual inspection)
-    #XXX to select example videos
     video_dict = masked_video_list_from_metadata(metadata, 
                                                  group_by='treatment', 
                                                  groups_list=[control,'fepD-nan-nan-N'],
@@ -301,24 +298,154 @@ if __name__ == '__main__':
                                                  save_dir=Path(SAVE_DIR) / 'video_filenames')
     print("Found file information for %d treatment groups" % len(video_dict.keys()))
 
-    # timeseries motion mode fraction for each treatment vs BW control
+    for window in tqdm(window_list):
+        meta_window = metadata[metadata['window']==window]
+        feat_window = features.reindex(meta_window.index)
+
+        stats_dir = Path(SAVE_DIR) / 'Stats' / WINDOW_NAME_DICT[window]
+        plot_dir = Path(SAVE_DIR) / 'Plots' / WINDOW_NAME_DICT[window]
+    
+        # perform anova and t-tests comparing each treatment to BW control
+        uv_paraquat_antioxidant_stats(meta_window,
+                                      feat_window,
+                                      group_by='treatment',
+                                      control=control,
+                                      save_dir=Path(SAVE_DIR) / 'Stats' / WINDOW_NAME_DICT[window],
+                                      feature_set=feature_list,
+                                      pvalue_threshold=0.05,
+                                      fdr_method='fdr_bh')
+        
+        # boxplots comparing each treatment to BW control for each feature
+        uv_paraquat_antioxidant_boxplots(meta_window,
+                                         feat_window,
+                                         group_by='treatment',
+                                         control=control,
+                                         save_dir=Path(SAVE_DIR) / 'Plots' / WINDOW_NAME_DICT[window],
+                                         stats_dir=Path(SAVE_DIR) / 'Stats' / WINDOW_NAME_DICT[window],
+                                         feature_set=feature_list,
+                                         pvalue_threshold=0.05)
+        
+        # antioxidants
+        antiox_meta = meta_window[np.logical_and(meta_window['drug_type']!='Paraquat',
+                                                 meta_window['is_dead']=='N')]
+        antiox_feat = feat_window.reindex(antiox_meta.index)
+        uv_paraquat_antioxidant_stats(antiox_meta,
+                                      antiox_feat,
+                                      group_by='treatment',
+                                      control=control,
+                                      save_dir=stats_dir / 'antioxidants',
+                                      feature_set=feature_list,
+                                      pvalue_threshold=0.05,
+                                      fdr_method='fdr_bh')
+        order = ['BW-nan-nan-N','fepD-nan-nan-N',
+                 'BW-Vitamin C-0.5-N','BW-Vitamin C-1.0-N','fepD-Vitamin C-0.5-N','fepD-Vitamin C-1.0-N',
+                 'BW-NAC-0.5-N','BW-NAC-1.0-N','fepD-NAC-0.5-N','fepD-NAC-1.0-N']
+        colour_labels = sns.color_palette('tab10', 2)
+        colours = [colour_labels[0] if 'BW' in s else colour_labels[1] for s in order]
+        colour_dict = {key:col for (key,col) in zip(order, colours)}
+        all_in_one_boxplots(antiox_meta,
+                            antiox_feat,
+                            group_by='treatment',
+                            control=control,
+                            save_dir=plot_dir / 'all-in-one' / 'antioxidants',
+                            ttest_path=stats_dir / 'antioxidants' / 't-test' / 't-test_results.csv',
+                            feature_set=feature_list,
+                            pvalue_threshold=0.05,
+                            order=order,
+                            colour_dict=colour_dict,
+                            figsize=(30,10),
+                            ylim_minmax=(-20,380),
+                            vline_boxpos=[1,5],
+                            fontsize=20,
+                            subplots_adjust={'bottom':0.32,'top':0.95,'left':0.05,'right':0.98})
+        
+        # paraquat (live)
+        paraquat_meta = meta_window[np.logical_and(np.logical_or(meta_window['drug_type']=='Paraquat',
+                                                                 meta_window['drug_type'].astype(str)=='nan'),
+                                                   meta_window['is_dead']=='N')]
+        paraquat_feat = feat_window.reindex(paraquat_meta.index)
+        uv_paraquat_antioxidant_stats(paraquat_meta,
+                                      paraquat_feat,
+                                      group_by='treatment',
+                                      control=control,
+                                      save_dir=stats_dir / 'paraquat-live',
+                                      feature_set=feature_list,
+                                      pvalue_threshold=0.05,
+                                      fdr_method='fdr_bh')
+        order = ['BW-nan-nan-N','BW-Paraquat-0.5-N','BW-Paraquat-1.0-N',
+                 'fepD-nan-nan-N','fepD-Paraquat-0.5-N','fepD-Paraquat-1.0-N']
+        colour_labels = sns.color_palette('tab10', 2)
+        colours = [colour_labels[0] if 'BW' in s else colour_labels[1] for s in order]
+        colour_dict = {key:col for (key,col) in zip(order, colours)}
+        all_in_one_boxplots(paraquat_meta,
+                            paraquat_feat,
+                            group_by='treatment',
+                            control=control,
+                            save_dir=plot_dir / 'all-in-one' / 'paraquat-live',
+                            ttest_path=stats_dir / 'paraquat-live' / 't-test' / 't-test_results.csv',
+                            feature_set=feature_list,
+                            pvalue_threshold=0.05,
+                            order=order,
+                            colour_dict=colour_dict,
+                            figsize=(20,10),
+                            ylim_minmax=(-20,380),
+                            vline_boxpos=[2],
+                            fontsize=20,
+                            subplots_adjust={'bottom':0.32,'top':0.95,'left':0.05,'right':0.98})
+        
+        # paraquat (dead)
+        paraquat_meta = meta_window[np.logical_and(np.logical_or(meta_window['drug_type']=='Paraquat',
+                                                                 meta_window['drug_type'].astype(str)=='nan'),
+                                                   meta_window['is_dead']=='Y')]
+        paraquat_feat = feat_window.reindex(paraquat_meta.index)
+        uv_paraquat_antioxidant_stats(paraquat_meta,
+                                      paraquat_feat,
+                                      group_by='treatment',
+                                      control='BW-nan-nan-Y',
+                                      save_dir=stats_dir / 'paraquat-dead',
+                                      feature_set=feature_list,
+                                      pvalue_threshold=0.05,
+                                      fdr_method='fdr_bh')
+        order = ['BW-nan-nan-Y','BW-Paraquat-0.5-Y','BW-Paraquat-1.0-Y',
+                 'fepD-nan-nan-Y','fepD-Paraquat-0.5-Y','fepD-Paraquat-1.0-Y']
+        colour_labels = sns.color_palette('tab10', 2)
+        colours = [colour_labels[0] if 'BW' in s else colour_labels[1] for s in order]
+        colour_dict = {key:col for (key,col) in zip(order, colours)}
+        all_in_one_boxplots(paraquat_meta,
+                            paraquat_feat,
+                            group_by='treatment',
+                            control='BW-nan-nan-Y',
+                            save_dir=plot_dir / 'all-in-one' / 'paraquat-dead',
+                            ttest_path=stats_dir / 'paraquat-dead' / 't-test' / 't-test_results.csv',
+                            feature_set=feature_list,
+                            pvalue_threshold=0.05,
+                            order=order,
+                            colour_dict=colour_dict,
+                            figsize=(20,10),
+                            ylim_minmax=(-20,380),
+                            vline_boxpos=[2],
+                            fontsize=20,
+                            subplots_adjust={'bottom':0.32,'top':0.95,'left':0.05,'right':0.98})        
+        
+    metadata = metadata[metadata['window']==0]
     strain_list = list(metadata['treatment'].unique())
-    selected_strains_timeseries(metadata,
-                                project_dir=Path(PROJECT_DIR), 
-                                save_dir=Path(SAVE_DIR) / 'timeseries', 
-                                strain_list=strain_list,
-                                group_by='treatment',
-                                control=control,
-                                n_wells=6,
-                                bluelight_stim_type='bluelight',
-                                video_length_seconds=360,
-                                bluelight_timepoints_seconds=BLUELIGHT_TIMEPOINTS_SECONDS,
-                                motion_modes=['forwards','paused','backwards'],
-                                smoothing=10)
-    
-    #TODO: Try to fix the scale across plots to 0-300 um/sec for easier comparison across conditions
-    
+
+    # # timeseries motion mode fraction for each treatment vs BW control
+    # selected_strains_timeseries(metadata,
+    #                             project_dir=Path(PROJECT_DIR), 
+    #                             save_dir=Path(SAVE_DIR) / 'timeseries', 
+    #                             strain_list=strain_list,
+    #                             group_by='treatment',
+    #                             control=control,
+    #                             n_wells=6,
+    #                             bluelight_stim_type='bluelight',
+    #                             video_length_seconds=360,
+    #                             bluelight_timepoints_seconds=BLUELIGHT_TIMEPOINTS_SECONDS,
+    #                             motion_modes=['forwards','paused','backwards'],
+    #                             smoothing=10)
+        
     # timeseries plots of speed for each treatment vs control
+    # fix the scale across speed timeseries plots to 0-300 um/sec for easier comparison
     plot_timeseries_feature(metadata,
                             project_dir=Path(PROJECT_DIR),
                             save_dir=Path(SAVE_DIR) / 'timeseries-speed',
@@ -332,10 +459,10 @@ if __name__ == '__main__':
                             bluelight_timepoints_seconds=BLUELIGHT_TIMEPOINTS_SECONDS,
                             smoothing=10,
                             fps=FPS,
-                            ylim_minmax=(-10,310))    
+                            ylim_minmax=(-20,330))  
     
     # timeseries plots of fraction of worms on food
-    #XXX: Use script to label lawns prior to executing these functions
+    # Use script to label lawns prior to executing these functions
     video_frac_df, leaving_events_df = fraction_on_food(metadata,
                                                         food_coords_dir=Path(SAVE_DIR) / 'lawn_leaving',
                                                         bluelight_stimulus_type='bluelight',

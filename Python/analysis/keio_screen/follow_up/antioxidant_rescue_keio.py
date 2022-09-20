@@ -7,7 +7,8 @@ Please run the following scripts beforehand:
 1. preprocessing/compile_keio_results.py
 2. statistical_testing/perform_antioxidant_rescue_stats.py
 
-Main feature we are using as an indicator for the rescue: 'motion_mode_paused_fraction_bluelight'
+
+THESE EXPERIMENTS FAILED: WILL REDO THEM WITH A LOWER CONCENTRATION OF ANTIOXIDANT
 
 @author: sm5911
 @date: 13/11/2021
@@ -49,10 +50,12 @@ JSON_PARAMETERS_PATH = "analysis/20211102_parameters_keio_rescue.json"
 STRAIN_COLNAME = 'gene_name'
 TREATMENT_COLNAME = 'antioxidant'
 
-feature_set = ['motion_mode_forward_fraction_bluelight']
+feature_set = ['speed_50th_bluelight'] # motion_mode_forward_fraction_bluelight
 
 METHOD = 'complete' # 'complete','linkage','average','weighted','centroid'
 METRIC = 'euclidean' # 'euclidean','cosine','correlation'
+
+BLUELIGHT_TIMEPOINTS_SECONDS = [(60, 70),(160, 170),(260, 270)]
 
 #%% FUNCTIONS
 

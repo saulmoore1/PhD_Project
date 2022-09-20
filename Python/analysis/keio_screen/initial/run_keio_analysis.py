@@ -41,8 +41,8 @@ from tierpsytools.preprocessing.filter_data import select_feat_set
 
 #%% GLOBALS
 
-JSON_PARAMETERS_PATH = "analysis/20210406_parameters_keio_screen.json"
-# JSON_PARAMETERS_PATH = "analysis/20210914_parameters_keio_screen.json"
+# JSON_PARAMETERS_PATH = "analysis/20210406_parameters_keio_initial_screen.json"
+JSON_PARAMETERS_PATH = "analysis/20210914_parameters_keio_confirmation_screen.json"
 
 N_LOWEST_PVAL = 100
 SUBSET_HIT_STRAINS = False
@@ -704,6 +704,22 @@ if __name__ == "__main__":
 
     compare_strains_keio(features, metadata, args)
     
+    # errorbar plots for all genes (highlighting fep genes) for speed 50th bluelight
+    fep_list = ['fepB','fepC','fepD','fepG','fes']
+    errorbar_sigfeats(features, metadata, 
+                      group_by='gene_name',
+                      fset=['speed_50th_bluelight'],
+                      control='wild_type',
+                      highlight_subset=[s for s in list(metadata.gene_name.unique()) if s in fep_list],
+                      rank_by='mean',
+                      figsize=(40,6),
+                      fontsize=10,
+                      ms=10,
+                      elinewidth=4,
+                      fmt='.',
+                      tight_layout=[0.01,0.01,0.99,0.99],
+                      saveDir=Path(args.save_dir) / 'errorbar' / 'fep_labelled')
+
     # bluelight time-series
     selected_strains_timeseries(metadata, 
                                 project_dir=Path(args.project_dir), 

@@ -15,351 +15,462 @@ Do we still see arousal of worms on siderophore mutants, even after a short peri
 
 #%% Imports
 
-import argparse
 import numpy as np
 import pandas as pd
 import seaborn as sns
 from tqdm import tqdm
 from pathlib import Path
-# from matplotlib import transforms
-from matplotlib import pyplot as plt
 # from scipy.stats import zscore
 
-from read_data.read import load_json
-from read_data.paths import get_save_dir
 from preprocessing.compile_hydra_data import compile_metadata, process_feature_summaries
 from filter_data.clean_feature_summaries import clean_summary_results
-from statistical_testing.stats_helper import pairwise_ttest
-from visualisation.plotting_helper import sig_asterix, boxplots_sigfeats
-# from clustering.hierarchical_clustering import plot_clustermap, plot_barcode_heatmap
-# from feature_extraction.decomposition.pca import plot_pca, plot_pca_2var, remove_outliers_pca
-# from feature_extraction.decomposition.tsne import plot_tSNE
-# from feature_extraction.decomposition.umap import plot_umap
-from time_series.time_series_helper import get_strain_timeseries
-from time_series.plot_timeseries import plot_timeseries_motion_mode, plot_window_timeseries_feature
-from statistical_testing.antioxidant_rescue_stats import antioxidants_stats
+from visualisation.plotting_helper import sig_asterix, boxplots_sigfeats, all_in_one_boxplots
+from write_data.write import write_list_to_file
+from time_series.plot_timeseries import plot_window_timeseries_feature #plot_timeseries_motion_mode
 
-# from tierpsytools.preprocessing.filter_data import select_feat_set
+from tierpsytools.preprocessing.filter_data import select_feat_set
 from tierpsytools.analysis.statistical_tests import univariate_tests, get_effect_sizes
 
 #%% Globals
 
-JSON_PARAMETERS_PATH = 'analysis/20220111_parameters_keio_acute_rescue.json'
+PROJECT_DIR = '/Volumes/hermes$/Keio_Acute_Rescue'
+SAVE_DIR = '/Users/sm5911/Documents/Keio_Acute_Rescue'
+
 N_WELLS = 6
 
-feature_set = ['motion_mode_forward_fraction','speed_50th']
-# FEATURE = 'motion_mode_forward_fraction'
+FEATURE_SET = ['speed_50th']
 
-scale_outliers_box = True
+nan_threshold_row = 0.8
+nan_threshold_col = 0.05
+
+scale_outliers_box = False
 
 ALL_WINDOWS = False
 WINDOW_LIST = None # if ALL_WINDOWS is False
 
 # mapping dictionary - windows summary window number to corresponding timestamp (seconds)
-WINDOW_FRAME_DICT = {0:(290,300), 1:(305,315), 2:(315,325), 
-                     3:(590,600), 4:(605,615), 5:(615,625), 
-                     6:(890,900), 7:(905,915), 8:(915,925), 
-                     9:(1190,1200), 10:(1205,1215), 11:(1215,1225), 
-                     12:(1490,1500), 13:(1505,1515), 14:(1515,1525), 
-                     15:(1790,1800), 16:(1805,1815), 17:(1815,1825), 
-                     18:(2090,2100), 19:(2105,2115), 20:(2115,2125), 
-                     21:(2390,2400), 22:(2405,2415), 23:(2415,2425)}
+# WINDOW_FRAME_DICT = {0:(290,300), 1:(305,315), 2:(315,325), 
+#                      3:(590,600), 4:(605,615), 5:(615,625), 
+#                      6:(890,900), 7:(905,915), 8:(915,925), 
+#                      9:(1190,1200), 10:(1205,1215), 11:(1215,1225), 
+#                      12:(1490,1500), 13:(1505,1515), 14:(1515,1525), 
+#                      15:(1790,1800), 16:(1805,1815), 17:(1815,1825), 
+#                      18:(2090,2100), 19:(2105,2115), 20:(2115,2125), 
+#                      21:(2390,2400), 22:(2405,2415), 23:(2415,2425)}
+
+# Featsums 10 seconds centred on end of each BL pulse and also 20-30 seconds after end of each BL pulse
+WINDOW_DICT = {0:(305,315),1:(330,340),
+               2:(605,615),3:(630,640),
+               4:(905,915),5:(930,940),
+               6:(1205,1215),7:(1230,1240),
+               8:(1505,1515),9:(1530,1540),
+               10:(1805,1815),11:(1830,1840),
+               12:(2105,2115),13:(2130,2140),
+               14:(2405,2415),15:(2430,2440)}
+
+WINDOW_NAME_DICT = {0:"blue light 1", 1: "20-30 seconds after blue light 1",
+                    2:"blue light 2", 3: "20-30 seconds after blue light 2",
+                    4:"blue light 3", 5: "20-30 seconds after blue light 3",
+                    6:"blue light 4", 7: "20-30 seconds after blue light 4",
+                    8:"blue light 5", 9: "20-30 seconds after blue light 5",
+                    10:"blue light 6", 11: "20-30 seconds after blue light 6",
+                    12:"blue light 7", 13: "20-30 seconds after blue light 7",
+                    14:"blue light 8", 15: "20-30 seconds after blue light 8"}
+
+#305:315,330:340,605:615,630:640,905:915,930:940,1205:1215,1230:1240,1505:1515,1530:1540,
+#1805:1815,1830:1840,2105:2115,2130:2140,2405:2415,2430:2440
 
 BLUELIGHT_TIMEPOINTS_MINUTES = [5,10,15,20,25,30,35,40]
 FPS = 25
 VIDEO_LENGTH_SECONDS = 45*60
 
-motion_modes = ['forwards']
-
 #%% Functions
 
-def acute_rescue_stats(features, 
-                       metadata, 
-                       save_dir, 
-                       control_strain, 
-                       control_antioxidant, 
-                       control_window,
-                       fdr_method='fdr_by',
-                       pval_threshold=0.05):
-    """ Pairwise t-tests for each window comparing worm 'motion mode paused fraction' on 
-        Keio mutants vs BW control 
+def acute_rescue_stats(metadata,
+                       features,
+                       group_by='treatment',
+                       control='BW',
+                       save_dir=None,
+                       feature_set=None,
+                       pvalue_threshold=0.05,
+                       fdr_method='fdr_bh'):
+    
+    # check case-sensitivity
+    assert len(metadata[group_by].unique()) == len(metadata[group_by].str.upper().unique())
+    
+    if feature_set is not None:
+        feature_set = [feature_set] if isinstance(feature_set, str) else feature_set
+        assert isinstance(feature_set, list)
+        assert(all(f in features.columns for f in feature_set))
+    else:
+        feature_set = features.columns.tolist()
         
-        # One could fit a multiple linear regression model: to account for strain*antioxidant in a 
-        # single model: Y (motion_mode) = b0 + b1*X1 (strain) + b2*X2 (antiox) + e (error)
-        # But this is a different type of question: we care about difference in means between 
-        # fepD vs BW (albeit under different antioxidant treatments), and not about modelling their 
-        # relationship, therefore individual t-tests (multiple-test-corrected) should suffice
-        
-        1. For each treatment condition, t-tests comparing fepD vs BW for motion_mode
-        
-        2. For fepD and BW separately, f-tests for equal variance among antioxidant treatment groups,
-        then ANOVA tests for significant differences between antioxidants, then individual t-tests
-        comparing each treatment to control
-        
-        Inputs
-        ------
-        features, metadata : pandas.DataFrame
-        
-        window_list : list
-            List of windows (int) to perform statistics (separately for each window provided, 
-            p-values are adjusted for multiple test correction)
-        
-        save_dir : str
-            Directory to save statistics results
-            
-        control_strain
-        control_antioxidant
-        fdr_method
-        
-    """
+    features = features[feature_set].reindex(metadata.index)
 
-    stats_dir =  Path(save_dir) / "Stats" / args.fdr_method
-    stats_dir.mkdir(parents=True, exist_ok=True)
+    # print mean sample size
+    sample_size = metadata.groupby(group_by).count()
+    print("Mean sample size of %s: %d" % (group_by, int(sample_size[sample_size.columns[-1]].mean())))
 
-    strain_list = [control_strain] + [s for s in set(metadata['gene_name'].unique()) if s != control_strain]  
-    antiox_list = [control_antioxidant] + [a for a in set(metadata['antioxidant'].unique()) if 
-                                           a != control_antioxidant]
-    window_list = [control_window] + [w for w in set(metadata['window'].unique()) if w != control_window]
-
-    # categorical variables to investigate: 'gene_name', 'antioxidant' and 'window'
-    print("\nInvestigating difference in fraction of worms paused between hit strain and control " +
-          "(for each window), in the presence/absence of antioxidants:\n")    
-
-    # For each strain separately...
-    for strain in strain_list:
-        strain_meta = metadata[metadata['gene_name']==strain]
-        strain_feat = features.reindex(strain_meta.index)
-
-        # 1. Is there any variation in fraction paused wtr antioxidant treatment?
-        #    - ANOVA on pooled window data, then pairwise t-tests for each antioxidant
+    n = len(metadata[group_by].unique())
         
-        print("Performing ANOVA on pooled window data for significant variation in fraction " +
-              "of worms paused among different antioxidant treatments for %s..." % strain)
-        
-        # perform ANOVA (correct for multiple comparisons)             
-        stats, pvals, reject = univariate_tests(X=strain_feat[feature_set], 
-                                                y=strain_meta['antioxidant'], 
+    fset = []
+    if n > 2:
+   
+        # Perform ANOVA - is there variation among strains at each window?
+        anova_path = Path(save_dir) / 'ANOVA' / 'ANOVA_results.csv'
+        anova_path.parent.mkdir(parents=True, exist_ok=True)
+
+        stats, pvals, reject = univariate_tests(X=features, 
+                                                y=metadata[group_by], 
+                                                control=control, 
                                                 test='ANOVA',
-                                                control=control_antioxidant,
                                                 comparison_type='multiclass',
                                                 multitest_correction=fdr_method,
-                                                alpha=pval_threshold,
-                                                n_permutation_test=None) # 'all'
-    
-        # get effect sizes
-        effect_sizes = get_effect_sizes(X=strain_feat[feature_set], 
-                                        y=strain_meta['antioxidant'],
-                                        control=control_antioxidant,
-                                        effect_type=None,
-                                        linked_test='ANOVA')
-    
-        # compile
-        test_results = pd.concat([stats, effect_sizes, pvals, reject], axis=1)
-        test_results.columns = ['stats','effect_size','pvals','reject']     
-        test_results['significance'] = sig_asterix(test_results['pvals'])
-        test_results = test_results.sort_values(by=['pvals'], ascending=True) # rank pvals
-        
-        # save results
-        anova_path = Path(stats_dir) / 'ANOVA_{}_variation_across_antioxidants.csv'.format(strain)
-        test_results.to_csv(anova_path, header=True, index=True)
-              
-        print("Performing t-tests comparing each antioxidant treatment to None (pooled window data)")
-        
-        stats_t, pvals_t, reject_t = univariate_tests(X=strain_feat[feature_set],
-                                                      y=strain_meta['antioxidant'],
-                                                      test='t-test',
-                                                      control=control_antioxidant,
-                                                      comparison_type='binary_each_group',
-                                                      multitest_correction=fdr_method,
-                                                      alpha=pval_threshold)
-        effect_sizes_t =  get_effect_sizes(X=strain_feat[feature_set], 
-                                           y=strain_meta['antioxidant'], 
-                                           control=control_antioxidant,
-                                           effect_type=None,
-                                           linked_test='t-test')
-            
-        # compile + save t-test results
-        stats_t.columns = ['stats_' + str(c) for c in stats_t.columns]
-        pvals_t.columns = ['pvals_' + str(c) for c in pvals_t.columns]
-        reject_t.columns = ['reject_' + str(c) for c in reject_t.columns]
-        effect_sizes_t.columns = ['effect_size_' + str(c) for c in effect_sizes_t.columns]
-        ttest_results = pd.concat([stats_t, effect_sizes_t, pvals_t, reject_t], axis=1)
-        ttest_save_path = stats_dir / 't-test_{}_antioxidant_results.csv'.format(strain)
-        ttest_save_path.parent.mkdir(exist_ok=True, parents=True)
-        ttest_results.to_csv(ttest_save_path, header=True, index=True)
-    
-        # 2. Is there any variation in fraction paused wrt window (time) across the videos?
-        #    - ANOVA on pooled antioxidant data, then pairwise for each window
-        
-        print("Performing ANOVA on pooled antioxidant data for significant variation in fraction " +
-              "of worms paused across (bluelight) window summaries for %s..." % strain)
-        
-        # perform ANOVA (correct for multiple comparisons)
-        stats, pvals, reject = univariate_tests(X=strain_feat[feature_set],
-                                                y=strain_meta['window'],
-                                                test='ANOVA',
-                                                control=control_window,
-                                                comparison_type='multiclass',
-                                                multitest_correction=fdr_method,
-                                                alpha=pval_threshold,
+                                                alpha=pvalue_threshold,
                                                 n_permutation_test=None)
-        
+
         # get effect sizes
-        effect_sizes = get_effect_sizes(X=strain_feat[feature_set],
-                                        y=strain_meta['window'],
-                                        control=control_window,
+        effect_sizes = get_effect_sizes(X=features,
+                                        y=metadata[group_by],
+                                        control=control,
                                         effect_type=None,
                                         linked_test='ANOVA')
 
-        # compile
+        # compile + save results
         test_results = pd.concat([stats, effect_sizes, pvals, reject], axis=1)
         test_results.columns = ['stats','effect_size','pvals','reject']     
         test_results['significance'] = sig_asterix(test_results['pvals'])
-        test_results = test_results.sort_values(by=['pvals'], ascending=True) # rank pvals
-        
-        # save results
-        anova_path = Path(stats_dir) / 'ANOVA_{}_variation_across_windows.csv'.format(strain)
+        test_results = test_results.sort_values(by=['pvals'], ascending=True) # rank by p-value
         test_results.to_csv(anova_path, header=True, index=True)
 
-        print("Performing t-tests comparing each window with the first (pooled antioxidant data)")
-        
-        stats_t, pvals_t, reject_t = univariate_tests(X=strain_feat[feature_set],
-                                                      y=strain_meta['window'],
-                                                      test='t-test',
-                                                      control=control_window,
-                                                      comparison_type='binary_each_group',
-                                                      multitest_correction=fdr_method,
-                                                      alpha=pval_threshold)
-        effect_sizes_t =  get_effect_sizes(X=strain_feat[feature_set], 
-                                           y=strain_meta['window'], 
-                                           control=control_window,
-                                           effect_type=None,
-                                           linked_test='t-test')
-            
-        # compile + save t-test results
-        stats_t.columns = ['stats_' + str(c) for c in stats_t.columns]
-        pvals_t.columns = ['pvals_' + str(c) for c in pvals_t.columns]
-        reject_t.columns = ['reject_' + str(c) for c in reject_t.columns]
-        effect_sizes_t.columns = ['effect_size_' + str(c) for c in effect_sizes_t.columns]
-        ttest_results = pd.concat([stats_t, effect_sizes_t, pvals_t, reject_t], axis=1)
-        ttest_save_path = stats_dir / 't-test_{}_window_results.csv'.format(strain)
-        ttest_save_path.parent.mkdir(exist_ok=True, parents=True)
-        ttest_results.to_csv(ttest_save_path, header=True, index=True)   
-         
-    # Pairwise t-tests - is there a difference between strain vs control?
+        # use reject mask to find significant feature set
+        fset = pvals.loc[reject['ANOVA']].sort_values(by='ANOVA', ascending=True).index.to_list()
 
-    control_meta = metadata[metadata['gene_name']==control_strain]
-    control_feat = features.reindex(control_meta.index)
-    control_df = control_meta.join(control_feat[feature_set])
+        if len(fset) > 0:
+            print("%d significant features found by ANOVA by '%s' (P<%.2f, %s)" %\
+                  (len(fset), group_by, pvalue_threshold, fdr_method))
+            anova_sigfeats_path = anova_path.parent / 'ANOVA_sigfeats.txt'
+            write_list_to_file(fset, anova_sigfeats_path)
+             
+    # Perform t-tests
+    stats_t, pvals_t, reject_t = univariate_tests(X=features,
+                                                  y=metadata[group_by],
+                                                  control=control,
+                                                  test='t-test',
+                                                  comparison_type='binary_each_group',
+                                                  multitest_correction=fdr_method,
+                                                  alpha=pvalue_threshold)
+    
+    effect_sizes_t = get_effect_sizes(X=features,
+                                      y=metadata[group_by],
+                                      control=control,
+                                      linked_test='t-test')
+    
+    stats_t.columns = ['stats_' + str(c) for c in stats_t.columns]
+    pvals_t.columns = ['pvals_' + str(c) for c in pvals_t.columns]
+    reject_t.columns = ['reject_' + str(c) for c in reject_t.columns]
+    effect_sizes_t.columns = ['effect_size_' + str(c) for c in effect_sizes_t.columns]
+    ttest_results = pd.concat([stats_t, pvals_t, reject_t, effect_sizes_t], axis=1)
+    
+    # save results
+    ttest_path = Path(save_dir) / 't-test' / 't-test_results.csv'
+    ttest_path.parent.mkdir(exist_ok=True, parents=True)
+    ttest_results.to_csv(ttest_path, header=True, index=True)
+    
+    nsig = sum(reject_t.sum(axis=1) > 0)
+    print("%d significant features between any %s vs %s (t-test, P<%.2f, %s)" %\
+          (nsig, group_by, control, pvalue_threshold, fdr_method))
 
-    for strain in strain_list[1:]: # skip control_strain at first index postion         
-        strain_meta = metadata[metadata['gene_name']==strain]
-        strain_feat = features.reindex(strain_meta.index)
-        strain_df = strain_meta.join(strain_feat[feature_set])
-
-        # 3. Is there a difference between strain vs control at any window?
-        
-        print("\nPairwise t-tests for each window (pooled antioxidants) comparing fraction of " + 
-              "worms paused on %s vs control:" % strain)
-
-        stats, pvals, reject = pairwise_ttest(control_df, 
-                                              strain_df, 
-                                              feature_list=feature_set, 
-                                              group_by='window', 
-                                              fdr_method=fdr_method,
-                                              fdr=0.05)
- 
-        # compile table of results
-        stats.columns = ['stats_' + str(c) for c in stats.columns]
-        pvals.columns = ['pvals_' + str(c) for c in pvals.columns]
-        reject.columns = ['reject_' + str(c) for c in reject.columns]
-        test_results = pd.concat([stats, pvals, reject], axis=1)
-        
-        # save results
-        ttest_strain_path = stats_dir / 'pairwise_ttests' / 'window' /\
-                            '{}_window_results.csv'.format(strain)
-        ttest_strain_path.parent.mkdir(parents=True, exist_ok=True)
-        test_results.to_csv(ttest_strain_path, header=True, index=True)
-                             
-        # for each antioxidant treatment condition...
-        for antiox in antiox_list:
-            print("Pairwise t-tests for each window comparing fraction of " + 
-                  "worms paused on %s vs control with '%s'" % (strain, antiox))
-
-            antiox_control_df = control_df[control_df['antioxidant']==antiox]
-            antiox_strain_df = strain_df[strain_df['antioxidant']==antiox]
-            
-            stats, pvals, reject = pairwise_ttest(antiox_control_df,
-                                                  antiox_strain_df,
-                                                  feature_list=feature_set,
-                                                  group_by='window',
-                                                  fdr_method=fdr_method,
-                                                  fdr=0.05)
-        
-            # compile table of results
-            stats.columns = ['stats_' + str(c) for c in stats.columns]
-            pvals.columns = ['pvals_' + str(c) for c in pvals.columns]
-            reject.columns = ['reject_' + str(c) for c in reject.columns]
-            test_results = pd.concat([stats, pvals, reject], axis=1)
-            
-            # save results
-            ttest_strain_path = stats_dir / 'pairwise_ttests' / 'window' /\
-                                '{0}_{1}_window_results.csv'.format(strain, antiox)
-            ttest_strain_path.parent.mkdir(parents=True, exist_ok=True)
-            test_results.to_csv(ttest_strain_path, header=True, index=True)
-
-        # 4. Is there a difference between strain vs control for any antioxidant?
-
-        print("\nPairwise t-tests for each antioxidant (pooled windows) comparing fraction of " + 
-              "worms paused on %s vs control:" % strain)
-
-        stats, pvals, reject = pairwise_ttest(control_df, 
-                                              strain_df, 
-                                              feature_list=feature_set, 
-                                              group_by='antioxidant', 
-                                              fdr_method=fdr_method,
-                                              fdr=0.05)
- 
-        # compile table of results
-        stats.columns = ['stats_' + str(c) for c in stats.columns]
-        pvals.columns = ['pvals_' + str(c) for c in pvals.columns]
-        reject.columns = ['reject_' + str(c) for c in reject.columns]
-        test_results = pd.concat([stats, pvals, reject], axis=1)
-        
-        # save results
-        ttest_strain_path = stats_dir / 'pairwise_ttests' / 'antioxidant' /\
-                            '{}_antioxidant_results.csv'.format(strain)
-        ttest_strain_path.parent.mkdir(parents=True, exist_ok=True)
-        test_results.to_csv(ttest_strain_path, header=True, index=True)
-                             
-        # For each window...
-        for window in window_list:
-            print("Pairwise t-tests for each antioxidant comparing fraction of " + 
-                  "worms paused on %s vs control at window %d" % (strain, window))
-
-            window_control_df = control_df[control_df['window']==window]
-            window_strain_df = strain_df[strain_df['window']==window]
-            
-            stats, pvals, reject = pairwise_ttest(window_control_df,
-                                                  window_strain_df,
-                                                  feature_list=feature_set,
-                                                  group_by='antioxidant',
-                                                  fdr_method=fdr_method,
-                                                  fdr=0.05)
-        
-            # compile table of results
-            stats.columns = ['stats_' + str(c) for c in stats.columns]
-            pvals.columns = ['pvals_' + str(c) for c in pvals.columns]
-            reject.columns = ['reject_' + str(c) for c in reject.columns]
-            test_results = pd.concat([stats, pvals, reject], axis=1)
-            
-            # save results
-            ttest_strain_path = stats_dir / 'pairwise_ttests' / 'antioxidant' /\
-                                '{0}_window{1}_antioxidant_results.csv'.format(strain, window)
-            ttest_strain_path.parent.mkdir(parents=True, exist_ok=True)
-            test_results.to_csv(ttest_strain_path, header=True, index=True)
-               
     return
+
+# def acute_rescue_stats(features, 
+#                        metadata, 
+#                        save_dir, 
+#                        control_strain, 
+#                        control_antioxidant, 
+#                        control_window,
+#                        feature_set=FEATURE_SET,
+#                        fdr_method='fdr_by',
+#                        pval_threshold=0.05):
+#     """ Pairwise t-tests for each window comparing worm 'motion mode paused fraction' on 
+#         Keio mutants vs BW control 
+        
+#         # One could fit a multiple linear regression model: to account for strain*antioxidant in a 
+#         # single model: Y (motion_mode) = b0 + b1*X1 (strain) + b2*X2 (antiox) + e (error)
+#         # But this is a different type of question: we care about difference in means between 
+#         # fepD vs BW (albeit under different antioxidant treatments), and not about modelling their 
+#         # relationship, therefore individual t-tests (multiple-test-corrected) should suffice
+        
+#         1. For each treatment condition, t-tests comparing fepD vs BW for motion_mode
+        
+#         2. For fepD and BW separately, f-tests for equal variance among antioxidant treatment groups,
+#         then ANOVA tests for significant differences between antioxidants, then individual t-tests
+#         comparing each treatment to control
+        
+#         Inputs
+#         ------
+#         features, metadata : pandas.DataFrame
+        
+#         window_list : list
+#             List of windows (int) to perform statistics (separately for each window provided, 
+#             p-values are adjusted for multiple test correction)
+        
+#         save_dir : str
+#             Directory to save statistics results
+            
+#         control_strain
+#         control_antioxidant
+#         fdr_method
+        
+#     """
+
+#     stats_dir =  Path(save_dir) / "Stats" / 'fdr_bh'
+#     stats_dir.mkdir(parents=True, exist_ok=True)
+
+#     strain_list = [control_strain] + [s for s in set(metadata['gene_name'].unique()) if s != control_strain]  
+#     antiox_list = [control_antioxidant] + [a for a in set(metadata['antioxidant'].unique()) if 
+#                                            a != control_antioxidant]
+#     window_list = [control_window] + [w for w in set(metadata['window'].unique()) if w != control_window]
+
+#     # categorical variables to investigate: 'gene_name', 'antioxidant' and 'window'
+#     print("\nInvestigating difference in fraction of worms paused between hit strain and control " +
+#           "(for each window), in the presence/absence of antioxidants:\n")    
+
+#     # For each strain separately...
+#     for strain in strain_list:
+#         strain_meta = metadata[metadata['gene_name']==strain]
+#         strain_feat = features.reindex(strain_meta.index)
+
+#         # 1. Is there any variation in fraction paused wtr antioxidant treatment?
+#         #    - ANOVA on pooled window data, then pairwise t-tests for each antioxidant
+        
+#         print("Performing ANOVA on pooled window data for significant variation in fraction " +
+#               "of worms paused among different antioxidant treatments for %s..." % strain)
+        
+#         # perform ANOVA (correct for multiple comparisons)             
+#         stats, pvals, reject = univariate_tests(X=strain_feat[feature_set], 
+#                                                 y=strain_meta['antioxidant'], 
+#                                                 test='ANOVA',
+#                                                 control=control_antioxidant,
+#                                                 comparison_type='multiclass',
+#                                                 multitest_correction=fdr_method,
+#                                                 alpha=pval_threshold,
+#                                                 n_permutation_test=None) # 'all'
+    
+#         # get effect sizes
+#         effect_sizes = get_effect_sizes(X=strain_feat[feature_set], 
+#                                         y=strain_meta['antioxidant'],
+#                                         control=control_antioxidant,
+#                                         effect_type=None,
+#                                         linked_test='ANOVA')
+    
+#         # compile
+#         test_results = pd.concat([stats, effect_sizes, pvals, reject], axis=1)
+#         test_results.columns = ['stats','effect_size','pvals','reject']     
+#         test_results['significance'] = sig_asterix(test_results['pvals'])
+#         test_results = test_results.sort_values(by=['pvals'], ascending=True) # rank pvals
+        
+#         # save results
+#         anova_path = Path(stats_dir) / 'ANOVA_{}_variation_across_antioxidants.csv'.format(strain)
+#         test_results.to_csv(anova_path, header=True, index=True)
+              
+#         print("Performing t-tests comparing each antioxidant treatment to None (pooled window data)")
+        
+#         stats_t, pvals_t, reject_t = univariate_tests(X=strain_feat[feature_set],
+#                                                       y=strain_meta['antioxidant'],
+#                                                       test='t-test',
+#                                                       control=control_antioxidant,
+#                                                       comparison_type='binary_each_group',
+#                                                       multitest_correction=fdr_method,
+#                                                       alpha=pval_threshold)
+#         effect_sizes_t =  get_effect_sizes(X=strain_feat[feature_set], 
+#                                            y=strain_meta['antioxidant'], 
+#                                            control=control_antioxidant,
+#                                            effect_type=None,
+#                                            linked_test='t-test')
+            
+#         # compile + save t-test results
+#         stats_t.columns = ['stats_' + str(c) for c in stats_t.columns]
+#         pvals_t.columns = ['pvals_' + str(c) for c in pvals_t.columns]
+#         reject_t.columns = ['reject_' + str(c) for c in reject_t.columns]
+#         effect_sizes_t.columns = ['effect_size_' + str(c) for c in effect_sizes_t.columns]
+#         ttest_results = pd.concat([stats_t, effect_sizes_t, pvals_t, reject_t], axis=1)
+#         ttest_save_path = stats_dir / 't-test_{}_antioxidant_results.csv'.format(strain)
+#         ttest_save_path.parent.mkdir(exist_ok=True, parents=True)
+#         ttest_results.to_csv(ttest_save_path, header=True, index=True)
+    
+#         # 2. Is there any variation in fraction paused wrt window (time) across the videos?
+#         #    - ANOVA on pooled antioxidant data, then pairwise for each window
+        
+#         print("Performing ANOVA on pooled antioxidant data for significant variation in fraction " +
+#               "of worms paused across (bluelight) window summaries for %s..." % strain)
+        
+#         # perform ANOVA (correct for multiple comparisons)
+#         stats, pvals, reject = univariate_tests(X=strain_feat[feature_set],
+#                                                 y=strain_meta['window'],
+#                                                 test='ANOVA',
+#                                                 control=control_window,
+#                                                 comparison_type='multiclass',
+#                                                 multitest_correction=fdr_method,
+#                                                 alpha=pval_threshold,
+#                                                 n_permutation_test=None)
+        
+#         # get effect sizes
+#         effect_sizes = get_effect_sizes(X=strain_feat[feature_set],
+#                                         y=strain_meta['window'],
+#                                         control=control_window,
+#                                         effect_type=None,
+#                                         linked_test='ANOVA')
+
+#         # compile
+#         test_results = pd.concat([stats, effect_sizes, pvals, reject], axis=1)
+#         test_results.columns = ['stats','effect_size','pvals','reject']     
+#         test_results['significance'] = sig_asterix(test_results['pvals'])
+#         test_results = test_results.sort_values(by=['pvals'], ascending=True) # rank pvals
+        
+#         # save results
+#         anova_path = Path(stats_dir) / 'ANOVA_{}_variation_across_windows.csv'.format(strain)
+#         test_results.to_csv(anova_path, header=True, index=True)
+
+#         print("Performing t-tests comparing each window with the first (pooled antioxidant data)")
+        
+#         stats_t, pvals_t, reject_t = univariate_tests(X=strain_feat[feature_set],
+#                                                       y=strain_meta['window'],
+#                                                       test='t-test',
+#                                                       control=control_window,
+#                                                       comparison_type='binary_each_group',
+#                                                       multitest_correction=fdr_method,
+#                                                       alpha=pval_threshold)
+#         effect_sizes_t =  get_effect_sizes(X=strain_feat[feature_set], 
+#                                            y=strain_meta['window'], 
+#                                            control=control_window,
+#                                            effect_type=None,
+#                                            linked_test='t-test')
+            
+#         # compile + save t-test results
+#         stats_t.columns = ['stats_' + str(c) for c in stats_t.columns]
+#         pvals_t.columns = ['pvals_' + str(c) for c in pvals_t.columns]
+#         reject_t.columns = ['reject_' + str(c) for c in reject_t.columns]
+#         effect_sizes_t.columns = ['effect_size_' + str(c) for c in effect_sizes_t.columns]
+#         ttest_results = pd.concat([stats_t, effect_sizes_t, pvals_t, reject_t], axis=1)
+#         ttest_save_path = stats_dir / 't-test_{}_window_results.csv'.format(strain)
+#         ttest_save_path.parent.mkdir(exist_ok=True, parents=True)
+#         ttest_results.to_csv(ttest_save_path, header=True, index=True)   
+         
+#     # Pairwise t-tests - is there a difference between strain vs control?
+
+#     control_meta = metadata[metadata['gene_name']==control_strain]
+#     control_feat = features.reindex(control_meta.index)
+#     control_df = control_meta.join(control_feat[feature_set])
+
+#     for strain in strain_list[1:]: # skip control_strain at first index postion         
+#         strain_meta = metadata[metadata['gene_name']==strain]
+#         strain_feat = features.reindex(strain_meta.index)
+#         strain_df = strain_meta.join(strain_feat[feature_set])
+
+#         # 3. Is there a difference between strain vs control at any window?
+        
+#         print("\nPairwise t-tests for each window (pooled antioxidants) comparing fraction of " + 
+#               "worms paused on %s vs control:" % strain)
+
+#         stats, pvals, reject = pairwise_ttest(control_df, 
+#                                               strain_df, 
+#                                               feature_list=feature_set, 
+#                                               group_by='window', 
+#                                               fdr_method=fdr_method,
+#                                               fdr=0.05)
+ 
+#         # compile table of results
+#         stats.columns = ['stats_' + str(c) for c in stats.columns]
+#         pvals.columns = ['pvals_' + str(c) for c in pvals.columns]
+#         reject.columns = ['reject_' + str(c) for c in reject.columns]
+#         test_results = pd.concat([stats, pvals, reject], axis=1)
+        
+#         # save results
+#         ttest_strain_path = stats_dir / 'pairwise_ttests' / 'window' /\
+#                             '{}_window_results.csv'.format(strain)
+#         ttest_strain_path.parent.mkdir(parents=True, exist_ok=True)
+#         test_results.to_csv(ttest_strain_path, header=True, index=True)
+                             
+#         # for each antioxidant treatment condition...
+#         for antiox in antiox_list:
+#             print("Pairwise t-tests for each window comparing fraction of " + 
+#                   "worms paused on %s vs control with '%s'" % (strain, antiox))
+
+#             antiox_control_df = control_df[control_df['antioxidant']==antiox]
+#             antiox_strain_df = strain_df[strain_df['antioxidant']==antiox]
+            
+#             stats, pvals, reject = pairwise_ttest(antiox_control_df,
+#                                                   antiox_strain_df,
+#                                                   feature_list=feature_set,
+#                                                   group_by='window',
+#                                                   fdr_method=fdr_method,
+#                                                   fdr=0.05)
+        
+#             # compile table of results
+#             stats.columns = ['stats_' + str(c) for c in stats.columns]
+#             pvals.columns = ['pvals_' + str(c) for c in pvals.columns]
+#             reject.columns = ['reject_' + str(c) for c in reject.columns]
+#             test_results = pd.concat([stats, pvals, reject], axis=1)
+            
+#             # save results
+#             ttest_strain_path = stats_dir / 'pairwise_ttests' / 'window' /\
+#                                 '{0}_{1}_window_results.csv'.format(strain, antiox)
+#             ttest_strain_path.parent.mkdir(parents=True, exist_ok=True)
+#             test_results.to_csv(ttest_strain_path, header=True, index=True)
+
+#         # 4. Is there a difference between strain vs control for any antioxidant?
+
+#         print("\nPairwise t-tests for each antioxidant (pooled windows) comparing fraction of " + 
+#               "worms paused on %s vs control:" % strain)
+
+#         stats, pvals, reject = pairwise_ttest(control_df, 
+#                                               strain_df, 
+#                                               feature_list=feature_set, 
+#                                               group_by='antioxidant', 
+#                                               fdr_method=fdr_method,
+#                                               fdr=0.05)
+ 
+#         # compile table of results
+#         stats.columns = ['stats_' + str(c) for c in stats.columns]
+#         pvals.columns = ['pvals_' + str(c) for c in pvals.columns]
+#         reject.columns = ['reject_' + str(c) for c in reject.columns]
+#         test_results = pd.concat([stats, pvals, reject], axis=1)
+        
+#         # save results
+#         ttest_strain_path = stats_dir / 'pairwise_ttests' / 'antioxidant' /\
+#                             '{}_antioxidant_results.csv'.format(strain)
+#         ttest_strain_path.parent.mkdir(parents=True, exist_ok=True)
+#         test_results.to_csv(ttest_strain_path, header=True, index=True)
+                             
+#         # For each window...
+#         for window in window_list:
+#             print("Pairwise t-tests for each antioxidant comparing fraction of " + 
+#                   "worms paused on %s vs control at window %d" % (strain, window))
+
+#             window_control_df = control_df[control_df['window']==window]
+#             window_strain_df = strain_df[strain_df['window']==window]
+            
+#             stats, pvals, reject = pairwise_ttest(window_control_df,
+#                                                   window_strain_df,
+#                                                   feature_list=feature_set,
+#                                                   group_by='antioxidant',
+#                                                   fdr_method=fdr_method,
+#                                                   fdr=0.05)
+        
+#             # compile table of results
+#             stats.columns = ['stats_' + str(c) for c in stats.columns]
+#             pvals.columns = ['pvals_' + str(c) for c in pvals.columns]
+#             reject.columns = ['reject_' + str(c) for c in reject.columns]
+#             test_results = pd.concat([stats, pvals, reject], axis=1)
+            
+#             # save results
+#             ttest_strain_path = stats_dir / 'pairwise_ttests' / 'antioxidant' /\
+#                                 '{0}_window{1}_antioxidant_results.csv'.format(strain, window)
+#             ttest_strain_path.parent.mkdir(parents=True, exist_ok=True)
+#             test_results.to_csv(ttest_strain_path, header=True, index=True)
+               
+#     return
 
 # =============================================================================
 # def analyse_acute_rescue(features, 
@@ -758,291 +869,269 @@ def acute_rescue_boxplots(metadata,
     
     return
 
-def acute_rescue_timeseries(metadata, 
-                            project_dir, 
-                            save_dir, 
-                            group_by='treatment',
-                            control='wild_type_None',
-                            bluelight_windows_separately=False,
-                            n_wells=N_WELLS,
-                            smoothing=10):
-    """ Timeseries plots of repeated bluelight stimulation of BW and fepD
-        (10 seconds BL delivered every 30 minutes, for 5 hours total)
-    """
+# def acute_rescue_timeseries(metadata, 
+#                             project_dir, 
+#                             save_dir, 
+#                             group_by='treatment',
+#                             control='wild_type_None',
+#                             bluelight_windows_separately=False,
+#                             n_wells=N_WELLS,
+#                             smoothing=10):
+#     """ Timeseries plots of repeated bluelight stimulation of BW and fepD
+#         (10 seconds BL delivered every 30 minutes, for 5 hours total)
+#     """
         
-    # get timeseries for BW
-    control_ts = get_strain_timeseries(metadata[metadata[group_by]==control], 
-                                       project_dir=project_dir, 
-                                       strain=control,
-                                       group_by=group_by,
-                                       n_wells=n_wells,
-                                       save_dir=save_dir,
-                                       verbose=True)
+#     # get timeseries for BW
+#     control_ts = get_strain_timeseries(metadata[metadata[group_by]==control], 
+#                                        project_dir=project_dir, 
+#                                        strain=control,
+#                                        group_by=group_by,
+#                                        n_wells=n_wells,
+#                                        save_dir=save_dir,
+#                                        verbose=True)
     
-    treatment_list = list(t for t in metadata['treatment'].unique() if t != control)
+#     treatment_list = list(t for t in metadata['treatment'].unique() if t != control)
 
-    bluelight_frames = [(i*60*FPS, i*60*FPS+10*FPS) for i in BLUELIGHT_TIMEPOINTS_MINUTES]
+#     bluelight_frames = [(i*60*FPS, i*60*FPS+10*FPS) for i in BLUELIGHT_TIMEPOINTS_MINUTES]
 
-    for treatment in tqdm(treatment_list):
+#     for treatment in tqdm(treatment_list):
         
-        colour_dict = dict(zip([control, treatment], sns.color_palette("pastel", 2)))
+#         colour_dict = dict(zip([control, treatment], sns.color_palette("pastel", 2)))
 
-        # get timeseries for treatment
-        treatment_ts = get_strain_timeseries(metadata[metadata[group_by]==treatment], 
-                                             project_dir=project_dir, 
-                                             strain=treatment,
-                                             group_by=group_by,
-                                             n_wells=n_wells,
-                                             save_dir=save_dir,
-                                             verbose=True)
+#         # get timeseries for treatment
+#         treatment_ts = get_strain_timeseries(metadata[metadata[group_by]==treatment], 
+#                                              project_dir=project_dir, 
+#                                              strain=treatment,
+#                                              group_by=group_by,
+#                                              n_wells=n_wells,
+#                                              save_dir=save_dir,
+#                                              verbose=True)
 
-        for mode in motion_modes:
-            print("Plotting timeseries %s fraction for %s vs %s..." % (mode, control, treatment))
+#         for mode in motion_modes:
+#             print("Plotting timeseries %s fraction for %s vs %s..." % (mode, control, treatment))
     
-            if bluelight_windows_separately:
+#             if bluelight_windows_separately:
                 
-                for pulse, timepoint in enumerate(tqdm(BLUELIGHT_TIMEPOINTS_MINUTES), start=1):
+#                 for pulse, timepoint in enumerate(tqdm(BLUELIGHT_TIMEPOINTS_MINUTES), start=1):
     
-                    plt.close('all')
-                    fig, ax = plt.subplots(figsize=(15,5), dpi=150)
+#                     plt.close('all')
+#                     fig, ax = plt.subplots(figsize=(15,5), dpi=150)
             
-                    ax = plot_timeseries_motion_mode(df=control_ts,
-                                                     window=smoothing*FPS,
-                                                     error=True,
-                                                     mode=mode,
-                                                     max_n_frames=VIDEO_LENGTH_SECONDS*FPS,
-                                                     title=None,
-                                                     saveAs=None,
-                                                     ax=ax,
-                                                     bluelight_frames=bluelight_frames,
-                                                     colour=colour_dict[control],
-                                                     alpha=0.25)
+#                     ax = plot_timeseries_motion_mode(df=control_ts,
+#                                                      window=smoothing*FPS,
+#                                                      error=True,
+#                                                      mode=mode,
+#                                                      max_n_frames=VIDEO_LENGTH_SECONDS*FPS,
+#                                                      title=None,
+#                                                      saveAs=None,
+#                                                      ax=ax,
+#                                                      bluelight_frames=bluelight_frames,
+#                                                      colour=colour_dict[control],
+#                                                      alpha=0.25)
                     
-                    ax = plot_timeseries_motion_mode(df=treatment_ts,
-                                                     window=smoothing*FPS,
-                                                     error=True,
-                                                     mode=mode,
-                                                     max_n_frames=VIDEO_LENGTH_SECONDS*FPS,
-                                                     title=None,
-                                                     saveAs=None,
-                                                     ax=ax,
-                                                     bluelight_frames=bluelight_frames,
-                                                     colour=colour_dict[treatment],
-                                                     alpha=0.25)
+#                     ax = plot_timeseries_motion_mode(df=treatment_ts,
+#                                                      window=smoothing*FPS,
+#                                                      error=True,
+#                                                      mode=mode,
+#                                                      max_n_frames=VIDEO_LENGTH_SECONDS*FPS,
+#                                                      title=None,
+#                                                      saveAs=None,
+#                                                      ax=ax,
+#                                                      bluelight_frames=bluelight_frames,
+#                                                      colour=colour_dict[treatment],
+#                                                      alpha=0.25)
                 
-                    xticks = np.linspace(0, VIDEO_LENGTH_SECONDS*FPS, int(VIDEO_LENGTH_SECONDS/60)+1)
-                    ax.set_xticks(xticks)
-                    ax.set_xticklabels([str(int(x/FPS/60)) for x in xticks])   
+#                     xticks = np.linspace(0, VIDEO_LENGTH_SECONDS*FPS, int(VIDEO_LENGTH_SECONDS/60)+1)
+#                     ax.set_xticks(xticks)
+#                     ax.set_xticklabels([str(int(x/FPS/60)) for x in xticks])   
                     
-                    # -30secs before to +2mins after each pulse
-                    xlim_range = (timepoint*60-30, timepoint*60+120)
-                    ax.set_xlim([xlim_range[0]*FPS, xlim_range[1]*FPS])
+#                     # -30secs before to +2mins after each pulse
+#                     xlim_range = (timepoint*60-30, timepoint*60+120)
+#                     ax.set_xlim([xlim_range[0]*FPS, xlim_range[1]*FPS])
     
-                    ax.set_xlabel('Time (minutes)', fontsize=12, labelpad=10)
-                    ax.set_ylabel('Fraction {}'.format(mode), fontsize=12, labelpad=10)
-                    ax.set_title('{0} vs {1} (bluelight pulse {2} = {3} min)'.format(
-                        control, treatment, pulse, timepoint), fontsize=12, pad=10)
-                    ax.legend([control, treatment], fontsize=12, frameon=False, loc='upper right')
+#                     ax.set_xlabel('Time (minutes)', fontsize=12, labelpad=10)
+#                     ax.set_ylabel('Fraction {}'.format(mode), fontsize=12, labelpad=10)
+#                     ax.set_title('{0} vs {1} (bluelight pulse {2} = {3} min)'.format(
+#                         control, treatment, pulse, timepoint), fontsize=12, pad=10)
+#                     ax.legend([control, treatment], fontsize=12, frameon=False, loc='upper right')
             
-                    # save plot
-                    save_path = save_dir / treatment /\
-                        'motion_mode_{0}_bluelight_pulse{1}_{2}min.pdf'.format(mode,pulse,timepoint)
-                    print("Saving to: %s" % save_path)
-                    plt.savefig(save_path)  
+#                     # save plot
+#                     save_path = save_dir / treatment /\
+#                         'motion_mode_{0}_bluelight_pulse{1}_{2}min.pdf'.format(mode,pulse,timepoint)
+#                     print("Saving to: %s" % save_path)
+#                     plt.savefig(save_path)  
                     
-            else:    
-                plt.close('all')
-                fig, ax = plt.subplots(figsize=(30,5), dpi=150)
+#             else:    
+#                 plt.close('all')
+#                 fig, ax = plt.subplots(figsize=(30,5), dpi=150)
         
-                ax = plot_timeseries_motion_mode(df=control_ts,
-                                                 window=smoothing*FPS,
-                                                 error=True,
-                                                 mode=mode,
-                                                 max_n_frames=VIDEO_LENGTH_SECONDS*FPS,
-                                                 title=None,
-                                                 saveAs=None,
-                                                 ax=ax,
-                                                 bluelight_frames=bluelight_frames,
-                                                 colour=colour_dict[control],
-                                                 alpha=0.25)
+#                 ax = plot_timeseries_motion_mode(df=control_ts,
+#                                                  window=smoothing*FPS,
+#                                                  error=True,
+#                                                  mode=mode,
+#                                                  max_n_frames=VIDEO_LENGTH_SECONDS*FPS,
+#                                                  title=None,
+#                                                  saveAs=None,
+#                                                  ax=ax,
+#                                                  bluelight_frames=bluelight_frames,
+#                                                  colour=colour_dict[control],
+#                                                  alpha=0.25)
                 
-                ax = plot_timeseries_motion_mode(df=treatment_ts,
-                                                 window=smoothing*FPS,
-                                                 error=True,
-                                                 mode=mode,
-                                                 max_n_frames=VIDEO_LENGTH_SECONDS*FPS,
-                                                 title=None,
-                                                 saveAs=None,
-                                                 ax=ax,
-                                                 bluelight_frames=bluelight_frames,
-                                                 colour=colour_dict[treatment],
-                                                 alpha=0.25)
+#                 ax = plot_timeseries_motion_mode(df=treatment_ts,
+#                                                  window=smoothing*FPS,
+#                                                  error=True,
+#                                                  mode=mode,
+#                                                  max_n_frames=VIDEO_LENGTH_SECONDS*FPS,
+#                                                  title=None,
+#                                                  saveAs=None,
+#                                                  ax=ax,
+#                                                  bluelight_frames=bluelight_frames,
+#                                                  colour=colour_dict[treatment],
+#                                                  alpha=0.25)
             
-                xticks = np.linspace(0, VIDEO_LENGTH_SECONDS*FPS, int(VIDEO_LENGTH_SECONDS/60)+1)
-                ax.set_xticks(xticks)
-                ax.set_xticklabels([str(int(x/FPS/60)) for x in xticks])   
-                ax.set_xlabel('Time (minutes)', fontsize=12, labelpad=10)
-                ax.set_ylabel('Fraction {}'.format(mode), fontsize=12, labelpad=10)
-                ax.set_title('{0} vs {1}'.format(control, treatment), fontsize=12, pad=10)
-                ax.legend([control, treatment], fontsize=12, frameon=False, loc='upper right')
+#                 xticks = np.linspace(0, VIDEO_LENGTH_SECONDS*FPS, int(VIDEO_LENGTH_SECONDS/60)+1)
+#                 ax.set_xticks(xticks)
+#                 ax.set_xticklabels([str(int(x/FPS/60)) for x in xticks])   
+#                 ax.set_xlabel('Time (minutes)', fontsize=12, labelpad=10)
+#                 ax.set_ylabel('Fraction {}'.format(mode), fontsize=12, labelpad=10)
+#                 ax.set_title('{0} vs {1}'.format(control, treatment), fontsize=12, pad=10)
+#                 ax.legend([control, treatment], fontsize=12, frameon=False, loc='upper right')
         
-                # save plot
-                save_path = save_dir / treatment / 'motion_mode_{}.pdf'.format(mode)
-                save_path.parent.mkdir(exist_ok=True, parents=True)
-                print("Saving to: %s" % save_path)
-                plt.savefig(save_path)  
+#                 # save plot
+#                 save_path = save_dir / treatment / 'motion_mode_{}.pdf'.format(mode)
+#                 save_path.parent.mkdir(exist_ok=True, parents=True)
+#                 print("Saving to: %s" % save_path)
+#                 plt.savefig(save_path)  
 
-    return
+#     return
     
 #%% Main
 
-if __name__ == '__main__':   
-    parser = argparse.ArgumentParser(description="Analyse acute response videos to investigate how \
-    fast the food takes to influence worm behaviour")
-    parser.add_argument('-j','--json', help="Path to JSON parameters file", default=JSON_PARAMETERS_PATH)
-    args = parser.parse_args()
-    args = load_json(args.json)
+if __name__ == '__main__':
 
-    aux_dir = Path(args.project_dir) / 'AuxiliaryFiles'
-    results_dir =  Path(args.project_dir) / 'Results'
+    aux_dir = Path(PROJECT_DIR) / 'AuxiliaryFiles'
+    res_dir = Path(PROJECT_DIR) / 'Results'
     
-    metadata_path = Path(args.save_dir) / 'metadata.csv'
-    features_path = Path(args.save_dir) / 'features.csv'
+    metadata_local_path = Path(SAVE_DIR) / 'metadata.csv'
+    features_local_path = Path(SAVE_DIR) / 'features.csv'
     
-    if not metadata_path.exists() or not features_path.exists():
+    if not metadata_local_path.exists() or not features_local_path.exists():
 
         # load metadata    
         metadata, metadata_path = compile_metadata(aux_dir, 
-                                                   imaging_dates=args.dates, 
-                                                   add_well_annotations=args.add_well_annotations, 
+                                                   imaging_dates=None, 
+                                                   add_well_annotations=False, 
                                                    n_wells=N_WELLS)
         
-        features, metadata = process_feature_summaries(metadata_path, 
-                                                       results_dir, 
-                                                       compile_day_summaries=args.compile_day_summaries, 
-                                                       imaging_dates=args.dates, 
-                                                       align_bluelight=args.align_bluelight, 
+        features, metadata = process_feature_summaries(metadata_path,
+                                                       res_dir, 
+                                                       compile_day_summaries=True, 
+                                                       imaging_dates=None, 
+                                                       align_bluelight=False, 
                                                        window_summaries=True,
                                                        n_wells=N_WELLS)
      
-        # Subset results (rows) to remove entries for wells with unknown strain data for 'gene_name'
-        n = metadata.shape[0]
-        metadata = metadata.loc[~metadata['gene_name'].isna(),:]
-        features = features.reindex(metadata.index)
-        print("%d entries removed with no gene name metadata" % (n - metadata.shape[0]))
-     
-        # # update gene names for mutant strains
-        # metadata['gene_name'] = [args.control_dict['gene_name'] if s == 'BW' else s 
-        #                          for s in metadata['gene_name']]
-        #['BW\u0394'+g if not g == 'BW' else 'wild_type' for g in metadata['gene_name']]
-    
         # Clean results - Remove bad well data + features with too many NaNs/zero std + impute
         features, metadata = clean_summary_results(features, 
                                                    metadata,
                                                    feature_columns=None,
-                                                   nan_threshold_row=args.nan_threshold_row,
-                                                   nan_threshold_col=args.nan_threshold_col,
-                                                   max_value_cap=args.max_value_cap,
-                                                   imputeNaN=args.impute_nans,
-                                                   min_nskel_per_video=args.min_nskel_per_video,
-                                                   min_nskel_sum=args.min_nskel_sum,
-                                                   drop_size_related_feats=args.drop_size_features,
-                                                   norm_feats_only=args.norm_features_only,
-                                                   percentile_to_use=args.percentile_to_use)
+                                                   nan_threshold_row=nan_threshold_row,
+                                                   nan_threshold_col=nan_threshold_col,
+                                                   max_value_cap=1e15,
+                                                   imputeNaN=True,
+                                                   min_nskel_per_video=None,
+                                                   min_nskel_sum=None,
+                                                   drop_size_related_feats=False,
+                                                   norm_feats_only=False,
+                                                   percentile_to_use=None)
     
         assert not features.isna().sum(axis=1).any()
         assert not (features.std(axis=1) == 0).any()
-        
-        # assert there will be no errors due to case-sensitivity
-        assert len(metadata['gene_name'].unique()) == len(metadata['gene_name'].str.upper().unique())
-        assert len(metadata['antioxidant'].unique()) == len(metadata['antioxidant'].str.upper().unique())
-        
+                
         # save clean metadata and features
-        metadata.to_csv(metadata_path, index=False)
-        features.to_csv(features_path, index=False) 
+        metadata.to_csv(metadata_local_path, index=False)
+        features.to_csv(features_local_path, index=False) 
     
     else:
         # load clean metadata and features
-        metadata = pd.read_csv(metadata_path, dtype={'comments':str, 'source_plate_id':str})
-        features = pd.read_csv(features_path, index_col=None)
+        metadata = pd.read_csv(metadata_local_path, dtype={'comments':str, 'source_plate_id':str})
+        features = pd.read_csv(features_local_path, index_col=None)
 
-    if ALL_WINDOWS:
-        WINDOW_LIST = list(WINDOW_FRAME_DICT.keys())
-        args.save_dir = Path(args.save_dir) / 'all_windows'
-     
-    # subset for windows in window_frame_dict
-    if WINDOW_LIST is not None:
-        assert all(w in metadata['window'] for w in WINDOW_LIST)
-        metadata = metadata[metadata['window'].isin(WINDOW_LIST)]
-        features = features.reindex(metadata.index)
-    else:
-        WINDOW_LIST = metadata['window'].unique()
-     
-    control_strain = args.control_dict['gene_name']
-    control_antioxidant = args.control_dict['antioxidant']
-    control = control_strain + '_' + control_antioxidant
-    metadata['treatment'] = metadata[['gene_name','antioxidant']].agg('_'.join, axis=1)
-        
-    for window in tqdm(WINDOW_LIST):
+    # load feature set
+    if FEATURE_SET is not None:
+        # subset for selected feature set (and remove path curvature features)
+        if isinstance(FEATURE_SET, int) and FEATURE_SET in [8,16,256]:
+            features = select_feat_set(features, 'tierpsy_{}'.format(FEATURE_SET), append_bluelight=True)
+            features = features[[f for f in features.columns if 'path_curvature' not in f]]
+        elif isinstance(FEATURE_SET, list) or isinstance(FEATURE_SET, set):
+            assert all(f in features.columns for f in FEATURE_SET)
+            features = features[FEATURE_SET].copy()
+    feature_list = features.columns.tolist()
+
+    # subset metadata results for bluelight videos only 
+    bluelight_videos = [i for i in metadata['imgstore_name'] if 'bluelight' in i]
+    metadata = metadata[metadata['imgstore_name'].isin(bluelight_videos)]
+    
+    # Drop results missing antioxidant name
+    metadata = metadata[~metadata['antioxidant'].isna()]
+    
+    treatment_cols = ['gene_name','antioxidant']
+    metadata['treatment'] = metadata[treatment_cols].astype(str).agg('-'.join, axis=1)
+    control = 'BW-None'
+
+    metadata['window'] = metadata['window'].astype(int)
+    window_list = list(metadata['window'].unique())
+
+    # drop results for trolox and resveratrol
+    metadata = metadata.query("antioxidant=='None' or antioxidant=='vitC' or antioxidant=='NAC'")
+
+    for window in tqdm(window_list):
         window_meta = metadata[metadata['window']==window]
         window_feat = features.reindex(window_meta.index)
         
+        stats_dir = Path(SAVE_DIR) / 'Stats' / WINDOW_NAME_DICT[window]
+        plot_dir = Path(SAVE_DIR) / 'Plots' / WINDOW_NAME_DICT[window]
+        
         # statistics save path
-        stats_dir = get_save_dir(args) / 'Stats' / args.fdr_method / 'window_{}'.format(window)
-        antioxidants_stats(metadata=window_meta,
-                           features=window_feat,
+        acute_rescue_stats(window_meta, 
+                           window_feat,
                            group_by='treatment',
                            control=control,
                            save_dir=stats_dir,
-                           feature_set=feature_set,
-                           pvalue_threshold=args.pval_threshold,
-                           fdr_method=args.fdr_method)
+                           feature_set=FEATURE_SET,
+                           pvalue_threshold=0.05,
+                           fdr_method='fdr_bh')
+        order = ['BW-None','BW-vitC','BW-NAC','fepD-None','fepD-vitC','fepD-NAC']
+        colour_labels = sns.color_palette('tab10', 2)
+        colours = [colour_labels[0] if 'BW' in s else colour_labels[1] for s in order]
+        colour_dict = {key:col for (key,col) in zip(order, colours)}
+        all_in_one_boxplots(window_meta,
+                            window_feat,
+                            group_by='treatment',
+                            control=control,
+                            save_dir=plot_dir,
+                            ttest_path=stats_dir / 't-test' / 't-test_results.csv',
+                            feature_set=FEATURE_SET,
+                            pvalue_threshold=0.05,
+                            order=order,
+                            colour_dict=colour_dict,
+                            figsize=(20, 10),
+                            ylim_minmax=None,
+                            vline_boxpos=[2],
+                            fontsize=15,
+                            subplots_adjust={'bottom': 0.2, 'top': 0.95, 'left': 0.05, 'right': 0.98})
         
-        plots_dir = get_save_dir(args) / 'Plots' / args.fdr_method / 'window_{}'.format(window)
-        acute_rescue_boxplots(metadata=window_meta,
-                              features=window_feat,
-                              group_by='treatment',
-                              control=control,
-                              stats_dir=stats_dir,
-                              save_dir=plots_dir,
-                              feature_set=feature_set,
-                              pvalue_threshold=args.pval_threshold,
-                              fdr_method=args.fdr_method)
-            
-    # full timeseries plots - BW vs fepD for each motion mode
-    mean_sample_size = metadata.groupby('treatment')['well_name'].count().mean()
-    print("Mean sample size per treatment: %d" % round(mean_sample_size))
-    
-    acute_rescue_timeseries(metadata, 
-                            project_dir=Path(args.project_dir), 
-                            save_dir=Path(args.save_dir) / 'timeseries',
-                            n_wells=N_WELLS,
-                            control=control,
-                            group_by='treatment',
-                            bluelight_windows_separately=False,
-                            smoothing=10)
-
-    # timeseries plots of motion mode BW vs fepD around each blue light window
-    acute_rescue_timeseries(metadata, 
-                            project_dir=Path(args.project_dir), 
-                            save_dir=Path(args.save_dir) / 'timeseries',
-                            n_wells=N_WELLS,
-                            control=control,
-                            group_by='treatment',
-                            bluelight_windows_separately=True,
-                            smoothing=5)    
     
     # timeseries plots of speed for fepD vs BW control for each window
     
     BLUELIGHT_TIMEPOINTS_SECONDS = [(i*60,i*60+10) for i in BLUELIGHT_TIMEPOINTS_MINUTES]
-    treatment_list = [t for t in metadata['treatment'].unique() if 'vitC' in t or 'NAC' in t or 'None' in t]
     
     plot_window_timeseries_feature(metadata=metadata,
-                                   project_dir=Path(args.project_dir),
-                                   save_dir=Path(args.save_dir) / 'timeseries-speed',
+                                   project_dir=Path(PROJECT_DIR),
+                                   save_dir=Path(SAVE_DIR) / 'timeseries-speed',
                                    group_by='treatment',
                                    control=control,
-                                   groups_list=treatment_list,
+                                   groups_list=None,
                                    feature='speed',
                                    n_wells=6,
                                    bluelight_timepoints_seconds=BLUELIGHT_TIMEPOINTS_SECONDS,
@@ -1050,7 +1139,7 @@ if __name__ == '__main__':
                                    smoothing=10,
                                    figsize=(15,5),
                                    fps=FPS,
-                                   ylim_minmax=(-20,220),
+                                   ylim_minmax=(-20,280),
                                    video_length_seconds=VIDEO_LENGTH_SECONDS)
     
     

@@ -193,7 +193,14 @@ def compile_window_summaries(fname_files,
             # read filename/features summary for window + append to list
             filenames_df, features_df = read_tierpsy_feat_summaries(feat, fname)
             assert all(str(results_dir) in str(f) for f in filenames_df['filename'])
-            assert all(i == j for i, j in zip(filenames_df['file_id'], features_df['file_id']))
+            if not all(i == j for i, j in zip(filenames_df['file_id'], features_df['file_id'])):
+                print("WARNING: %d files in filenames summaries are missing from feature summaries!"\
+                      % (len(filenames_df['file_id'].unique()) - len(features_df['file_id'].unique())))
+                
+                # reindex filenames summaries to drop entries that are missing from features summaries 
+                filenames_df = filenames_df.set_index('file_id')
+                filenames_df = filenames_df.reindex(features_df['file_id']).reset_index(drop=False)
+                assert all(i == j for i, j in zip(filenames_df['file_id'], features_df['file_id']))
         
             # store window number (unique identifier = file_id + window)
             filenames_df['window'] = window
@@ -231,9 +238,11 @@ def compile_window_summaries(fname_files,
                 if not all(i == j for i, j in zip(filenames_df['file_id'], features_df['file_id'])):
                     print("WARNING: %d files in filenames summaries are missing from feature summaries!"\
                           % (len(filenames_df['file_id']) - len(features_df['file_id'])))
-                        
-                    # reindex filenames summaries to drop entry that is missing from features summaries 
-                    filenames_df = filenames_df.reindex(features_df['file_id'])
+                    
+                    # reindex filenames summaries to drop entries that are missing from features summaries 
+                    filenames_df = filenames_df.set_index('file_id')
+                    filenames_df = filenames_df.reindex(features_df['file_id']).reset_index(drop=False)
+                    assert all(i == j for i, j in zip(filenames_df['file_id'], features_df['file_id']))
         
                 # store window number (unique identifier = file_id + window)
                 filenames_df['window'] = window

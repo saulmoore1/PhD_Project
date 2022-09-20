@@ -11,12 +11,13 @@ Keio Worm Stress Mutants 1
 #%% Imports
 
 import pandas as pd
+from tqdm import tqdm
 from pathlib import Path
 
 from preprocessing.compile_hydra_data import compile_metadata, process_feature_summaries
 from filter_data.clean_feature_summaries import clean_summary_results
 from write_data.write import write_list_to_file
-from visualisation.plotting_helper import sig_asterix, boxplots_sigfeats
+from visualisation.plotting_helper import sig_asterix, boxplots_sigfeats, all_in_one_boxplots
 from analysis.keio_screen.follow_up.uv_paraquat_antioxidant import masked_video_list_from_metadata
 from time_series.plot_timeseries import plot_timeseries_feature, selected_strains_timeseries
 
@@ -32,7 +33,7 @@ N_WELLS = 6
 
 FPS = 25
 
-FEATURE_SET = ['motion_mode_forward_fraction_bluelight','speed_50th_bluelight']
+FEATURE_SET = ['speed_50th']
 
 nan_threshold_row = 0.8
 nan_threshold_col = 0.05
@@ -43,6 +44,14 @@ THRESHOLD_LEAVING_DURATION = 50 # n frames a worm has to leave food for => a tru
 
 BLUELIGHT_TIMEPOINTS_SECONDS = [(60, 70),(160, 170),(260, 270)]
 
+WINDOW_DICT = {0:(65,75),1:(90,100),
+               2:(165,175),3:(190,200),
+               4:(265,275),5:(290,300)}
+
+WINDOW_NAME_DICT = {0:"blue light 1", 1: "20-30 seconds after blue light 1",
+                    2:"blue light 2", 3: "20-30 seconds after blue light 2",
+                    4:"blue light 3", 5: "20-30 seconds after blue light 3"}
+
 #%% Functions
 
 def worm_stress_mutants_stats(metadata,
@@ -52,7 +61,7 @@ def worm_stress_mutants_stats(metadata,
                               save_dir=None,
                               feature_set=None,
                               pvalue_threshold=0.05,
-                              fdr_method='fdr_by'):
+                              fdr_method='fdr_bh'):
     
     # check case-sensitivity
     assert len(metadata[group_by].unique()) == len(metadata[group_by].str.upper().unique())
@@ -174,7 +183,8 @@ def worm_stress_mutants_boxplots(metadata,
                       drop_insignificant=drop_insignificant,
                       p_value_threshold=pvalue_threshold,
                       scale_outliers=scale_outliers,
-                      ylim_minmax=ylim_minmax)
+                      ylim_minmax=ylim_minmax,
+                      append_ranking_fname=False)
     
     return
 
@@ -198,8 +208,8 @@ if __name__ == '__main__':
                                                        results_dir=res_dir, 
                                                        compile_day_summaries=True, 
                                                        imaging_dates=None, 
-                                                       align_bluelight=True, 
-                                                       window_summaries=False,
+                                                       align_bluelight=False, 
+                                                       window_summaries=True,
                                                        n_wells=N_WELLS)
 
         # Clean results - Remove bad well data + features with too many NaNs/zero std + impute NaNs
@@ -238,67 +248,194 @@ if __name__ == '__main__':
             assert all(f in features.columns for f in FEATURE_SET)
             features = features[FEATURE_SET].copy()
     feature_list = features.columns.tolist()
+
+    # subset metadata results for bluelight videos only 
+    metadata = metadata[metadata['bluelight']=='bluelight']
+    features = features.reindex(metadata.index)
     
     treatment_cols = ['worm_strain','bacteria_strain','drug_type']
-    metadata['treatment'] = metadata[treatment_cols].astype(str).agg('-'.join, axis=1)
+    metadata['treatment'] = metadata.loc[:,treatment_cols].astype(str).agg('-'.join, axis=1)
     control = 'N2-BW-nan'
     
     # metadata = metadata[['bluelight' in metadata.loc[i,'imgstore_name'] for i in metadata.index]].copy()
     # metadata['imgstore_name_bluelight'] = metadata['imgstore_name']
     
     # save video file list for treatments (for manual inspection)
-    video_dict = masked_video_list_from_metadata(metadata, 
+    video_dict = masked_video_list_from_metadata(metadata[metadata['window']==0], 
                                                  group_by='treatment', 
                                                  groups_list=None,
+                                                 imgstore_col='imgstore_name',
                                                  project_dir=Path(PROJECT_DIR),
                                                  save_dir=Path(SAVE_DIR) / 'video_filenames')
     
-    # perform anova and t-tests comparing each treatment to control
-    worm_stress_mutants_stats(metadata,
-                              features,
-                              group_by='treatment',
-                              control=control,
-                              save_dir=Path(SAVE_DIR) / 'Stats',
-                              feature_set=feature_list,
-                              pvalue_threshold=0.05,
-                              fdr_method='fdr_by')
-    
     # boxplots comparing each treatment to control for each feature
-    worm_stress_mutants_boxplots(metadata,
-                                 features,
-                                 group_by='treatment',
-                                 control=control,
-                                 save_dir=Path(SAVE_DIR) / 'Plots',
-                                 stats_dir=Path(SAVE_DIR) / 'Stats',
-                                 feature_set=feature_list,
-                                 pvalue_threshold=0.05,
-                                 scale_outliers=False,
-                                 ylim_minmax=(0,250)) # ylim_minmax for speed feature only 
-    # XXX: fixed scale across plots for speed to 0-250 um/sec for easier comparison across conditions
+    # fixed scale across plots for speed to 0-250 um/sec for easier comparison across conditions
+    metadata['window'] = metadata['window'].astype(int)
+    window_list = list(metadata['window'].unique())
 
     strain_list = list(metadata['treatment'].unique())
+    BW_worms = [s for s in strain_list if 'BW-nan' in s]
+    BW_Paraquat_worms = [s for s in strain_list if 'BW-Paraquat' in s]
+    fepD_worms = [s for s in strain_list if 'fepD-nan' in s]
+    fepD_Paraquat_worms = [s for s in strain_list if 'fepD-Paraquat' in s]
     
-    # timeseries plots of motion mode
-    selected_strains_timeseries(metadata,
-                                project_dir=Path(PROJECT_DIR), 
-                                save_dir=Path(SAVE_DIR) / 'timeseries-motion_mode', 
-                                strain_list=strain_list,
-                                group_by='treatment',
-                                control=control,
-                                n_wells=6,
-                                bluelight_stim_type='bluelight',
-                                video_length_seconds=360,
-                                bluelight_timepoints_seconds=BLUELIGHT_TIMEPOINTS_SECONDS,
-                                motion_modes=['forwards','paused','backwards'],
-                                smoothing=10)
+    for window in tqdm(window_list):
+        meta_window = metadata[metadata['window']==window]
+        feat_window = features.reindex(meta_window.index)
+        
+        stats_dir = Path(SAVE_DIR) / 'Stats' / WINDOW_NAME_DICT[window]
+        plot_dir = Path(SAVE_DIR) / 'Plots' / WINDOW_NAME_DICT[window]
+        
+        # perform anova and t-tests comparing all treatments to control
+        worm_stress_mutants_stats(meta_window,
+                                  feat_window,
+                                  group_by='treatment',
+                                  control=control,
+                                  save_dir=stats_dir,
+                                  feature_set=feature_list,
+                                  pvalue_threshold=0.05,
+                                  fdr_method='fdr_bh')
+    
+        worm_stress_mutants_boxplots(meta_window,
+                                     feat_window,
+                                     group_by='treatment',
+                                     control=control,
+                                     save_dir=plot_dir,
+                                     stats_dir=stats_dir,
+                                     feature_set=feature_list,
+                                     pvalue_threshold=0.05,
+                                     scale_outliers=False,
+                                     ylim_minmax=(-20,330)) # ylim_minmax for speed feature only 
+        
+        # worm strains on BW
+        BW_worm_meta = meta_window.query("bacteria_strain=='BW' and drug_type!='Paraquat'")
+        BW_worm_feat = feat_window.reindex(BW_worm_meta.index)
+        worm_stress_mutants_stats(BW_worm_meta,
+                                  BW_worm_feat,
+                                  group_by='worm_strain',
+                                  control='N2',
+                                  save_dir=stats_dir / 'BW_worms',
+                                  feature_set=feature_list,
+                                  pvalue_threshold=0.05,
+                                  fdr_method='fdr_bh')
+        all_in_one_boxplots(BW_worm_meta,
+                            BW_worm_feat,
+                            group_by='worm_strain',
+                            control='N2',
+                            save_dir=plot_dir / 'all-in-one' / 'BW_worms',
+                            ttest_path=stats_dir / 'BW_worms' / 't-test' / 't-test_results.csv',
+                            feature_set=feature_list,
+                            pvalue_threshold=0.05,
+                            figsize=(30,10))
+
+        # worm strains on BW + Paraquat
+        BW_Paraquat_worm_meta = meta_window.query("bacteria_strain=='BW' and drug_type=='Paraquat'")
+        BW_Paraquat_worm_feat = feat_window.reindex(BW_Paraquat_worm_meta.index)
+        worm_stress_mutants_stats(BW_Paraquat_worm_meta,
+                                  BW_Paraquat_worm_feat,
+                                  group_by='worm_strain',
+                                  control='N2',
+                                  save_dir=stats_dir / 'BW_Paraquat_worms',
+                                  feature_set=feature_list,
+                                  pvalue_threshold=0.05,
+                                  fdr_method='fdr_bh')
+        all_in_one_boxplots(BW_Paraquat_worm_meta,
+                            BW_Paraquat_worm_feat,
+                            group_by='worm_strain',
+                            control='N2',
+                            save_dir=plot_dir / 'all-in-one' / 'BW_Paraquat_worms',
+                            ttest_path=stats_dir / 'BW_Paraquat_worms' / 't-test' / 't-test_results.csv',
+                            feature_set=feature_list,
+                            pvalue_threshold=0.05,
+                            figsize=(30,10))
+        
+        # worm strains on fepD
+        fepD_worm_meta = meta_window.query("bacteria_strain=='fepD' and drug_type!='Paraquat'")
+        fepD_worm_feat = feat_window.reindex(fepD_worm_meta.index)
+        worm_stress_mutants_stats(fepD_worm_meta,
+                                  fepD_worm_feat,
+                                  group_by='worm_strain',
+                                  control='N2',
+                                  save_dir=stats_dir / 'fepD_worms',
+                                  feature_set=feature_list,
+                                  pvalue_threshold=0.05,
+                                  fdr_method='fdr_bh')
+        all_in_one_boxplots(fepD_worm_meta,
+                            fepD_worm_feat,
+                            group_by='worm_strain',
+                            control='N2',
+                            save_dir=plot_dir / 'all-in-one' / 'fepD_worms',
+                            ttest_path=stats_dir / 'fepD_worms' / 't-test' / 't-test_results.csv',
+                            feature_set=feature_list,
+                            pvalue_threshold=0.05,
+                            figsize=(30,10))
+
+        # worm strains on fepD + Paraquat
+        fepD_Paraquat_worm_meta = meta_window.query("bacteria_strain=='fepD' and drug_type=='Paraquat'")
+        fepD_Paraquat_worm_feat = feat_window.reindex(fepD_Paraquat_worm_meta.index)
+        worm_stress_mutants_stats(fepD_Paraquat_worm_meta,
+                                  fepD_Paraquat_worm_feat,
+                                  group_by='worm_strain',
+                                  control='N2',
+                                  save_dir=stats_dir / 'fepD_Paraquat_worms',
+                                  feature_set=feature_list,
+                                  pvalue_threshold=0.05,
+                                  fdr_method='fdr_bh')
+        all_in_one_boxplots(fepD_Paraquat_worm_meta,
+                            fepD_Paraquat_worm_feat,
+                            group_by='worm_strain',
+                            control='N2',
+                            save_dir=plot_dir / 'all-in-one' / 'fepD_Paraquat_worms',
+                            ttest_path=stats_dir / 'fepD_Paraquat_worms' / 't-test' / 't-test_results.csv',
+                            feature_set=feature_list,
+                            pvalue_threshold=0.05,
+                            figsize=(30,10))
+        
+    # subset for single metadata window for full bluelight video timeseries plots
+    metadata = metadata[metadata['window']==0]
+
+    BW_worms = [s for s in strain_list if 'BW-nan' in s]
+    BW_Paraquat_worms = [s for s in strain_list if 'BW-Paraquat' in s]
+    fepD_worms = [s for s in strain_list if 'fepD-nan' in s]
+    fepD_Paraquat_worms = [s for s in strain_list if 'fepD-Paraquat' in s]
+    
+    # # timeseries plots of motion mode
+    # selected_strains_timeseries(metadata,
+    #                             project_dir=Path(PROJECT_DIR), 
+    #                             save_dir=Path(SAVE_DIR) / 'timeseries-motion_mode', 
+    #                             strain_list=strain_list,
+    #                             group_by='treatment',
+    #                             control=control,
+    #                             n_wells=6,
+    #                             bluelight_stim_type='bluelight',
+    #                             video_length_seconds=360,
+    #                             bluelight_timepoints_seconds=BLUELIGHT_TIMEPOINTS_SECONDS,
+    #                             motion_modes=['forwards','paused','backwards'],
+    #                             smoothing=10)
     
     # timeseries plots of speed for each treatment vs 'N2-BW-nan' control
     plot_timeseries_feature(metadata,
                             project_dir=Path(PROJECT_DIR),
-                            save_dir=Path(SAVE_DIR) / 'timeseries-speed',
+                            save_dir=Path(SAVE_DIR) / 'timeseries-speed' / 'N2_control',
                             group_by='treatment',
-                            control=control,
-                            groups_list=strain_list,
+                            control='N2-BW-nan',
+                            groups_list=BW_worms,
+                            feature='speed',
+                            n_wells=6,
+                            bluelight_stim_type='bluelight',
+                            video_length_seconds=360,
+                            bluelight_timepoints_seconds=BLUELIGHT_TIMEPOINTS_SECONDS,
+                            smoothing=10,
+                            fps=FPS,
+                            ylim_minmax=(-20,330)) # ylim_minmax for speed feature only
+
+    # timeseries plots of speed for each treatment vs 'N2-BW-nan' control
+    plot_timeseries_feature(metadata,
+                            project_dir=Path(PROJECT_DIR),
+                            save_dir=Path(SAVE_DIR) / 'timeseries-speed' / 'N2_Paraquat_control',
+                            group_by='treatment',
+                            control='N2-BW-Paraquat',
+                            groups_list=BW_Paraquat_worms,
                             feature='speed',
                             n_wells=6,
                             bluelight_stim_type='bluelight',
@@ -308,22 +445,36 @@ if __name__ == '__main__':
                             fps=FPS,
                             ylim_minmax=(-20,330)) # ylim_minmax for speed feature only
     
-    # # timeseries plots of speed for each 'X-fepD-nan' treatment vs 'N2-fepD-nan' control
-    # strain_list = [s for s in strain_list if 'fepD-nan' in s]
-    # plot_timeseries_feature(metadata,
-    #                         project_dir=Path(PROJECT_DIR),
-    #                         save_dir=Path(SAVE_DIR) / 'timeseries-speed',
-    #                         group_by='treatment',
-    #                         control='N2-fepD-nan',
-    #                         groups_list=strain_list,
-    #                         feature='speed',
-    #                         n_wells=6,
-    #                         bluelight_stim_type='bluelight',
-    #                         video_length_seconds=360,
-    #                         bluelight_timepoints_seconds=BLUELIGHT_TIMEPOINTS_SECONDS,
-    #                         smoothing=10,
-    #                         fps=FPS,
-    #                         ylim_minmax=(-20,330)) # ylim_minmax for speed feature only
+    # timeseries plots of speed for each 'X-fepD-nan' treatment vs 'N2-fepD-nan' control
+    plot_timeseries_feature(metadata,
+                            project_dir=Path(PROJECT_DIR),
+                            save_dir=Path(SAVE_DIR) / 'timeseries-speed' / 'fepD_control',
+                            group_by='treatment',
+                            control='N2-fepD-nan',
+                            groups_list=fepD_worms,
+                            feature='speed',
+                            n_wells=6,
+                            bluelight_stim_type='bluelight',
+                            video_length_seconds=360,
+                            bluelight_timepoints_seconds=BLUELIGHT_TIMEPOINTS_SECONDS,
+                            smoothing=10,
+                            fps=FPS,
+                            ylim_minmax=(-20,330)) # ylim_minmax for speed feature only
+
+    plot_timeseries_feature(metadata,
+                            project_dir=Path(PROJECT_DIR),
+                            save_dir=Path(SAVE_DIR) / 'timeseries-speed' / 'fepD_Paraquat_control',
+                            group_by='treatment',
+                            control='N2-fepD-Paraquat',
+                            groups_list=fepD_Paraquat_worms,
+                            feature='speed',
+                            n_wells=6,
+                            bluelight_stim_type='bluelight',
+                            video_length_seconds=360,
+                            bluelight_timepoints_seconds=BLUELIGHT_TIMEPOINTS_SECONDS,
+                            smoothing=10,
+                            fps=FPS,
+                            ylim_minmax=(-20,330)) # ylim_minmax for speed feature only
 
     # TODO: Worms were NOT ON FOOD in iron(III)sulphate + enterobactin plates
     # Experiment 1: N2 and VC2591 (flp-2) worms - source plates: [2,7,11,12,13,14,15,16] 
