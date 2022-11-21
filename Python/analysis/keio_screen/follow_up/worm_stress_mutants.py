@@ -10,16 +10,20 @@ Keio Worm Stress Mutants 1
 
 #%% Imports
 
-import pandas as pd
+import numpy as np  
+import pandas as pd 
+import seaborn as sns
 from tqdm import tqdm
 from pathlib import Path
+from matplotlib import pyplot as plt
 
 from preprocessing.compile_hydra_data import compile_metadata, process_feature_summaries
 from filter_data.clean_feature_summaries import clean_summary_results
 from write_data.write import write_list_to_file
 from visualisation.plotting_helper import sig_asterix, boxplots_sigfeats, all_in_one_boxplots
 from analysis.keio_screen.follow_up.uv_paraquat_antioxidant import masked_video_list_from_metadata
-from time_series.plot_timeseries import plot_timeseries_feature, selected_strains_timeseries
+from time_series.plot_timeseries import plot_timeseries_feature, plot_timeseries #, selected_strains_timeseries
+from time_series.time_series_helper import get_strain_timeseries
 
 from tierpsytools.analysis.statistical_tests import univariate_tests, get_effect_sizes
 from tierpsytools.preprocessing.filter_data import select_feat_set
@@ -51,6 +55,49 @@ WINDOW_DICT = {0:(65,75),1:(90,100),
 WINDOW_NAME_DICT = {0:"blue light 1", 1: "20-30 seconds after blue light 1",
                     2:"blue light 2", 3: "20-30 seconds after blue light 2",
                     4:"blue light 3", 5: "20-30 seconds after blue light 3"}
+
+omit_strains = ["RID(RNAi)::unc-31","PY7505"]
+
+strain_name_mapping_dict = {"N2":"N2",
+                            # neuron ablation / RNAi
+                            "ZD763":"ASJ-ablated",
+                            "PY7505":"ASI-ablated",
+                            "RID(RNAi)::unc-31":"RID(RNAi)",
+                            "RID(RNAi)_lite-1(wt)":"RID(RNAi) lite-1(wt)",
+                            # Antioxidant pathways
+                            "prdx-2":"prdx-2",
+                            "GA187":"sod-1",
+                            "GA476":"sod-1; sod-5",
+                            "GA184":"sod-2",
+                            "GA813":"sod-1; sod-2",
+                            "GA186":"sod-3",
+                            "GA480":"sod-2; sod-3",
+                            "GA416":"sod-4",
+                            "GA822":"sod-4; sod-5",
+                            "GA503":"sod-5",
+                            "GA814":"sod-3; sod-5",
+                            "GA800":"OE ctl-1+ctl-2+ctl-3",
+                            "GA801":"OE sod-1",
+                            "GA804":"OE sod-2",
+                            "clk-1":"clk-1",
+                            "gas-1":"gas-1",
+                            "msrA":"msra-1",
+                            # Neuropeptide pathways
+                            "pdfr-1":"pdfr-1",
+                            "PS8997":"flp-1",
+                            "VC2490":"W07E11.1_&_flp-2",
+                            "VC2591":"flp-2",
+                            # Neurotransmitters
+                            "eat-4":"eat-4",
+                            # Mitochondria
+                            "nuo-6":"nuo-6"}
+
+worm_list_dict = {'neuron_ablation':["N2","ASJ-ablated","ASI-ablated","RID(RNAi)","RID(RNAi) lite-1(wt)"],
+                  'neuropeptides_&_neurotransmitters':["N2","pdfr-1","flp-1","flp-2","W07E11.1_&_flp-2","eat-4"],
+                  'antioxidant':["N2","prdx-2","sod-1","sod-1; sod-5","sod-2","sod-1; sod-2",
+                                 "sod-3","sod-2; sod-3","sod-4","sod-4; sod-5","sod-5",
+                                 "sod-3; sod-5","OE sod-1","OE sod-2","OE ctl-1+ctl-2+ctl-3",
+                                 "clk-1","gas-1","msra-1","nuo-6"]}
 
 #%% Functions
 
@@ -250,15 +297,19 @@ if __name__ == '__main__':
     feature_list = features.columns.tolist()
 
     # subset metadata results for bluelight videos only 
+    if not 'bluelight' in metadata.columns:
+        metadata['bluelight'] = [i.split('_run')[-1].split('_')[1] for i in metadata['imgstore_name']]
     metadata = metadata[metadata['bluelight']=='bluelight']
+
+    # omit results for unwanted strains from metadata
+    metadata = metadata[~metadata['worm_strain'].isin(omit_strains)]
+    metadata['worm_strain'] = metadata['worm_strain'].map(strain_name_mapping_dict)
+    # reindex features
     features = features.reindex(metadata.index)
-    
+
     treatment_cols = ['worm_strain','bacteria_strain','drug_type']
     metadata['treatment'] = metadata.loc[:,treatment_cols].astype(str).agg('-'.join, axis=1)
     control = 'N2-BW-nan'
-    
-    # metadata = metadata[['bluelight' in metadata.loc[i,'imgstore_name'] for i in metadata.index]].copy()
-    # metadata['imgstore_name_bluelight'] = metadata['imgstore_name']
     
     # save video file list for treatments (for manual inspection)
     video_dict = masked_video_list_from_metadata(metadata[metadata['window']==0], 
@@ -267,26 +318,31 @@ if __name__ == '__main__':
                                                  imgstore_col='imgstore_name',
                                                  project_dir=Path(PROJECT_DIR),
                                                  save_dir=Path(SAVE_DIR) / 'video_filenames')
-    
+
+        
+    # metadata = metadata[['bluelight' in metadata.loc[i,'imgstore_name'] for i in metadata.index]].copy()
+    # metadata['imgstore_name_bluelight'] = metadata['imgstore_name']
+        
     # boxplots comparing each treatment to control for each feature
     # fixed scale across plots for speed to 0-250 um/sec for easier comparison across conditions
     metadata['window'] = metadata['window'].astype(int)
     window_list = list(metadata['window'].unique())
 
-    strain_list = list(metadata['treatment'].unique())
-    BW_worms = [s for s in strain_list if 'BW-nan' in s]
-    BW_Paraquat_worms = [s for s in strain_list if 'BW-Paraquat' in s]
-    fepD_worms = [s for s in strain_list if 'fepD-nan' in s]
-    fepD_Paraquat_worms = [s for s in strain_list if 'fepD-Paraquat' in s]
-    
+    strain_list = sorted(list(metadata['treatment'].unique()))
+    no_paraquat_strains = [s for s in strain_list if not 'paraquat' in s.lower()]
+    paraquat_strains = [s for s in strain_list if 'paraquat' in s.lower()]
+        
     for window in tqdm(window_list):
         meta_window = metadata[metadata['window']==window]
         feat_window = features.reindex(meta_window.index)
         
         stats_dir = Path(SAVE_DIR) / 'Stats' / WINDOW_NAME_DICT[window]
         plot_dir = Path(SAVE_DIR) / 'Plots' / WINDOW_NAME_DICT[window]
-        
-        # perform anova and t-tests comparing all treatments to control
+
+        # all treatments
+        treatment_cols = ['worm_strain','bacteria_strain','drug_type']
+        meta_window['treatment'] = meta_window.loc[:,treatment_cols].astype(str).agg('-'.join, axis=1)
+        control = 'N2-BW-nan'
         worm_stress_mutants_stats(meta_window,
                                   feat_window,
                                   group_by='treatment',
@@ -295,7 +351,6 @@ if __name__ == '__main__':
                                   feature_set=feature_list,
                                   pvalue_threshold=0.05,
                                   fdr_method='fdr_bh')
-    
         worm_stress_mutants_boxplots(meta_window,
                                      feat_window,
                                      group_by='treatment',
@@ -306,98 +361,96 @@ if __name__ == '__main__':
                                      pvalue_threshold=0.05,
                                      scale_outliers=False,
                                      ylim_minmax=(-20,330)) # ylim_minmax for speed feature only 
-        
-        # worm strains on BW
-        BW_worm_meta = meta_window.query("bacteria_strain=='BW' and drug_type!='Paraquat'")
-        BW_worm_feat = feat_window.reindex(BW_worm_meta.index)
-        worm_stress_mutants_stats(BW_worm_meta,
-                                  BW_worm_feat,
-                                  group_by='worm_strain',
-                                  control='N2',
-                                  save_dir=stats_dir / 'BW_worms',
-                                  feature_set=feature_list,
-                                  pvalue_threshold=0.05,
-                                  fdr_method='fdr_bh')
-        all_in_one_boxplots(BW_worm_meta,
-                            BW_worm_feat,
-                            group_by='worm_strain',
-                            control='N2',
-                            save_dir=plot_dir / 'all-in-one' / 'BW_worms',
-                            ttest_path=stats_dir / 'BW_worms' / 't-test' / 't-test_results.csv',
-                            feature_set=feature_list,
-                            pvalue_threshold=0.05,
-                            figsize=(30,10))
 
-        # worm strains on BW + Paraquat
-        BW_Paraquat_worm_meta = meta_window.query("bacteria_strain=='BW' and drug_type=='Paraquat'")
-        BW_Paraquat_worm_feat = feat_window.reindex(BW_Paraquat_worm_meta.index)
-        worm_stress_mutants_stats(BW_Paraquat_worm_meta,
-                                  BW_Paraquat_worm_feat,
-                                  group_by='worm_strain',
-                                  control='N2',
-                                  save_dir=stats_dir / 'BW_Paraquat_worms',
-                                  feature_set=feature_list,
-                                  pvalue_threshold=0.05,
-                                  fdr_method='fdr_bh')
-        all_in_one_boxplots(BW_Paraquat_worm_meta,
-                            BW_Paraquat_worm_feat,
-                            group_by='worm_strain',
-                            control='N2',
-                            save_dir=plot_dir / 'all-in-one' / 'BW_Paraquat_worms',
-                            ttest_path=stats_dir / 'BW_Paraquat_worms' / 't-test' / 't-test_results.csv',
-                            feature_set=feature_list,
-                            pvalue_threshold=0.05,
-                            figsize=(30,10))
-        
-        # worm strains on fepD
-        fepD_worm_meta = meta_window.query("bacteria_strain=='fepD' and drug_type!='Paraquat'")
-        fepD_worm_feat = feat_window.reindex(fepD_worm_meta.index)
-        worm_stress_mutants_stats(fepD_worm_meta,
-                                  fepD_worm_feat,
-                                  group_by='worm_strain',
-                                  control='N2',
-                                  save_dir=stats_dir / 'fepD_worms',
-                                  feature_set=feature_list,
-                                  pvalue_threshold=0.05,
-                                  fdr_method='fdr_bh')
-        all_in_one_boxplots(fepD_worm_meta,
-                            fepD_worm_feat,
-                            group_by='worm_strain',
-                            control='N2',
-                            save_dir=plot_dir / 'all-in-one' / 'fepD_worms',
-                            ttest_path=stats_dir / 'fepD_worms' / 't-test' / 't-test_results.csv',
-                            feature_set=feature_list,
-                            pvalue_threshold=0.05,
-                            figsize=(30,10))
+        treatment_cols = ['worm_strain','bacteria_strain']
+        control = 'N2-BW'        
 
-        # worm strains on fepD + Paraquat
-        fepD_Paraquat_worm_meta = meta_window.query("bacteria_strain=='fepD' and drug_type=='Paraquat'")
-        fepD_Paraquat_worm_feat = feat_window.reindex(fepD_Paraquat_worm_meta.index)
-        worm_stress_mutants_stats(fepD_Paraquat_worm_meta,
-                                  fepD_Paraquat_worm_feat,
-                                  group_by='worm_strain',
-                                  control='N2',
-                                  save_dir=stats_dir / 'fepD_Paraquat_worms',
+        # without paraquat
+        no_paraquat_meta = meta_window[meta_window['treatment'].isin(no_paraquat_strains)]
+        no_paraquat_meta['treatment'] = no_paraquat_meta.loc[:,treatment_cols].astype(str).agg('-'.join, axis=1)
+        no_paraquat_feat = feat_window.reindex(no_paraquat_meta.index)
+ 
+        # worm strains vs N2 (without paraquat)
+        worm_stress_mutants_stats(no_paraquat_meta,
+                                  no_paraquat_feat,
+                                  group_by='treatment',
+                                  control=control,
+                                  save_dir=stats_dir / 'no_paraquat',
                                   feature_set=feature_list,
                                   pvalue_threshold=0.05,
                                   fdr_method='fdr_bh')
-        all_in_one_boxplots(fepD_Paraquat_worm_meta,
-                            fepD_Paraquat_worm_feat,
-                            group_by='worm_strain',
-                            control='N2',
-                            save_dir=plot_dir / 'all-in-one' / 'fepD_Paraquat_worms',
-                            ttest_path=stats_dir / 'fepD_Paraquat_worms' / 't-test' / 't-test_results.csv',
-                            feature_set=feature_list,
-                            pvalue_threshold=0.05,
-                            figsize=(30,10))
         
+        for worm_list in worm_list_dict.keys():
+            no_para_meta = no_paraquat_meta[no_paraquat_meta['worm_strain'].isin(worm_list_dict[worm_list])]
+            no_para_feat = no_paraquat_feat.reindex(no_para_meta.index)
+            order = sorted(no_para_meta['worm_strain'].unique(), key=str.casefold)
+            if worm_list == 'neuropeptides_&_neurotransmitters':
+                order = [w for w in order if w != 'pdfr-1'] + ['pdfr-1']
+            all_in_one_boxplots(no_para_meta,
+                                no_para_feat,
+                                group_by='worm_strain',
+                                hue='bacteria_strain',
+                                control='N2',
+                                control_hue='BW',
+                                order=['N2'] + [w for w in order if w != 'N2'],
+                                hue_order=['BW','fepD'],
+                                colour_dict=None,
+                                save_dir=plot_dir / 'all-in-one' / 'no_paraquat' / worm_list,
+                                ttest_path=stats_dir / 'no_paraquat' / 't-test' / 't-test_results.csv',
+                                feature_set=feature_list,
+                                pvalue_threshold=0.05,
+                                sigasterix=True,
+                                fontsize=40,
+                                figsize=(max(len(worm_list_dict[worm_list])*2,10),16),
+                                vline_boxpos=None,
+                                ylim_minmax=(-50,260),
+                                legend=False,
+                                subplots_adjust={'bottom':0.4,'top':0.95,'left':0.1,'right':0.95})
+
+        # with paraquat
+        paraquat_meta = meta_window[meta_window['treatment'].isin(paraquat_strains)]
+        paraquat_meta['treatment'] = paraquat_meta.loc[:,treatment_cols].astype(str).agg('-'.join, axis=1)
+        paraquat_feat = feat_window.reindex(paraquat_meta.index)
+ 
+        # worm strains vs N2 (with paraquat)
+        worm_stress_mutants_stats(paraquat_meta,
+                                  paraquat_feat,
+                                  group_by='treatment',
+                                  control=control,
+                                  save_dir=stats_dir / 'paraquat',
+                                  feature_set=feature_list,
+                                  pvalue_threshold=0.05,
+                                  fdr_method='fdr_bh')
+        
+        for worm_list in worm_list_dict.keys():
+            para_meta = paraquat_meta[paraquat_meta['worm_strain'].isin(worm_list_dict[worm_list])]
+            para_feat = paraquat_feat.reindex(para_meta.index)
+            order = sorted(para_meta['worm_strain'].unique(), key=str.casefold)
+            if worm_list == 'neuropeptides_&_neurotransmitters':
+                order = [w for w in order if w != 'pdfr-1'] + ['pdfr-1']
+            all_in_one_boxplots(para_meta,
+                                para_feat,
+                                group_by='worm_strain',
+                                hue='bacteria_strain',
+                                control='N2',
+                                control_hue='BW',
+                                order=['N2'] + [w for w in order if w != 'N2'],
+                                hue_order=['BW','fepD'],
+                                colour_dict=None,
+                                save_dir=plot_dir / 'all-in-one' / 'paraquat' / worm_list,
+                                ttest_path=stats_dir / 'paraquat' / 't-test' / 't-test_results.csv',
+                                feature_set=feature_list,
+                                pvalue_threshold=0.05,
+                                sigasterix=True,
+                                fontsize=40,
+                                figsize=(max(len(worm_list_dict[worm_list])*2,10),16),
+                                vline_boxpos=None,
+                                ylim_minmax=(-50,260),
+                                legend=False,
+                                subplots_adjust={'bottom':0.4,'top':0.95,'left':0.1,'right':0.95})
+                    
     # subset for single metadata window for full bluelight video timeseries plots
     metadata = metadata[metadata['window']==0]
-
-    BW_worms = [s for s in strain_list if 'BW-nan' in s]
-    BW_Paraquat_worms = [s for s in strain_list if 'BW-Paraquat' in s]
-    fepD_worms = [s for s in strain_list if 'fepD-nan' in s]
-    fepD_Paraquat_worms = [s for s in strain_list if 'fepD-Paraquat' in s]
     
     # # timeseries plots of motion mode
     # selected_strains_timeseries(metadata,
@@ -413,13 +466,14 @@ if __name__ == '__main__':
     #                             motion_modes=['forwards','paused','backwards'],
     #                             smoothing=10)
     
+    
     # timeseries plots of speed for each treatment vs 'N2-BW-nan' control
     plot_timeseries_feature(metadata,
                             project_dir=Path(PROJECT_DIR),
-                            save_dir=Path(SAVE_DIR) / 'timeseries-speed' / 'N2_control',
+                            save_dir=Path(SAVE_DIR) / 'timeseries-speed' / 'BW_control',
                             group_by='treatment',
                             control='N2-BW-nan',
-                            groups_list=BW_worms,
+                            groups_list=[s for s in strain_list if 'BW' in s and not 'paraquat' in s.lower()],
                             feature='speed',
                             n_wells=6,
                             bluelight_stim_type='bluelight',
@@ -432,10 +486,10 @@ if __name__ == '__main__':
     # timeseries plots of speed for each treatment vs 'N2-BW-nan' control
     plot_timeseries_feature(metadata,
                             project_dir=Path(PROJECT_DIR),
-                            save_dir=Path(SAVE_DIR) / 'timeseries-speed' / 'N2_Paraquat_control',
+                            save_dir=Path(SAVE_DIR) / 'timeseries-speed' / 'BW_Paraquat_control',
                             group_by='treatment',
                             control='N2-BW-Paraquat',
-                            groups_list=BW_Paraquat_worms,
+                            groups_list=[s for s in strain_list if 'BW' in s and 'paraquat' in s.lower()],
                             feature='speed',
                             n_wells=6,
                             bluelight_stim_type='bluelight',
@@ -451,7 +505,7 @@ if __name__ == '__main__':
                             save_dir=Path(SAVE_DIR) / 'timeseries-speed' / 'fepD_control',
                             group_by='treatment',
                             control='N2-fepD-nan',
-                            groups_list=fepD_worms,
+                            groups_list=[s for s in strain_list if 'fepD' in s and not 'paraquat' in s.lower()],
                             feature='speed',
                             n_wells=6,
                             bluelight_stim_type='bluelight',
@@ -466,7 +520,7 @@ if __name__ == '__main__':
                             save_dir=Path(SAVE_DIR) / 'timeseries-speed' / 'fepD_Paraquat_control',
                             group_by='treatment',
                             control='N2-fepD-Paraquat',
-                            groups_list=fepD_Paraquat_worms,
+                            groups_list=[s for s in strain_list if 'fepD' in s and 'paraquat' in s.lower()],
                             feature='speed',
                             n_wells=6,
                             bluelight_stim_type='bluelight',
@@ -475,9 +529,58 @@ if __name__ == '__main__':
                             smoothing=10,
                             fps=FPS,
                             ylim_minmax=(-20,330)) # ylim_minmax for speed feature only
+    
+    # bespoke timeseries
+    rescue_list = ['OE sod-2','clk-1','gas-1','sod-1; sod-2','sod-2','sod-2; sod-3','eat-4',
+                   'RID(RNAi) lite-1(wt)','flp-2','W07E11.1_&_flp-2','pdfr-1']
+    for strain in tqdm(rescue_list):
+        groups = ['N2-BW-nan', strain + '-BW-nan', strain + '-fepD-nan']
+        print("Plotting timeseries speed for %s" % strain)
+                
+        bluelight_frames = [(i*FPS, j*FPS) for (i, j) in BLUELIGHT_TIMEPOINTS_SECONDS]
+        feature = 'speed'
 
-    # TODO: Worms were NOT ON FOOD in iron(III)sulphate + enterobactin plates
-    # Experiment 1: N2 and VC2591 (flp-2) worms - source plates: [2,7,11,12,13,14,15,16] 
-    # Experiment 2: N2 with iron(III)sulphate + enterobactin - source plates: [1,3,4,5,6,8,9,10] 
-    # with control H2O plates for iron: [7,11,14] wells [A1,A2,A3] only (from Experiment 1)
+        save_dir = Path(SAVE_DIR) / 'timeseries-speed' / 'rescues'
+        ts_plot_dir = save_dir / 'Plots' / strain
+        ts_plot_dir.mkdir(exist_ok=True, parents=True)
+        save_path = ts_plot_dir / 'speed_bluelight.pdf'
+        
+        plt.close('all')
+        fig, ax = plt.subplots(figsize=(15,6), dpi=300)
+        col_dict = dict(zip(groups, sns.color_palette('tab10', len(groups))))
 
+        for group in groups:
+            
+            # get control timeseries
+            group_ts = get_strain_timeseries(metadata,
+                                             project_dir=Path(PROJECT_DIR),
+                                             strain=group,
+                                             group_by='treatment',
+                                             feature_list=[feature],
+                                             save_dir=save_dir,
+                                             n_wells=N_WELLS,
+                                             verbose=True)
+            
+            ax = plot_timeseries(df=group_ts,
+                                 feature=feature,
+                                 error=True,
+                                 max_n_frames=360*FPS, 
+                                 smoothing=10*FPS, 
+                                 ax=ax,
+                                 bluelight_frames=bluelight_frames,
+                                 colour=col_dict[group])
+
+        plt.ylim(-20, 300)
+        xticks = np.linspace(0, 360*FPS, int(360/60)+1)
+        ax.set_xticks(xticks)
+        ax.set_xticklabels([str(int(x/FPS/60)) for x in xticks])   
+        ax.set_xlabel('Time (minutes)', fontsize=20, labelpad=10)
+        ylab = feature.replace('_50th'," (µm s$^{-1}$)")
+        ax.set_ylabel(ylab, fontsize=20, labelpad=10)
+        ax.legend(groups, fontsize=12, frameon=False, loc='best', handletextpad=1)
+        plt.subplots_adjust(left=0.1, top=0.98, bottom=0.15, right=0.98)
+
+        # save plot
+        print("Saving to: %s" % save_path)
+        plt.savefig(save_path)
+    

@@ -38,7 +38,7 @@ def sig_asterix(pvalues_array):
         elif p < 0.05:
             asterix.append('*')
         else:
-            asterix.append('')
+            asterix.append('ns')
     return asterix
 
 def hexcolours(n):
@@ -671,54 +671,71 @@ def boxplots_grouped(feat_meta_df,
 
 def all_in_one_boxplots(metadata,
                         features,
-                        group_by='treatment',
-                        control='BW',
+                        group_by='worm_strain',
+                        hue=None,
+                        control='N2',
+                        control_hue=None,
                         save_dir=None,
                         ttest_path=None,
                         feature_set=None,
                         pvalue_threshold=0.05,
+                        sigasterix=False,
                         order=None,
+                        hue_order=None,
                         colour_dict=None,
+                        override_palette_dict=None,
                         figsize=(30,6),
                         ylim_minmax=None,
                         vline_boxpos=None,
                         fontsize=15,
+                        legend=True,
                         subplots_adjust={'bottom':0.32,'top':0.95,'left':0.05,'right':0.98}):
 
     import pandas as pd
     import seaborn as sns
     from matplotlib import pyplot as plt
     from matplotlib import transforms
-    
+        
     # load t-test results for window
     if ttest_path is not None:
         ttest_df = pd.read_csv(ttest_path, header=0, index_col=0)
         pvals = ttest_df[[c for c in ttest_df.columns if 'pval' in c]]
         pvals.columns = [c.replace('pvals_','') for c in pvals.columns]
-
-    strain_list = list(metadata[group_by].unique())
+     
+    strain_list = sorted(metadata[group_by].unique())
+        
     if order is None:
         strain_list = [control] + [s for s in strain_list if s != control]
     else: 
         assert all(s in strain_list for s in order)
         strain_list = order
         
+    if hue_order is None and hue is not None:    
+        hue_order = sorted(metadata[hue].unique())
+        assert len(hue_order) == 2
+        hue_order = [control_hue] + [h for h in hue_order if h != control_hue]
+    elif hue is not None:
+        assert all(h in sorted(metadata[hue].unique()) for h in hue_order)
+        
     if feature_set is not None:
         assert all(f in features.columns for f in feature_set)
     else:
         feature_set = list(features.columns)
-
+    
     # all-in-one boxplots
     for feat in feature_set:
         save_path = save_dir / '{0}_{1}.pdf'.format(group_by, feat)
         save_path.parent.mkdir(exist_ok=True, parents=True)
         
         plt.close('all')
+        sns.set_theme(style='white')
         fig, ax = plt.subplots(figsize=figsize)
-        # strain_list = sorted(meta_fepD[group_by].unique())
-        plot_df = metadata[[group_by]].join(features[[feat]])
+        plot_df = metadata.join(features[[feat]])
         sns.boxplot(x=group_by, 
-                    y=feat, 
+                    y=feat,
+                    hue=hue,
+                    hue_order=hue_order,
+                    dodge=True if hue is not None else False,
                     showfliers=False,
                     showmeans=False,
                     order=strain_list, 
@@ -726,6 +743,9 @@ def all_in_one_boxplots(metadata,
                     palette=colour_dict if colour_dict is not None else None)
         sns.stripplot(x=group_by,
                       y=feat,
+                      hue=hue,
+                      hue_order=hue_order,
+                      dodge=True if hue is not None else False,
                       order=strain_list,
                       data=plot_df,
                       s=10,
@@ -735,23 +755,46 @@ def all_in_one_boxplots(metadata,
                       linewidth=.3)
         # plt.title(feat.replace('_',' '), fontsize=15, pad=20)
         plt.xticks(rotation=90, fontsize=fontsize)
-        plt.ylabel(feat.replace('_',' '), labelpad=20, fontsize=fontsize)
+        plt.yticks(fontsize=30)
+        plt.ylabel(feat.replace('_50th',' (µm s$^{-1}$)'), labelpad=30, fontsize=fontsize)
         ax.axes.get_xaxis().get_label().set_visible(False) # remove x axis label
         # ax.axes.get_yaxis().get_label().set_visible(False) # remove y axis label
         
+        if override_palette_dict is not None:
+            for box_pos, col in override_palette_dict.items():
+                box = ax.artists[box_pos]
+                box.set_facecolor(col)
+                
         # Add p-value to plot
-        feat_pvals = pvals.loc[feat]
-        for i, strain in enumerate(strain_list):
-            if strain == control:
-                continue
-            p = feat_pvals.loc[strain]
-            text = ax.get_xticklabels()[i]
-            assert text.get_text() == strain
+        if ttest_path is not None:
+            feat_pvals = pvals.loc[feat]
             trans = transforms.blended_transform_factory(ax.transData, ax.transAxes) #y=scaled
-            # plt.plot([0, 0, 1, 1], [0.98, 0.99, 0.99, 0.98], lw=1.5, c='k', transform=trans)
-            p_text = 'P < 0.001' if p < 0.001 else 'P = %.3f' % p
-            ax.text(i, 1.01, p_text, fontsize=fontsize, ha='center', va='bottom', transform=trans)
-            
+            for i, strain in enumerate(strain_list):
+                text = ax.get_xticklabels()[i]
+                assert text.get_text() == strain
+                if hue is None:
+                    if strain == control:
+                        continue
+                    p = feat_pvals.loc[strain]
+                    # plt.plot([0, 0, 1, 1], [0.98, 0.99, 0.99, 0.98], lw=1.5, c='k', transform=trans)
+                    if sigasterix:
+                        p_text = sig_asterix([p])[0]
+                    else:
+                        p_text = 'P < 0.001' if p < 0.001 else 'P = %.3f' % p
+                    ax.text(i, 1.01, p_text, fontsize=30, ha='center', va='bottom', transform=trans)
+                elif hue is not None:
+                    for ii, h in enumerate(hue_order):
+                        loc_text = strain + '-' + h
+                        if loc_text == control + '-' + control_hue:
+                            continue
+                        p = feat_pvals.loc[loc_text]
+                        if sigasterix:
+                            p_text = sig_asterix([p])[0]
+                        else: 
+                            p_text = 'P < 0.001' if p < 0.001 else 'P = %.3f' % p
+                        ax.text((i - 0.2 if ii==0 else i + 0.2), 1.01, p_text, fontsize=30, 
+                                ha='center', va='bottom', transform=trans)
+                        
         if ylim_minmax is not None and 'speed_50th' in feat: 
             assert isinstance(ylim_minmax, tuple)
             plt.ylim(ylim_minmax[0], ylim_minmax[1])
@@ -760,10 +803,14 @@ def all_in_one_boxplots(metadata,
             vline_boxpos = [vline_boxpos] if not isinstance(vline_boxpos, list) else vline_boxpos
             for i in vline_boxpos:
                 ax.axvline(i + 0.5, color='k')
+                
+        if not legend:
+            ax.get_legend().remove()
         
         plt.subplots_adjust(bottom=subplots_adjust['bottom'], top=subplots_adjust['top'],
                             left=subplots_adjust['left'], right=subplots_adjust['right'])
         plt.savefig(save_path, dpi=600)
+        
     return
 
 #%%

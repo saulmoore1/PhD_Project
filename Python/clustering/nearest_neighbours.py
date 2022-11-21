@@ -39,7 +39,7 @@ METADATA_PATH = PROJECT_DIR / "metadata.csv"
 # Load 59 hit strains curated from lowest ranked 100 strains by pvalue from initial screen
 # for nearest neighbour analysis too expand gene set
 CONF_STRAIN_LIST_PATH = PROJECT_DIR /\
-    "59_selected_strains_from_initial_keio_top100_lowest_pval_tierpsy16_fdr_bh.txt"
+    "59_selected_strains_from_initial_keio_top100_lowest_pval_tierpsy16.txt"
 SAVE_DIR = PROJECT_DIR / "nearest_neighbours"
 
 N_NEIGHBOURS = 3 # Number of neighbours to record

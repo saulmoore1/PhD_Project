@@ -1,18 +1,14 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Analyse Proteomics Mutants
-
-Investigate whether the arousal phenotype is present in any of the double-knockout and 
-over-expression mutants prepared to investigate the differentially regulated genes between 
-fepD and BW highlighted by proteomics analysis
+Analysis of fepD E. coli oxidative stress mutants
 
 @author: sm5911
-@date: 28/06/2022
+@date: 21/11/22
 
 """
 
-#%% Imports
+#%% Imports 
 
 import pandas as pd
 import seaborn as sns
@@ -23,15 +19,14 @@ from filter_data.clean_feature_summaries import clean_summary_results
 from visualisation.plotting_helper import sig_asterix, boxplots_sigfeats, all_in_one_boxplots
 from write_data.write import write_list_to_file
 from time_series.plot_timeseries import plot_timeseries_feature #selected_strains_timeseries
-# from analysis.keio_screen.check_keio_screen_worm_trajectories import check_tracked_objects
 
 from tierpsytools.analysis.statistical_tests import univariate_tests, get_effect_sizes
 from tierpsytools.preprocessing.filter_data import select_feat_set
 
 #%% Globals
 
-PROJECT_DIR = "/Volumes/hermes$/Keio_Proteomics_Mutants_6WP"
-SAVE_DIR = "/Users/sm5911/Documents/Keio_Proteomics_Mutants"
+PROJECT_DIR = "/Volumes/hermes$/Keio_FepD_Oxidative_Stress_Mutants"
+SAVE_DIR = "/Users/sm5911/Documents/Keio_FepD_Oxidative_Stress_Mutants"
 
 N_WELLS = 6
 FPS = 25
@@ -53,14 +48,14 @@ WINDOW_NAME_DICT = {0:"blue light 1", 1: "20-30 seconds after blue light 1",
 
 #%% Functions
 
-def proteomics_mutants_stats(metadata,
-                             features,
-                             group_by='treatment',
-                             control='BW',
-                             save_dir=None,
-                             feature_set=None,
-                             pvalue_threshold=0.05,
-                             fdr_method='fdr_bh'):
+def stats(metadata,
+          features,
+          group_by='treatment',
+          control='BW',
+          save_dir=None,
+          feature_set=None,
+          pvalue_threshold=0.05,
+          fdr_method='fdr_bh'):
     
     # check case-sensitivity
     assert len(metadata[group_by].unique()) == len(metadata[group_by].str.upper().unique())
@@ -149,14 +144,14 @@ def proteomics_mutants_stats(metadata,
 
     return #anova_results, ttest_results
 
-def proteomics_mutants_boxplots(metadata,
-                                features,
-                                group_by='treatment',
-                                control='BW',
-                                save_dir=None,
-                                stats_dir=None,
-                                feature_set=None,
-                                pvalue_threshold=0.05):
+def boxplots(metadata,
+             features,
+             group_by='treatment',
+             control='BW',
+             save_dir=None,
+             stats_dir=None,
+             feature_set=None,
+             pvalue_threshold=0.05):
         
     feature_set = features.columns.tolist() if feature_set is None else feature_set
     assert isinstance(feature_set, list) and all(f in features.columns for f in feature_set)
@@ -181,7 +176,6 @@ def proteomics_mutants_boxplots(metadata,
                       append_ranking_fname=False)
 
     return
-
 
 #%% Main
 
@@ -247,13 +241,13 @@ if __name__ == '__main__':
     metadata = metadata[metadata['imgstore_name'].isin(bluelight_videos)]
 
     # perform anova and t-tests comparing each treatment to BW control
-    metadata['treatment'] = metadata[['food_type','drug_type']].astype(str).agg('-'.join, axis=1)
+    treatment_cols = ['bacteria_strain','drug_type','drug_solvent']
+    metadata['treatment'] = metadata[treatment_cols].astype(str).agg('-'.join, axis=1)
     metadata['treatment'] = [i.replace('-nan','') for i in metadata['treatment']]
 
     strain_list = list(metadata['treatment'].unique())
-    fepD_strains = [s for s in strain_list if 'fepD' in s]
-    OE_strains = [s for s in fepD_strains if 'iptg' in s]
-    KO_strains = [s for s in fepD_strains if s not in OE_strains]
+    OE_strains = [s for s in strain_list if 'IPTG' in s]
+    KO_strains = [s for s in strain_list if s not in OE_strains]
 
     metadata['window'] = metadata['window'].astype(int)
     window_list = list(metadata['window'].unique())
@@ -263,43 +257,66 @@ if __name__ == '__main__':
     for window in tqdm(window_list):
         meta_window = metadata[metadata['window']==window]
         feat_window = features.reindex(meta_window.index)
-    
-        proteomics_mutants_stats(meta_window,
-                                 feat_window,
-                                 group_by='treatment',
-                                 control='BW',
-                                 save_dir=Path(SAVE_DIR) / 'Stats' / WINDOW_NAME_DICT[window],
-                                 feature_set=feature_list,
-                                 pvalue_threshold=0.05,
-                                 fdr_method='fdr_bh')
-
-        # boxplots comparing each treatment to BW control for each feature
-        proteomics_mutants_boxplots(meta_window,
-                                    feat_window,
-                                    group_by='treatment',
-                                    control='BW',
-                                    feature_set=feature_list,
-                                    save_dir=Path(SAVE_DIR) / 'Plots' / WINDOW_NAME_DICT[window],
-                                    stats_dir=Path(SAVE_DIR) / 'Stats' / WINDOW_NAME_DICT[window],
-                                    pvalue_threshold=0.05)
         
+        # compare KO mutants to BW   
+        meta_KO = meta_window[meta_window['treatment'].isin(KO_strains)]
+        feat_KO = feat_window.reindex(meta_KO.index)
+        stats(meta_KO,
+              feat_KO,
+              group_by='treatment',
+              control='BW',
+              save_dir=Path(SAVE_DIR) / 'Stats_KO' / WINDOW_NAME_DICT[window],
+              feature_set=feature_list,
+              pvalue_threshold=0.05,
+              fdr_method='fdr_bh')
+        
+        colour_dict = dict(zip(sorted(KO_strains), sns.color_palette('Set2', len(KO_strains))))
+        all_in_one_boxplots(meta_KO,
+                            feat_KO,
+                            group_by='treatment',
+                            control='BW',
+                            sigasterix=True,
+                            fontsize=15,
+                            order=sorted(KO_strains),
+                            colour_dict=colour_dict,
+                            feature_set=feature_list,
+                            save_dir=Path(SAVE_DIR) / 'Plots_KO' / WINDOW_NAME_DICT[window] / 'all-in-one',
+                            ttest_path=Path(SAVE_DIR) / 'Stats_KO' / WINDOW_NAME_DICT[window] /\
+                                't-test' / 't-test_results.csv',
+                            pvalue_threshold=0.05,
+                            figsize=(6,9),
+                            ylim_minmax=(0,300),
+                            subplots_adjust={'bottom':0.35,'top':0.95,'left':0.2,'right':0.95})
+
+        # # compare KO mutants to fepD   
+        # meta_KO = meta_window[meta_window['treatment'].isin(KO_strains)]
+        # feat_KO = feat_window.reindex(meta_KO.index)
+        # proteomics_mutants_stats(meta_KO,
+        #                          feat_KO,
+        #                          group_by='treatment',
+        #                          control='fepD',
+        #                          save_dir=Path(SAVE_DIR) / 'Stats_KO' / WINDOW_NAME_DICT[window],
+        #                          feature_set=feature_list,
+        #                          pvalue_threshold=0.05,
+        #                          fdr_method='fdr_bh')
+
         # compare OE mutants to fepD-iptg        
         meta_OE = meta_window[meta_window['treatment'].isin(OE_strains)]
         feat_OE = feat_window.reindex(meta_OE.index)
-        proteomics_mutants_stats(meta_OE,
-                                 feat_OE,
-                                 group_by='treatment',
-                                 control='fepD-iptg',
-                                 save_dir=Path(SAVE_DIR) / 'Stats_OE' / WINDOW_NAME_DICT[window],
-                                 feature_set=feature_list,
-                                 pvalue_threshold=0.05,
-                                 fdr_method='fdr_bh')
+        stats(meta_OE,
+              feat_OE,
+              group_by='treatment',
+              control='fepD-IPTG',
+              save_dir=Path(SAVE_DIR) / 'Stats_OE' / WINDOW_NAME_DICT[window],
+              feature_set=feature_list,
+              pvalue_threshold=0.05,
+              fdr_method='fdr_bh')
         
         colour_dict = dict(zip(sorted(OE_strains), sns.color_palette('Set2', len(OE_strains))))
         all_in_one_boxplots(meta_OE,
                             feat_OE,
                             group_by='treatment',
-                            control='fepD-iptg',
+                            control='fepD-IPTG',
                             sigasterix=True,
                             fontsize=15,
                             order=sorted(OE_strains),
@@ -310,87 +327,12 @@ if __name__ == '__main__':
                                 't-test' / 't-test_results.csv',
                             pvalue_threshold=0.05,
                             figsize=(6,9),
-                            ylim_minmax=(0,260),
+                            ylim_minmax=(0,300),
                             subplots_adjust={'bottom':0.35,'top':0.95,'left':0.2,'right':0.95})
-        
-        # compare KO mutants to fepD
-        meta_KO = meta_window[meta_window['treatment'].isin(KO_strains)]
-        feat_KO = feat_window.reindex(meta_KO.index)
-        proteomics_mutants_stats(meta_KO,
-                                 feat_KO,
-                                 group_by='treatment',
-                                 control='fepD',
-                                 save_dir=Path(SAVE_DIR) / 'Stats_KO' / WINDOW_NAME_DICT[window],
-                                 feature_set=feature_list,
-                                 pvalue_threshold=0.05,
-                                 fdr_method='fdr_bh')
-        
-        colour_dict = dict(zip(sorted(KO_strains), sns.color_palette('Set2', len(KO_strains))))
-        all_in_one_boxplots(meta_KO,
-                            feat_KO,
-                            group_by='treatment',
-                            control='fepD',
-                            sigasterix=True,
-                            fontsize=15,
-                            order=sorted(KO_strains),
-                            colour_dict=colour_dict,
-                            feature_set=feature_list,
-                            save_dir=Path(SAVE_DIR) / 'Plots_KO' / WINDOW_NAME_DICT[window] / 'all-in-one',
-                            ttest_path=Path(SAVE_DIR) / 'Stats_KO' / WINDOW_NAME_DICT[window] /\
-                                't-test' / 't-test_results.csv',
-                            pvalue_threshold=0.05,
-                            figsize=(15,8),
-                            ylim_minmax=(0,260),
-                            subplots_adjust={'bottom':0.25,'top':0.95,'left':0.1,'right':0.95})
-                        
-    # # timeseries motion mode fraction for each treatment vs BW control
-    # selected_strains_timeseries(metadata,
-    #                             project_dir=Path(PROJECT_DIR), 
-    #                             save_dir=Path(SAVE_DIR) / 'timeseries', 
-    #                             strain_list=strain_list,
-    #                             group_by='treatment',
-    #                             control='BW',
-    #                             n_wells=6,
-    #                             bluelight_stim_type='bluelight',
-    #                             video_length_seconds=360,
-    #                             bluelight_timepoints_seconds=BLUELIGHT_TIMEPOINTS_SECONDS,
-    #                             motion_modes=['forwards','paused','backwards'],
-    #                             smoothing=10,
-    #                             fps=FPS)    
-    
+
+            
+    # plot timeseries
     metadata = metadata[metadata['window']==0]
-    
-    # # timeseries plots of speed for each treatment vs control
-    # plot_timeseries_feature(metadata,
-    #                         project_dir=Path(PROJECT_DIR),
-    #                         save_dir=Path(SAVE_DIR) / 'timeseries-speed',
-    #                         group_by='treatment',
-    #                         control='BW',
-    #                         groups_list=strain_list,
-    #                         feature='speed',
-    #                         n_wells=6,
-    #                         bluelight_stim_type='bluelight',
-    #                         video_length_seconds=360,
-    #                         bluelight_timepoints_seconds=BLUELIGHT_TIMEPOINTS_SECONDS,
-    #                         smoothing=10,
-    #                         fps=FPS,
-    #                         ylim_minmax=(-20,330)) # fixed the scale across plots to -10 to 310 um/sec
-  
-    # timeseries plot of speed for OE strains vs fepD-iptg
-    plot_timeseries_feature(metadata,
-                            project_dir=Path(PROJECT_DIR),
-                            save_dir=Path(SAVE_DIR) / 'timeseries-speed' / 'OE_strains',
-                            group_by='treatment',
-                            control='fepD-iptg',
-                            groups_list=OE_strains,
-                            feature='speed',
-                            n_wells=6,
-                            bluelight_stim_type='bluelight',
-                            video_length_seconds=360,
-                            bluelight_timepoints_seconds=BLUELIGHT_TIMEPOINTS_SECONDS,
-                            smoothing=10,
-                            fps=FPS,
-                            ylim_minmax=(-20,330)) # fixed the scale across plots to -10 to 310 um/sec
 
     # timeseries plot of speed for KO strains vs fepD
     plot_timeseries_feature(metadata,
@@ -406,7 +348,76 @@ if __name__ == '__main__':
                             bluelight_timepoints_seconds=BLUELIGHT_TIMEPOINTS_SECONDS,
                             smoothing=10,
                             fps=FPS,
-                            ylim_minmax=(-20,330),
-                            col_dict=colour_dict) # fixed the scale across plots to -10 to 310 um/sec
+                            ylim_minmax=(-20,300),
+                            col_dict=colour_dict)
+
+    # timeseries plot of speed for OE strains vs fepD-iptg
+    plot_timeseries_feature(metadata,
+                            project_dir=Path(PROJECT_DIR),
+                            save_dir=Path(SAVE_DIR) / 'timeseries-speed' / 'OE_strains',
+                            group_by='treatment',
+                            control='fepD-IPTG',
+                            groups_list=OE_strains,
+                            feature='speed',
+                            n_wells=6,
+                            bluelight_stim_type='bluelight',
+                            video_length_seconds=360,
+                            bluelight_timepoints_seconds=BLUELIGHT_TIMEPOINTS_SECONDS,
+                            smoothing=10,
+                            fps=FPS,
+                            ylim_minmax=(-20,300),
+                            col_dict=colour_dict)
     
+    # # bespoke timeseries    
+    # treatment_list = []
+    # for treatment in tqdm(treatment_list):
+    #     groups = ['BW', 'fepD', treatment]
+    #     print("Plotting timeseries speed for %s" % treatment)
+        
+    #     bluelight_frames = [(i*FPS, j*FPS) for (i, j) in BLUELIGHT_TIMEPOINTS_SECONDS]
+    #     feature = 'speed'
     
+    #     save_dir = Path(SAVE_DIR) / 'timeseries-speed' / 'rescues'
+    #     ts_plot_dir = save_dir / 'Plots' / treatment
+    #     ts_plot_dir.mkdir(exist_ok=True, parents=True)
+    #     save_path = ts_plot_dir / 'speed_bluelight.pdf'
+        
+    #     plt.close('all')
+    #     fig, ax = plt.subplots(figsize=(15,6), dpi=300)
+    #     col_dict = dict(zip(groups, sns.color_palette('tab10', len(groups))))
+    
+    #     for group in groups:
+            
+    #         # get control timeseries
+    #         group_ts = get_strain_timeseries(metadata,
+    #                                          project_dir=Path(PROJECT_DIR),
+    #                                          strain=group,
+    #                                          group_by='treatment',
+    #                                          feature_list=[feature],
+    #                                          save_dir=save_dir,
+    #                                          n_wells=N_WELLS,
+    #                                          verbose=True)
+            
+    #         ax = plot_timeseries(df=group_ts,
+    #                              feature=feature,
+    #                              error=True,
+    #                              max_n_frames=360*FPS, 
+    #                              smoothing=10*FPS, 
+    #                              ax=ax,
+    #                              bluelight_frames=bluelight_frames,
+    #                              colour=col_dict[group])
+    
+    #     plt.ylim(-20, 300)
+    #     xticks = np.linspace(0, 360*FPS, int(360/60)+1)
+    #     ax.set_xticks(xticks)
+    #     ax.set_xticklabels([str(int(x/FPS/60)) for x in xticks])   
+    #     ax.set_xlabel('Time (minutes)', fontsize=20, labelpad=10)
+    #     ylab = feature.replace('_50th'," (µm s$^{-1}$)")
+    #     ax.set_ylabel(ylab, fontsize=20, labelpad=10)
+    #     ax.legend(groups, fontsize=12, frameon=False, loc='best', handletextpad=1)
+    #     plt.subplots_adjust(left=0.1, top=0.98, bottom=0.15, right=0.98)
+    
+    #     # save plot
+    #     print("Saving to: %s" % save_path)
+    #     plt.savefig(save_path)
+

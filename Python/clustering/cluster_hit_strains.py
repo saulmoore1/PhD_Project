@@ -120,7 +120,7 @@ def cluster_linkage_seaborn(features,
                          metric=metric,
                          saveto=(saveDir / "heatmap_{}.pdf".format(method + '_' + metric) if 
                                  saveDir is not None else None),
-                         figsize=[15,10],
+                         figsize=[20,40],
                          sns_colour_palette="Pastel1",
                          sub_adj={'top':0.98,'bottom':0.02,'left':0.02,'right':0.9})
     plt.close()
@@ -487,7 +487,7 @@ if __name__ == "__main__":
                           leaf_font_size=(0.5 if Z.shape[0] > 2000 else 1),
                           leaf_rotation=90,
                           show_contracted=show_contracted,
-                          orientation='top')
+                          orientation='bottom')
 
     # METHOD 1 - Maximum distance cut-off (inferred from dendrogram)
     if MAX_DISTANCE is not None:
@@ -544,10 +544,10 @@ if __name__ == "__main__":
                       palette=colour_dict,
                       saveAs=save_path / 'PCA_clusters={}.pdf'.format(N_CLUSTERS))
 
-    # Plot dendrogram (optional: with max distance cut-off)
-    truncate_mode = None #'lastp' if Z.shape[0] > 2000 else None
-    p = 1 #500 if Z.shape[0] > 2000 else 1
-    show_contracted = False #True if Z.shape[0] > 2000 else False
+    # # Plot dendrogram (optional: with max distance cut-off)
+    # truncate_mode = None #'lastp' if Z.shape[0] > 2000 else None
+    # p = 1 #500 if Z.shape[0] > 2000 else 1
+    # show_contracted = False #True if Z.shape[0] > 2000 else False
     
     # # TODO: Set dendrogram leaf colour to PCA cluster colours
     

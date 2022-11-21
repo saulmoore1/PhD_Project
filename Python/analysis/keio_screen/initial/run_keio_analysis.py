@@ -124,7 +124,7 @@ def compare_strains_keio(features, metadata, args):
     if args.omit_strains is not None:
         features, metadata = subset_results(features, 
                                             metadata, 
-                                            column=grouping_var, 
+                                            column=grouping_var,
                                             groups=args.omit_strains, 
                                             omit=True)
 
@@ -492,10 +492,10 @@ def compare_strains_keio(features, metadata, args):
                          row_colours=None,
                          method=METHOD, 
                          metric=METRIC,
-                         figsize=[20,30],
+                         figsize=[20,40], # (20,40)
                          sub_adj={'bottom':0.01,'left':0,'top':1,'right':0.95},
                          saveto=full_clustermap_path,
-                         label_size=8,
+                         label_size=(2,10), # (2,2)
                          show_xlabels=False) # no feature labels
     
     if args.n_top_feats <= 256:
@@ -505,10 +505,10 @@ def compare_strains_keio(features, metadata, args):
                              row_colours=None,
                              method=METHOD, 
                              metric=METRIC,
-                             figsize=[20,40],
-                             sub_adj={'bottom':0.2,'left':0,'top':1,'right':0.95},
+                             figsize=[30,40], # (20,40)
+                             sub_adj={'bottom':0.1,'left':0,'top':1,'right':0.95},
                              saveto=full_clustermap_path,
-                             label_size=(2 if args.n_top_feats >= 256 else 15, 15),
+                             label_size=(2 if args.n_top_feats >= 256 else 15, 8), # (2,2)
                              show_xlabels=True)
     
     # save clustered feature order for all strains
@@ -519,6 +519,8 @@ def compare_strains_keio(features, metadata, args):
     full_feature_order_path = full_clustermap_path.parent / (full_clustermap_path.stem + 
                                                                 '_feature_order.csv')
     full_feature_order_df.to_csv(full_feature_order_path, header=True, index=True)
+
+    full_strain_order = [l.get_text() for l in fg.ax_heatmap.get_yticklabels()]
 
     ### Heatmap - features (x-axis columns) ordered by control clustered feature order
     
@@ -533,13 +535,14 @@ def compare_strains_keio(features, metadata, args):
         plot_barcode_heatmap(featZ=featZ[control_feature_order], 
                              meta=metadata, 
                              group_by=[grouping_var], 
+                             strain_order=full_strain_order,
                              pvalues_series=pvals_heatmap,
                              p_value_threshold=args.pval_threshold,
                              selected_feats=None, # fset if len(fset) > 0 else None
                              saveto=heatmap_path,
-                             figsize=[20,30],
+                             figsize=[20,40],
                              sns_colour_palette="Pastel1",
-                             label_size=10)        
+                             label_size=2)        
                     
     ##### Principal Components Analysis #####
 

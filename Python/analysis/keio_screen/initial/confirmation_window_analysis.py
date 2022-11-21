@@ -1,59 +1,58 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Worm tapping experiments
+Confirmation screen speed window summaries
 
 @author: sm5911
-@date: 08/08/2022
+@date: 19/10/2022
 
 """
 
 #%% Imports
 
-import numpy as np
 import pandas as pd
-import seaborn as sns
+from tqdm import tqdm
 from pathlib import Path
-from matplotlib import pyplot as plt
 
 from preprocessing.compile_hydra_data import compile_metadata, process_feature_summaries
 from filter_data.clean_feature_summaries import clean_summary_results
 from write_data.write import write_list_to_file
-from visualisation.plotting_helper import sig_asterix, boxplots_sigfeats
-from time_series.plot_timeseries import plot_timeseries_feature, plot_timeseries
-from time_series.time_series_helper import get_strain_timeseries
-# from analysis.keio_screen.follow_up.lawn_leaving_rate import fraction_on_food, timeseries_on_food
-
 from tierpsytools.analysis.statistical_tests import univariate_tests, get_effect_sizes
-from tierpsytools.preprocessing.filter_data import select_feat_set
+from visualisation.plotting_helper import sig_asterix, boxplots_sigfeats
+from time_series.plot_timeseries import plot_timeseries_feature
 
 #%% Globals
 
-PROJECT_DIR = "/Volumes/hermes$/Keio_Tap_6WP"
-SAVE_DIR = "/Users/sm5911/Documents/Keio_Tapping"
+PROJECT_DIR = "/Volumes/hermes$/KeioScreen2_96WP"
+SAVE_DIR = "/Users/sm5911/Documents/Keio_Conf_Screen"
 
-N_WELLS = 6
-FPS = 25
-
+N_WELLS = 96
+MAX_VALUE_CAP = 1e15
 nan_threshold_row = 0.8
 nan_threshold_col = 0.05
+min_nskel_sum = 6000
+add_well_annotations = True
+pval_threshold = 0.05
+fdr_method = 'fdr_by'
+FPS = 25
 
-FEATURE_SET = ['speed_50th']
+feature_list = ['speed_50th']
 
-THRESHOLD_FILTER_DURATION = 25 # threshold trajectory length (n frames) / 25 fps => 1 second
-THRESHOLD_FILTER_MOVEMENT = 10 # threshold movement (n pixels) * 12.4 microns per pixel => 124 microns
-THRESHOLD_LEAVING_DURATION = 50 # n frames a worm has to leave food for => a true leaving event
+BLUELIGHT_TIMEPOINTS_SECONDS = [(60, 70),(160, 170),(260, 270)]
+WINDOW_DICT = {0:(290,300)}
+WINDOW_NAME_DICT = {0:"20-30 seconds after blue light 3"}
+
 
 #%% Functions
 
-def tap_stats(metadata,
-              features,
-              group_by='treatment',
-              control='BW',
-              save_dir=None,
-              feature_set=None,
-              pvalue_threshold=0.05,
-              fdr_method='fdr_by'):
+def confirmation_window_stats(metadata,
+                              features,
+                              group_by='gene_name',
+                              control='BW',
+                              save_dir=None,
+                              feature_set=None,
+                              pvalue_threshold=0.05,
+                              fdr_method='fdr_bh'):
     
     # check case-sensitivity
     assert len(metadata[group_by].unique()) == len(metadata[group_by].str.upper().unique())
@@ -143,17 +142,17 @@ def tap_stats(metadata,
 
     return
 
-def tap_boxplots(metadata,
-                 features,
-                 group_by='treatment',
-                 control='BW',
-                 save_dir=None,
-                 stats_dir=None,
-                 feature_set=None,
-                 pvalue_threshold=0.05,
-                 drop_insignificant=False,
-                 scale_outliers=False,
-                 ylim_minmax=None):
+def confirmation_window_boxplots(metadata,
+                                 features,
+                                 group_by='gene_name',
+                                 control='BW',
+                                 save_dir=None,
+                                 stats_dir=None,
+                                 feature_set=None,
+                                 pvalue_threshold=0.05,
+                                 drop_insignificant=False,
+                                 scale_outliers=False,
+                                 ylim_minmax=None):
     
     feature_set = features.columns.tolist() if feature_set is None else feature_set
     assert isinstance(feature_set, list) and all(f in features.columns for f in feature_set)
@@ -175,7 +174,8 @@ def tap_boxplots(metadata,
                       drop_insignificant=drop_insignificant,
                       p_value_threshold=pvalue_threshold,
                       scale_outliers=scale_outliers,
-                      ylim_minmax=ylim_minmax)
+                      ylim_minmax=ylim_minmax,
+                      append_ranking_fname=False)
     
     return
 
@@ -186,13 +186,13 @@ if __name__ == '__main__':
     aux_dir = Path(PROJECT_DIR) / 'AuxiliaryFiles'
     res_dir = Path(PROJECT_DIR) / 'Results'
     
-    metadata_path_local = Path(SAVE_DIR) / 'metadata.csv'
-    features_path_local = Path(SAVE_DIR) / 'features.csv'
+    metadata_path_local = Path(SAVE_DIR) / 'window_metadata.csv'
+    features_path_local = Path(SAVE_DIR) / 'window_features.csv'
     
     if not metadata_path_local.exists() and not features_path_local.exists():
         metadata, metadata_path = compile_metadata(aux_dir, 
                                                    n_wells=N_WELLS, 
-                                                   add_well_annotations=False,
+                                                   add_well_annotations=True,
                                                    from_source_plate=True)
         
         features, metadata = process_feature_summaries(metadata_path, 
@@ -200,7 +200,7 @@ if __name__ == '__main__':
                                                        compile_day_summaries=True, 
                                                        imaging_dates=None, 
                                                        align_bluelight=False, 
-                                                       window_summaries=False,
+                                                       window_summaries=True,
                                                        n_wells=N_WELLS)
 
         # Clean results - Remove bad well data + features with too many NaNs/zero std + impute NaNs
@@ -227,105 +227,58 @@ if __name__ == '__main__':
     assert not features.isna().sum(axis=1).any()
     assert not (features.std(axis=1) == 0).any()
     
-    # load feature set
-    if FEATURE_SET is not None:
-        # subset for selected feature set (and remove path curvature features)
-        if isinstance(FEATURE_SET, int) and FEATURE_SET in [8,16,256]:
-            features = select_feat_set(features, 'tierpsy_{}'.format(FEATURE_SET), append_bluelight=True)
-            features = features[[f for f in features.columns if 'path_curvature' not in f]]
-        elif isinstance(FEATURE_SET, list) or isinstance(FEATURE_SET, set):
-            assert all(f in features.columns for f in FEATURE_SET)
-            features = features[FEATURE_SET].copy()
-    feature_list = features.columns.tolist()
+    # remove entries foor results with missing gene name metadata
+    metadata = metadata[~metadata['gene_name'].isna()]
     
-    # TODO: Use control no tapping from 20220803 mutant worm experiments (no bluelight, so use prestim)
-    
-    treatment_cols = ['food_type','drug_type'] # 'tap_stimulus'
-    metadata['treatment'] = metadata[treatment_cols].astype(str).agg('-'.join, axis=1)
-    control = 'BW-nan' # none
-    
-    # perform anova and t-tests comparing each treatment to BW control
-    tap_stats(metadata,
-              features,
-              group_by='treatment',
-              control=control,
-              save_dir=Path(SAVE_DIR) / 'Stats',
-              feature_set=feature_list,
-              pvalue_threshold=0.05,
-              fdr_method='fdr_by')
-    
-    # boxplots comparing each treatment to BW control for each feature
-    tap_boxplots(metadata,
-                 features,
-                 group_by='treatment',
-                 control=control,
-                 save_dir=Path(SAVE_DIR) / 'Plots',
-                 stats_dir=Path(SAVE_DIR) / 'Stats',
-                 feature_set=feature_list,
-                 pvalue_threshold=0.05,
-                 scale_outliers=None,
-                 ylim_minmax=(0,250)) # ylim_minmax for speed feature only
-         
-    # timeseries plots of speed for each treatment vs control
-    strain_list = list(metadata['treatment'].unique())
-    plot_timeseries_feature(metadata,
-                            project_dir=Path(PROJECT_DIR),
-                            save_dir=Path(SAVE_DIR) / 'timeseries-speed',
-                            group_by='treatment',
-                            control=control,
-                            groups_list=strain_list,
-                            feature='speed',
-                            n_wells=6,
-                            bluelight_stim_type=None,
-                            video_length_seconds=360,
-                            bluelight_timepoints_seconds=None,
-                            smoothing=10,
-                            fps=FPS,
-                            ylim_minmax=(0,200))
-        
-    # bespoke timeseries    
-    groups = ['BW-nan','fepD-nan','BW-Paraquat']        
-    feature = 'speed'
-    save_dir = Path(SAVE_DIR) / 'timeseries-speed' / 'rescues'
-    ts_plot_dir = save_dir / 'Plots'
-    ts_plot_dir.mkdir(exist_ok=True, parents=True)
-    save_path = ts_plot_dir / 'speed_bluelight.pdf'
-    
-    plt.close('all')
-    fig, ax = plt.subplots(figsize=(15,6), dpi=300)
-    col_dict = dict(zip(groups, sns.color_palette('tab10', len(groups))))
+    # subset metadata results for bluelight videos only 
+    if not 'bluelight' in metadata.columns:
+        metadata['bluelight'] = [i.split('_run')[-1].split('_')[1] for i in metadata['imgstore_name']]
+    metadata = metadata[metadata['bluelight']=='bluelight']
 
-    for group in groups:
-        
-        # get control timeseries
-        group_ts = get_strain_timeseries(metadata,
-                                         project_dir=Path(PROJECT_DIR),
-                                         strain=group,
-                                         group_by='treatment',
-                                         feature_list=[feature],
-                                         save_dir=save_dir,
-                                         n_wells=N_WELLS,
-                                         verbose=True)
-        
-        ax = plot_timeseries(df=group_ts,
-                             feature=feature,
-                             error=True,
-                             max_n_frames=300*FPS, 
-                             smoothing=10*FPS, 
-                             ax=ax,
-                             bluelight_frames=None,
-                             colour=col_dict[group])
+    metadata['window'] = metadata['window'].astype(int)
+    strain_list = sorted(list(metadata['gene_name'].unique()))
+    
+    meta_window = metadata[metadata['window']==0]
+    feat_window = features.reindex(meta_window.index)
+    
+    stats_dir = Path(SAVE_DIR) / 'Stats' / WINDOW_NAME_DICT[0]
+    plot_dir = Path(SAVE_DIR) / 'Plots' / WINDOW_NAME_DICT[0]
 
-    plt.ylim(0, 200)
-    xticks = np.linspace(0, 300*FPS, int(300/60)+1)
-    ax.set_xticks(xticks)
-    ax.set_xticklabels([str(int(x/FPS/60)) for x in xticks])   
-    ax.set_xlabel('Time (minutes)', fontsize=20, labelpad=10)
-    ylab = feature.replace('_50th'," (µm s$^{-1}$)")
-    ax.set_ylabel(ylab, fontsize=20, labelpad=10)
-    ax.legend(groups, fontsize=12, frameon=False, loc='best', handletextpad=1)
-    plt.subplots_adjust(left=0.1, top=0.98, bottom=0.15, right=0.98)
-
-    # save plot
-    print("Saving to: %s" % save_path)
-    plt.savefig(save_path)
+    # all gene_names
+    confirmation_window_stats(meta_window,
+                              feat_window,
+                              group_by='gene_name',
+                              control='BW',
+                              save_dir=stats_dir,
+                              feature_set=feature_list,
+                              pvalue_threshold=pval_threshold,
+                              fdr_method=fdr_method)
+    confirmation_window_boxplots(meta_window,
+                                 feat_window,
+                                 group_by='gene_name',
+                                 control='BW',
+                                 save_dir=plot_dir,
+                                 stats_dir=stats_dir,
+                                 feature_set=feature_list,
+                                 pvalue_threshold=pval_threshold,
+                                 scale_outliers=False,
+                                 ylim_minmax=None) # ylim_minmax for speed feature only 
+    
+    strain_list = ['fepD']
+    for strain in tqdm(strain_list):
+        plot_timeseries_feature(metadata,
+                                project_dir=Path(PROJECT_DIR),
+                                save_dir=Path(SAVE_DIR) / 'timeseries_speed',
+                                group_by='gene_name',
+                                control='BW',
+                                groups_list=['BW', strain],
+                                feature='speed',
+                                n_wells=6,
+                                bluelight_stim_type='bluelight',
+                                video_length_seconds=360,
+                                bluelight_timepoints_seconds=BLUELIGHT_TIMEPOINTS_SECONDS,
+                                smoothing=10,
+                                fps=FPS,
+                                ylim_minmax=(-20,330)) # ylim_minmax for speed feature only
+ 
+        

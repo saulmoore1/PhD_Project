@@ -18,13 +18,15 @@ import pandas as pd
 import seaborn as sns
 from tqdm import tqdm
 from pathlib import Path
+from matplotlib import pyplot as plt
 
 # from analysis.keio_screen.check_keio_screen_worm_trajectories import check_tracked_objects
 from preprocessing.compile_hydra_data import compile_metadata, process_feature_summaries
 from filter_data.clean_feature_summaries import clean_summary_results
 from write_data.write import write_list_to_file
 from visualisation.plotting_helper import sig_asterix, boxplots_sigfeats, all_in_one_boxplots
-from time_series.plot_timeseries import plot_timeseries_feature #selected_strains_timeseries
+from time_series.plot_timeseries import plot_timeseries_feature, plot_timeseries #selected_strains_timeseries
+from time_series.time_series_helper import get_strain_timeseries
 from analysis.keio_screen.follow_up.lawn_leaving_rate import fraction_on_food, timeseries_on_food
 
 from tierpsytools.analysis.statistical_tests import univariate_tests, get_effect_sizes
@@ -163,7 +165,10 @@ def uv_paraquat_antioxidant_boxplots(metadata,
                                      save_dir=None,
                                      stats_dir=None,
                                      feature_set=None,
-                                     pvalue_threshold=0.05):
+                                     pvalue_threshold=0.05,
+                                     drop_insignificant=False,
+                                     scale_outliers=False,
+                                     ylim_minmax=None):
     
     feature_set = features.columns.tolist() if feature_set is None else feature_set
     assert isinstance(feature_set, list) and all(f in features.columns for f in feature_set)
@@ -178,13 +183,15 @@ def uv_paraquat_antioxidant_boxplots(metadata,
     boxplots_sigfeats(features,
                       y_class=metadata[group_by],
                       control=control,
-                      pvals=pvals if stats_dir is not None else None,
+                      pvals=pvals,
                       z_class=None,
                       feature_set=feature_set,
                       saveDir=Path(save_dir),
-                      drop_insignificant=True if feature_set is None else False,
+                      drop_insignificant=drop_insignificant,
                       p_value_threshold=pvalue_threshold,
-                      scale_outliers=True)
+                      scale_outliers=scale_outliers,
+                      ylim_minmax=ylim_minmax,
+                      append_ranking_fname=False)
     
     return
 
@@ -478,5 +485,59 @@ if __name__ == '__main__':
                        bluelight_stimulus_type='bluelight',
                        smoothing=20,
                        error=True)
+    
+    # bespoke timeseries    
+    treatment_list = ['fepD-NAC-1.0-N','fepD-NAC-0.5-N','fepD-Vitamin C-0.5-N','fepD-Vitamin C-1.0-N']
+    for treatment in tqdm(treatment_list):
+        groups = ['BW-nan-nan-N', 'fepD-nan-nan-N', treatment]
+        print("Plotting timeseries speed for %s" % treatment)
+        
+        bluelight_frames = [(i*FPS, j*FPS) for (i, j) in BLUELIGHT_TIMEPOINTS_SECONDS]
+        feature = 'speed'
+    
+        save_dir = Path(SAVE_DIR) / 'timeseries-speed' / 'rescues'
+        ts_plot_dir = save_dir / 'Plots' / treatment
+        ts_plot_dir.mkdir(exist_ok=True, parents=True)
+        save_path = ts_plot_dir / 'speed_bluelight.pdf'
+        
+        plt.close('all')
+        fig, ax = plt.subplots(figsize=(15,6), dpi=300)
+        col_dict = dict(zip(groups, sns.color_palette('tab10', len(groups))))
+    
+        for group in groups:
+            
+            # get control timeseries
+            group_ts = get_strain_timeseries(metadata,
+                                             project_dir=Path(PROJECT_DIR),
+                                             strain=group,
+                                             group_by='treatment',
+                                             feature_list=[feature],
+                                             save_dir=save_dir,
+                                             n_wells=N_WELLS,
+                                             verbose=True)
+            
+            ax = plot_timeseries(df=group_ts,
+                                 feature=feature,
+                                 error=True,
+                                 max_n_frames=360*FPS, 
+                                 smoothing=10*FPS, 
+                                 ax=ax,
+                                 bluelight_frames=bluelight_frames,
+                                 colour=col_dict[group])
+    
+        plt.ylim(-20, 300)
+        xticks = np.linspace(0, 360*FPS, int(360/60)+1)
+        ax.set_xticks(xticks)
+        ax.set_xticklabels([str(int(x/FPS/60)) for x in xticks])   
+        ax.set_xlabel('Time (minutes)', fontsize=20, labelpad=10)
+        ylab = feature.replace('_50th'," (µm s$^{-1}$)")
+        ax.set_ylabel(ylab, fontsize=20, labelpad=10)
+        ax.legend(groups, fontsize=12, frameon=False, loc='best', handletextpad=1)
+        plt.subplots_adjust(left=0.1, top=0.98, bottom=0.15, right=0.98)
+    
+        # save plot
+        print("Saving to: %s" % save_path)
+        plt.savefig(save_path)
+    
     
     

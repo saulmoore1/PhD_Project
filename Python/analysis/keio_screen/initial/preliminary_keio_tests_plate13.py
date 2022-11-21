@@ -267,6 +267,7 @@ if __name__ == '__main__':
     video_dict = masked_video_list_from_metadata(metadata, 
                                                  group_by='treatment', 
                                                  groups_list=None,
+                                                 imgstore_col='imgstore_name_bluelight',
                                                  project_dir=Path(PROJECT_DIR),
                                                  save_dir=Path(SAVE_DIR) / 'video_filenames')
     
@@ -325,9 +326,9 @@ if __name__ == '__main__':
                          drop_insignificant=True,
                          max_sig_feats=None)
 
-    # subset for Day 1 worms only
+    # subset for Day 1 worms only (+4 hours on food)
 
-    D1_meta = metadata.query("worm_stage_when_dispensed=='Day1'")
+    D1_meta = metadata.query("worm_stage_when_dispensed=='Day1' and imaging_run_number==3")
     D1_feat = features.reindex(D1_meta.index)
     
     # perform anova and t-tests comparing each treatment to control

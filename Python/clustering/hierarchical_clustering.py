@@ -169,6 +169,7 @@ def plot_clustermap(featZ,
 def plot_barcode_heatmap(featZ, 
                          meta, 
                          group_by,
+                         strain_order=None,
                          pvalues_series=None,
                          p_value_threshold=0.05,
                          selected_feats=None,
@@ -194,10 +195,13 @@ def plot_barcode_heatmap(featZ,
     fset = featZ.columns
         
     # Compute average value for strain for each feature (not each well)
-    featZ_grouped = featZ.join(meta).groupby(group_by).mean()#.reset_index()
+    featZ_mean = featZ.join(meta).groupby(group_by).mean()#.reset_index()
        
     # Make dataframe for heatmap plot
-    heatmap_df = featZ_grouped[fset]
+    heatmap_df = featZ_mean[fset]
+    
+    if strain_order is not None:
+        heatmap_df = heatmap_df.reindex(strain_order)
     
     var_list = list(heatmap_df.index)
     

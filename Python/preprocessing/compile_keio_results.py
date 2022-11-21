@@ -22,8 +22,8 @@ from filter_data.clean_feature_summaries import clean_summary_results
 
 #%% GLOBALS
 
-#JSON_PARAMETERS_PATH = "analysis/20210406_parameters_keio_screen.json" # Initial Keio Screen
-#JSON_PARAMETERS_PATH = "analysis/20210914_parameters_keio_screen.json" # Confirmation Keio Screen 2
+JSON_PARAMETERS_PATH = "analysis/20210406_parameters_keio_initial_screen.json" # Initial Keio Screen
+#JSON_PARAMETERS_PATH = "analysis/20210914_parameters_keio_confirmation_screen.json" # Confirmation Keio Screen 2
 #JSON_PARAMETERS_PATH = "analysis/20211102_parameters_keio_rescue.json" # Keio Antioxidant Rescue 96WP
 #JSON_PARAMETERS_PATH = "analysis/20211109_parameters_keio_dead.json" # Keio Dead 96WP
 

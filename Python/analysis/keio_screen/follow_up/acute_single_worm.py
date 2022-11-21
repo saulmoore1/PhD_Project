@@ -26,6 +26,7 @@ from time_series.plot_timeseries import plot_timeseries_feature
 
 from tierpsytools.analysis.statistical_tests import univariate_tests, get_effect_sizes
 from tierpsytools.preprocessing.filter_data import select_feat_set
+from tierpsytools.analysis.statistical_tests import _multitest_correct
 
 #%% Globals
 
@@ -59,14 +60,18 @@ WINDOW_DICT = {0:(305,315),1:(330,340),
                4:(905,915),5:(930,940),
                6:(1205,1215),7:(1230,1240),
                8:(1505,1515),9:(1530,1540),
-               10:(1805,1815),11:(1830,1840)}
+               #10:(1805,1815),11:(1830,1840)
+               }
 
 WINDOW_NAME_DICT = {0:"blue light 1", 1: "20-30 seconds after blue light 1",
                     2:"blue light 2", 3: "20-30 seconds after blue light 2",
                     4:"blue light 3", 5: "20-30 seconds after blue light 3",
                     6:"blue light 4", 7: "20-30 seconds after blue light 4",
                     8:"blue light 5", 9: "20-30 seconds after blue light 5",
-                    10:"blue light 6", 11: "20-30 seconds after blue light 6"}
+                    #10:"blue light 6", 11: "20-30 seconds after blue light 6"
+                    }
+
+WINDOW_LIST = [1,3,5,7,9]
 
 # 305:315,330:340,605:615,630:640,905:915,930:940,1205:1215,1230:1240,1505:1515,1530:1540,
 #1805:1815,1830:1840
@@ -327,9 +332,6 @@ if __name__ == "__main__":
     bluelight_videos = [i for i in metadata['imgstore_name'] if 'bluelight' in i]
     metadata = metadata[metadata['imgstore_name'].isin(bluelight_videos)]
     
-    metadata['window'] = metadata['window'].astype(int)
-    window_list = list(metadata['window'].unique())
-
     # create bins for frame of first food encounter
     bins = [int(b) for b in np.linspace(0, VIDEO_LENGTH_SECONDS*FPS, 
                                         int(VIDEO_LENGTH_SECONDS/BIN_SIZE_SECONDS+1))]
@@ -360,6 +362,12 @@ if __name__ == "__main__":
     # NB: inculding the 'hump' up to around <75 seconds makes no visible difference to the plot
     metadata = metadata[metadata['first_food_frame'] < THRESHOLD_N_SECONDS*FPS]
     features = features.reindex(metadata.index)
+    
+    metadata['window'] = metadata['window'].astype(int)
+    if WINDOW_LIST is not None:
+        metadata = metadata[metadata['window'].isin(WINDOW_LIST)]
+        
+    window_list = list(metadata['window'].unique())   
 
     for window in tqdm(window_list):
         meta_window = metadata[metadata['window']==window]
@@ -391,6 +399,42 @@ if __name__ == "__main__":
                             fontsize=20,
                             ylim_minmax=(-120,350),
                             subplots_adjust={'bottom':0.15, 'top':0.9, 'left':0.15, 'right':0.95})
+
+    pvalues_dict = {}
+    for window in window_list:
+        stats_dir = Path(SAVE_DIR) / 'Stats' / WINDOW_NAME_DICT[window]
+
+        # read p-values for each strain and correct for multiple comparisons (fdr_bh)
+        pvals_df = pd.read_csv(stats_dir / 't-test' / 't-test_results.csv', index_col=0)
+        pvalues_dict[window] = pvals_df.loc['speed_50th','pvals_fepD']
+    
+    reject, corrected_pvals = _multitest_correct(pd.Series(list(pvalues_dict.values())), 
+                                                 multitest_method='fdr_bh', fdr=0.05)
+    pvalues_dict = dict(zip(window_list, corrected_pvals))
+    pvals = pd.DataFrame.from_dict(pvalues_dict, orient='index', columns=['pvals'])
+    ttest_corrected_savepath = Path(SAVE_DIR) / 'Stats' / 't-test_corrected' / 't-test_window_results.csv'
+    ttest_corrected_savepath.parent.mkdir(exist_ok=True, parents=True)
+    pvals.to_csv(ttest_corrected_savepath)
+
+    colour_dict = dict(zip(['BW','fepD'], sns.color_palette('tab10', 2)))
+    all_in_one_boxplots(metadata,
+                        features,
+                        group_by='window',
+                        hue='gene_name',
+                        order=window_list,
+                        hue_order=['BW','fepD'],
+                        control='BW',
+                        save_dir=Path(SAVE_DIR) / 'Plots',
+                        ttest_path=None,
+                        feature_set=feature_list,
+                        pvalue_threshold=0.05,
+                        colour_dict=colour_dict,
+                        figsize=(15,8),
+                        ylim_minmax=(-70,370),
+                        vline_boxpos=None,
+                        fontsize=20,
+                        legend=False,
+                        subplots_adjust={'bottom':0.15,'top':0.9,'left':0.15,'right':0.95})        
 
     metadata = metadata[metadata['window']==0]
 

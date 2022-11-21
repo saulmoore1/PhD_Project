@@ -750,6 +750,7 @@ if __name__ == '__main__':
                             ttest_path=stats_dir / 'paraquat' / 't-test' / 't-test_results.csv',
                             feature_set=feature_list,
                             pvalue_threshold=0.05,
+                            sigasterix=True,
                             order=[s for s in order if s in groups],
                             colour_dict=colour_dict,
                             figsize=(30,10),
@@ -782,6 +783,7 @@ if __name__ == '__main__':
                             ttest_path=stats_dir / 'enterobactin' / 't-test' / 't-test_results.csv',
                             feature_set=feature_list,
                             pvalue_threshold=0.05,
+                            sigasterix=True,
                             order=[s for s in order if s in groups],
                             colour_dict=colour_dict,
                             figsize=(30,10),
@@ -795,7 +797,6 @@ if __name__ == '__main__':
                                                             meta_window['drug_type']=='fe2O12S3'),
                                               np.logical_and(meta_window['drug_type']=='none',
                                                              meta_window['solvent']!='DMSO'))]
-        meta_iron = meta_iron[meta_iron['solvent']!='NGM']
         feat_iron = feat_window.reindex(meta_iron.index)
         supplements_stats(meta_iron,
                           feat_iron,
@@ -813,6 +814,7 @@ if __name__ == '__main__':
                             feat_iron,
                             group_by='treatment',
                             control=control,
+                            sigasterix=True,
                             save_dir=plot_dir / 'all-in-one' / 'iron',
                             ttest_path=stats_dir / 'iron' / 't-test' / 't-test_results.csv',
                             feature_set=feature_list,
@@ -821,7 +823,7 @@ if __name__ == '__main__':
                             colour_dict=colour_dict,
                             figsize=(20,10),
                             # ylim_minmax=(-20,130),
-                            vline_boxpos=[1,3],
+                            vline_boxpos=[1,4,7,10],
                             fontsize=20,
                             subplots_adjust={'bottom':0.4,'top':0.95,'left':0.05,'right':0.98})
 

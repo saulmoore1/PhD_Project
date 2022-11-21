@@ -48,10 +48,10 @@ def get_strain_timeseries(metadata,
         strain_meta = metadata.groupby(group_by).get_group(strain)
                     
         # make dict of video imgstore names and wells we need to extract for strain data
-        video_list = sorted(strain_meta['imgstore_name'].unique())
-        grouped_video = strain_meta.groupby('imgstore_name')
+        video_list = sorted(strain_meta['featuresN_filename'].unique())
+        grouped_video = strain_meta.groupby('featuresN_filename')
         video_dict = {vid : sorted(grouped_video.get_group(vid)['well_name'].unique()) 
-                      for vid in video_list}     
+                      for vid in video_list}
           
         feature_list = [feature_list] if isinstance(feature_list, str) else feature_list
         assert isinstance(feature_list, list)
@@ -60,9 +60,9 @@ def get_strain_timeseries(metadata,
         
         error_log = []
         strain_timeseries_list = []
-        for imgstore, wells in tqdm(video_dict.items()):
+        for featuresN_file, wells in tqdm(video_dict.items()):
             
-            filename = Path(project_dir) / 'Results' / imgstore / 'metadata_featuresN.hdf5'
+            filename = Path(featuresN_file)
 
             try:
                 df = read_timeseries(filename, 

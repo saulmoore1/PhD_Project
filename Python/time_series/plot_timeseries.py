@@ -78,12 +78,6 @@ def get_motion_mode_timestamp_stats(frac_mode, mode='stationary'):
                 
         return frame_mode_df
 
-
-# def plot_timeseries_turn(df, window=None, title=None, figsize=(12,6), ax=None):
-#     """ """
-#     turn_dict = {0:'straight', 1:'turn'}
-#     df['turn_type'] = ['NA' if pd.isna(t) else turn_dict[int(t)] for t in df['turn']]
-
 def _bootstrapped_ci(x, function=np.mean, n_boot=100, which_ci=95, axis=None):
     """ Wrapper for tierpsytools bootstrapped_ci function, which encounters name space / 
         variable scope conflicts when used in combination with pandas apply function 
@@ -197,7 +191,9 @@ def plot_timeseries_feature(metadata,
                             bluelight_timepoints_seconds=[(60, 70),(160, 170),(260, 270)],
                             smoothing=10,
                             fps=25,
-                            ylim_minmax=None):
+                            ylim_minmax=None,
+                            palette='tab10',
+                            col_dict=None):
         
     if groups_list is not None:
         assert isinstance(groups_list, list) 
@@ -244,7 +240,8 @@ def plot_timeseries_feature(metadata,
                                              verbose=True)
             
             print("Plotting '%s' timeseries for %s vs %s" % (feature, group, control))
-            col_dict = dict(zip([control, group], sns.color_palette('tab10', 2)))
+            if col_dict is None:
+                col_dict = dict(zip([control, group], sns.color_palette(palette, 2)))
             
             plt.close('all')
             fig, ax = plt.subplots(figsize=(15,6), dpi=300)
@@ -276,7 +273,7 @@ def plot_timeseries_feature(metadata,
             ax.set_xticks(xticks)
             ax.set_xticklabels([str(int(x/fps/60)) for x in xticks])   
             ax.set_xlabel('Time (minutes)', fontsize=12, labelpad=10)
-            ylab = feature + " (um/sec)" if feature == 'speed' else feature
+            ylab = feature.replace("_", " (µm s$^{-1}$)") if feature == 'speed' else feature
             ax.set_ylabel(ylab, fontsize=12, labelpad=10)
             ax.legend([control, group], fontsize=12, frameon=False, loc='best', handletextpad=1)
             plt.subplots_adjust(left=0.1, top=0.95, bottom=0.1, right=0.95)
@@ -385,7 +382,7 @@ def plot_window_timeseries_feature(metadata,
                     if ylim_minmax is not None:
                         assert isinstance(ylim_minmax, tuple)
                         plt.ylim(ylim_minmax[0], ylim_minmax[1])
-                    ylab = feature + " (um/sec)" if feature == 'speed' else feature
+                    ylab = feature.replace("_", " (µm s$^{-1}$)") if feature == 'speed' else feature
                     ax.set_ylabel(ylab, fontsize=12, labelpad=10)
                     ax.set_title('{0} vs {1} (bluelight pulse {2} = {3} min)'.format(
                         group, control, pulse, int(frame[0]/fps/60)), fontsize=12, pad=10)
@@ -431,7 +428,7 @@ def plot_window_timeseries_feature(metadata,
                     assert isinstance(ylim_minmax, tuple)
                     plt.ylim(ylim_minmax[0], ylim_minmax[1])
 
-                ylab = feature + " (um/sec)" if feature == 'speed' else feature
+                ylab = feature.replace("_", " (µm s$^{-1}$)") if feature == 'speed' else feature
                 ax.set_ylabel(ylab, fontsize=12, labelpad=10)
                 ax.set_title('%s vs %s' % (group, control), fontsize=12, pad=10)
                 ax.legend([control, group], fontsize=12, frameon=False, loc='best', handletextpad=1)

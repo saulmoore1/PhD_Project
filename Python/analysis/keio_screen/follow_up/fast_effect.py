@@ -25,8 +25,9 @@ from time_series.plot_timeseries import plot_timeseries_feature # plot_timeserie
 from visualisation.plotting_helper import sig_asterix, all_in_one_boxplots
 from write_data.write import write_list_to_file
 
-from tierpsytools.analysis.statistical_tests import univariate_tests, get_effect_sizes
 from tierpsytools.preprocessing.filter_data import select_feat_set
+from tierpsytools.analysis.statistical_tests import univariate_tests, get_effect_sizes
+from tierpsytools.analysis.statistical_tests import _multitest_correct
 
 #%% Globals
 
@@ -57,6 +58,10 @@ WINDOW_NAME_DICT = {0:"blue light 1", 1: "20-30 seconds after blue light 1",
                     10:"blue light 6", 11: "20-30 seconds after blue light 6",
                     12:"blue light 7", 13: "20-30 seconds after blue light 7",
                     14:"blue light 8", 15: "20-30 seconds after blue light 8"}
+
+WINDOW_LIST = [1,3,5,7,9,11,13,15]
+
+OMIT_STRAINS_LIST = ['trpD']
 
 FPS = 25
 BLUELIGHT_TIMEPOINTS_MINUTES = [30,60,90,120,150,180,210,240]
@@ -577,9 +582,17 @@ if __name__ == '__main__':
     metadata = metadata[metadata['imgstore_name'].isin(bluelight_videos)]
     
     control = 'BW'
+    
+    if OMIT_STRAINS_LIST is not None:
+        metadata = metadata[~metadata['gene_name'].isin(OMIT_STRAINS_LIST)]
 
     metadata['window'] = metadata['window'].astype(int)
-    window_list = list(metadata['window'].unique())
+    if WINDOW_LIST is not None:
+        metadata = metadata[metadata['window'].isin(WINDOW_LIST)]
+        
+    window_list = list(metadata['window'].unique())   
+    
+    features = features.reindex(metadata.index)
  
     for window in tqdm(window_list):
         meta_window = metadata[metadata['window']==window]
@@ -597,7 +610,7 @@ if __name__ == '__main__':
                           pvalue_threshold=0.05,
                           fdr_method='fdr_bh')
 
-        order = ['BW','fepD']
+        order = ['BW'] + [s for s in meta_window['gene_name'].unique() if s != 'BW']
         colour_dict = dict(zip(order, sns.color_palette('tab10', len(order))))
         all_in_one_boxplots(meta_window,
                             feat_window,
@@ -610,11 +623,47 @@ if __name__ == '__main__':
                             order=order,
                             colour_dict=colour_dict,
                             figsize=(10,8),
-                            ylim_minmax=(-20,500),
+                            ylim_minmax=(-20,350),
                             vline_boxpos=None,
                             fontsize=20,
                             subplots_adjust={'bottom':0.15,'top':0.9,'left':0.15,'right':0.95})        
         
+    pvalues_dict = {}
+    for window in window_list:
+        stats_dir = Path(SAVE_DIR) / 'Stats' / WINDOW_NAME_DICT[window]
+
+        # read p-values for each strain and correct for multiple comparisons (fdr_bh)
+        pvals_df = pd.read_csv(stats_dir / 't-test' / 't-test_results.csv', index_col=0)
+        pvalues_dict[window] = pvals_df.loc['speed_50th','pvals_fepD']
+    
+    reject, corrected_pvals = _multitest_correct(pd.Series(list(pvalues_dict.values())), 
+                                                 multitest_method='fdr_bh', fdr=0.05)
+    pvalues_dict = dict(zip(window_list, corrected_pvals))
+    pvals = pd.DataFrame.from_dict(pvalues_dict, orient='index', columns=['pvals'])
+    ttest_corrected_savepath = Path(SAVE_DIR) / 'Stats' / 't-test_corrected' / 't-test_window_results.csv'
+    ttest_corrected_savepath.parent.mkdir(exist_ok=True, parents=True)
+    pvals.to_csv(ttest_corrected_savepath)
+
+    colour_dict = dict(zip(['BW','fepD'], sns.color_palette('tab10', len(order))))
+    all_in_one_boxplots(metadata,
+                        features,
+                        group_by='window',
+                        hue='gene_name',
+                        order=window_list,
+                        hue_order=['BW','fepD'],
+                        control='BW',
+                        save_dir=Path(SAVE_DIR) / 'Plots',
+                        ttest_path=None,
+                        feature_set=feature_list,
+                        pvalue_threshold=0.05,
+                        colour_dict=colour_dict,
+                        figsize=(15,8),
+                        ylim_minmax=(-70,370),
+                        vline_boxpos=None,
+                        fontsize=20,
+                        legend=False,
+                        subplots_adjust={'bottom':0.15,'top':0.9,'left':0.15,'right':0.95})        
+    
     # fast_effect_timeseries_motion_mode(metadata=metadata.query("window == 0"), # avoid plotting multiple times
     #                                    project_dir=Path(args.project_dir),
     #                                    save_dir=Path(args.save_dir) / 'timeseries',

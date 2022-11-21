@@ -374,8 +374,9 @@ def process_feature_summaries(metadata_path,
     
     # meta_col_order.append('window')
     if window_summaries:
-        print("Not aligning bluelight as feature summaries have been calculated for defined windows\n" +
-              "Please manually subset metadata by stimulus type and desired window")
+        if align_bluelight:
+            print("WARNING: Not aligning bluelight as feature summaries have been calculated for defined windows\n" +
+                  "Please manually subset metadata by stimulus type and desired window")
         
         # transfer 'window' info over to metadata
         metadata['window'] = features['window']

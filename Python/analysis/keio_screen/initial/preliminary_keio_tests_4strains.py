@@ -282,6 +282,7 @@ if __name__ == '__main__':
     video_dict = masked_video_list_from_metadata(metadata, 
                                                  group_by='treatment', 
                                                  groups_list=None,
+                                                 imgstore_col='imgstore_name_bluelight',
                                                  project_dir=Path(PROJECT_DIR),
                                                  save_dir=Path(SAVE_DIR) / 'video_filenames')
     
@@ -344,9 +345,10 @@ if __name__ == '__main__':
     #                      max_sig_feats=None)
     
     # extract just BW control data and compare 
-    # old vs new lawns for BW D1
+    # old vs new lawns for BW D1 after 5 hours
     BW_D1_meta = metadata.query("food_type=='BW25113' and " + 
-                                "worm_life_stage=='D1'")
+                                "worm_life_stage=='D1' and " +
+                                "time_recording=='11:10:00'")
     BW_D1_feat = features.reindex(BW_D1_meta.index)
     
     preliminary_stats(BW_D1_meta,
@@ -398,7 +400,8 @@ if __name__ == '__main__':
     
     # L4 vs D1 worms for BW old
     BW_old_meta = metadata.query("food_type=='BW25113' and " + 
-                                 "lawn_storage_type=='old'")
+                                 "lawn_storage_type=='old' and " +
+                                 "time_recording=='11:10:00' or time_recording=='11:50:00'")
     BW_old_feat = features.reindex(BW_old_meta.index)
     
     preliminary_stats(BW_old_meta,
@@ -450,7 +453,8 @@ if __name__ == '__main__':
     
     # Compare food type on old lawns for D1 worms
     D1_old_meta = metadata.query("worm_life_stage=='D1' and " + 
-                                 "lawn_storage_type=='old'")
+                                 "lawn_storage_type=='old' and " + 
+                                 "time_recording=='16:10:00'")
     D1_old_feat = features.reindex(D1_old_meta.index)
     
     preliminary_stats(D1_old_meta,
@@ -543,6 +547,7 @@ if __name__ == '__main__':
     ### D1 worms new vs old ###
     
     # Z-normalise data
+    
     featZ = BW_D1_feat.apply(zscore, axis=0)
 
     # plot clustermap

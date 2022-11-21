@@ -37,8 +37,8 @@ from tierpsytools.preprocessing.filter_data import select_feat_set
 
 #%% GLOBALS
 
-JSON_PARAMETERS_PATH = "analysis/20210406_parameters_keio_screen.json"
-#JSON_PARAMETERS_PATH = "analysis/20210914_parameters_keio_screen.json"
+# JSON_PARAMETERS_PATH = "analysis/20210406_parameters_keio_initial_screen.json"
+JSON_PARAMETERS_PATH = "analysis/20210914_parameters_keio_confirmation_screen.json"
 
 #%% FUNCTIONS
 
