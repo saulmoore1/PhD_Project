@@ -245,9 +245,13 @@ if __name__ == '__main__':
     metadata['treatment'] = metadata[treatment_cols].astype(str).agg('-'.join, axis=1)
     metadata['treatment'] = [i.replace('-nan','') for i in metadata['treatment']]
 
+    # strain list
     strain_list = list(metadata['treatment'].unique())
-    OE_strains = [s for s in strain_list if 'IPTG' in s]
-    KO_strains = [s for s in strain_list if s not in OE_strains]
+    OE_strains = [s for s in sorted(strain_list) if 'IPTG' in s]
+    OE_strains = ['BW-IPTG','fepD-IPTG'] + [i for i in sorted(OE_strains) if i not in ['BW-IPTG','fepD-IPTG']]
+    KO_strains = [s for s in sorted(strain_list) if s not in OE_strains and 'deferoxamine' not in s]
+    KO_strains = ['BW','fepD'] + [i for i in sorted(KO_strains) if i not in ['BW','fepD']]
+    deferoxamine_strains = ['fepD'] + [s for s in strain_list if 'deferoxamine' in s]
 
     metadata['window'] = metadata['window'].astype(int)
     window_list = list(metadata['window'].unique())
@@ -284,22 +288,39 @@ if __name__ == '__main__':
                             ttest_path=Path(SAVE_DIR) / 'Stats_KO' / WINDOW_NAME_DICT[window] /\
                                 't-test' / 't-test_results.csv',
                             pvalue_threshold=0.05,
-                            figsize=(6,9),
+                            figsize=(15,8),
                             ylim_minmax=(0,300),
-                            subplots_adjust={'bottom':0.35,'top':0.95,'left':0.2,'right':0.95})
+                            subplots_adjust={'bottom':0.35,'top':0.9,'left':0.1,'right':0.95})
 
-        # # compare KO mutants to fepD   
-        # meta_KO = meta_window[meta_window['treatment'].isin(KO_strains)]
-        # feat_KO = feat_window.reindex(meta_KO.index)
-        # proteomics_mutants_stats(meta_KO,
-        #                          feat_KO,
-        #                          group_by='treatment',
-        #                          control='fepD',
-        #                          save_dir=Path(SAVE_DIR) / 'Stats_KO' / WINDOW_NAME_DICT[window],
-        #                          feature_set=feature_list,
-        #                          pvalue_threshold=0.05,
-        #                          fdr_method='fdr_bh')
 
+        # compare KO mutants to fepD   
+        stats(meta_KO,
+              feat_KO,
+              group_by='treatment',
+              control='fepD',
+              save_dir=Path(SAVE_DIR) / 'Stats_KO_vs_fepD' / WINDOW_NAME_DICT[window],
+              feature_set=feature_list,
+              pvalue_threshold=0.05,
+              fdr_method='fdr_bh')
+
+        all_in_one_boxplots(meta_KO,
+                            feat_KO,
+                            group_by='treatment',
+                            control='fepD',
+                            sigasterix=True,
+                            fontsize=15,
+                            order=sorted(KO_strains),
+                            colour_dict=colour_dict,
+                            feature_set=feature_list,
+                            save_dir=Path(SAVE_DIR) / 'Plots_KO_vs_fepD' / WINDOW_NAME_DICT[window] / 'all-in-one',
+                            ttest_path=Path(SAVE_DIR) / 'Stats_KO_vs_fepD' / WINDOW_NAME_DICT[window] /\
+                                't-test' / 't-test_results.csv',
+                            pvalue_threshold=0.05,
+                            figsize=(15,8),
+                            ylim_minmax=(0,300),
+                            subplots_adjust={'bottom':0.35,'top':0.9,'left':0.1,'right':0.95})
+            
+            
         # compare OE mutants to fepD-iptg        
         meta_OE = meta_window[meta_window['treatment'].isin(OE_strains)]
         feat_OE = feat_window.reindex(meta_OE.index)
@@ -326,15 +347,46 @@ if __name__ == '__main__':
                             ttest_path=Path(SAVE_DIR) / 'Stats_OE' / WINDOW_NAME_DICT[window] /\
                                 't-test' / 't-test_results.csv',
                             pvalue_threshold=0.05,
-                            figsize=(6,9),
+                            figsize=(13,9),
                             ylim_minmax=(0,300),
-                            subplots_adjust={'bottom':0.35,'top':0.95,'left':0.2,'right':0.95})
+                            subplots_adjust={'bottom':0.35,'top':0.9,'left':0.1,'right':0.95})
 
-            
+        # compare fepD-deferoxamine to fepD
+        meta_deferox = meta_window[meta_window['treatment'].isin(deferoxamine_strains)]
+        feat_deferox = feat_window.reindex(meta_deferox.index)
+        stats(meta_deferox,
+              feat_deferox,
+              group_by='treatment',
+              control='fepD',
+              save_dir=Path(SAVE_DIR) / 'Stats_deferox' / WINDOW_NAME_DICT[window],
+              feature_set=feature_list,
+              pvalue_threshold=0.05,
+              fdr_method='fdr_bh')
+        
+        colour_dict = dict(zip(sorted(deferoxamine_strains), sns.color_palette('Set2', len(deferoxamine_strains))))
+        all_in_one_boxplots(meta_deferox,
+                            feat_deferox,
+                            group_by='treatment',
+                            control='fepD',
+                            sigasterix=True,
+                            fontsize=15,
+                            order=sorted(deferoxamine_strains),
+                            colour_dict=colour_dict,
+                            feature_set=feature_list,
+                            save_dir=Path(SAVE_DIR) / 'Plots_deferox' / WINDOW_NAME_DICT[window] / 'all-in-one',
+                            ttest_path=Path(SAVE_DIR) / 'Stats_deferox' / WINDOW_NAME_DICT[window] /\
+                                't-test' / 't-test_results.csv',
+                            pvalue_threshold=0.05,
+                            figsize=(13,9),
+                            ylim_minmax=(0,300),
+                            subplots_adjust={'bottom':0.3,'top':0.9,'left':0.1,'right':0.95})
+       
+    
     # plot timeseries
     metadata = metadata[metadata['window']==0]
-
+    
     # timeseries plot of speed for KO strains vs fepD
+    colour_dict = dict(zip(sorted(KO_strains), sns.color_palette('tab10', len(KO_strains))))
     plot_timeseries_feature(metadata,
                             project_dir=Path(PROJECT_DIR),
                             save_dir=Path(SAVE_DIR) / 'timeseries-speed' / 'KO_strains',
@@ -352,6 +404,7 @@ if __name__ == '__main__':
                             col_dict=colour_dict)
 
     # timeseries plot of speed for OE strains vs fepD-iptg
+    colour_dict = dict(zip(sorted(OE_strains), sns.color_palette('tab10', len(OE_strains))))
     plot_timeseries_feature(metadata,
                             project_dir=Path(PROJECT_DIR),
                             save_dir=Path(SAVE_DIR) / 'timeseries-speed' / 'OE_strains',
@@ -367,7 +420,26 @@ if __name__ == '__main__':
                             fps=FPS,
                             ylim_minmax=(-20,300),
                             col_dict=colour_dict)
-    
+
+    # timeseries plot of speed for fepD + deferoxamine vs fepD
+    colour_dict = dict(zip(sorted(deferoxamine_strains), sns.color_palette('tab10', len(deferoxamine_strains))))
+    plot_timeseries_feature(metadata,
+                            project_dir=Path(PROJECT_DIR),
+                            save_dir=Path(SAVE_DIR) / 'timeseries-speed' / 'deferoxamine',
+                            group_by='treatment',
+                            control='fepD',
+                            groups_list=deferoxamine_strains,
+                            feature='speed',
+                            n_wells=6,
+                            bluelight_stim_type='bluelight',
+                            video_length_seconds=360,
+                            bluelight_timepoints_seconds=BLUELIGHT_TIMEPOINTS_SECONDS,
+                            smoothing=10,
+                            fps=FPS,
+                            ylim_minmax=(-20,300),
+                            col_dict=colour_dict)
+
+
     # # bespoke timeseries    
     # treatment_list = []
     # for treatment in tqdm(treatment_list):

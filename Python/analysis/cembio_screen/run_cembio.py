@@ -19,12 +19,13 @@ from tierpsytools.preprocessing.filter_data import select_feat_set
 from write_data.write import write_list_to_file
 from visualisation.plotting_helper import sig_asterix, boxplots_sigfeats
 from tierpsytools.analysis.statistical_tests import univariate_tests, get_effect_sizes
-from time_series.plot_timeseries import plot_timeseries_feature, selected_strains_timeseries
+from time_series.plot_timeseries import plot_timeseries_feature #selected_strains_timeseries
 
 #%% Globals
 
-PROJECT_DIR = "/Volumes/behavgenom$/Saul/CeMbioScreen"
+PROJECT_DIR = "/Volumes/behavgenom$/Saul/CeMbioScreen96WP" # MicrobiomeScreen96WP???
 SAVE_DIR = "/Users/sm5911/Documents/CeMBio_Screen"
+#/Volumes/behavgenom$/Saul/MicrobiomeTests96WP
 
 N_WELLS = 96
 IMAGING_DATES = ['20201102','20201103']
@@ -34,7 +35,7 @@ NAN_THRESH_FEATURE = 0.05
 MIN_SKEL_PER_VIDEO = None
 MIN_SKEL_SUM = 6000
 
-FEATURE_SET = None
+FEATURE_SET = 256
 
 P_VALUE_THRESHOLD = 0.05
 FDR_METHOD = 'fdr_by'

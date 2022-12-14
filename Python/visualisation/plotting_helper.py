@@ -268,7 +268,8 @@ def barplot_sigfeats(test_pvalues_df=None, saveDir=None, p_value_threshold=0.05,
 
 def errorbar_sigfeats(features, metadata, group_by, fset, control=None, rank_by='median', 
                       highlight_subset=None, max_feats2plt=10, figsize=[130,6], fontsize=4, 
-                      tight_layout=None, saveDir=None, **kwargs):
+                      tight_layout=None, color='dimgray', saveDir=None, highlight_colour='red',
+                      **kwargs):
     """ Plot mean feature value with errorbars (+/- 1.98 * std) for all groups in 
         metadata['group_by'] for each feature in feature set provided 
     """
@@ -282,7 +283,7 @@ def errorbar_sigfeats(features, metadata, group_by, fset, control=None, rank_by=
     plt.ioff() if saveDir is not None else plt.ion()
     
     if highlight_subset is not None:
-        assert all(s in metadata['gene_name'].unique() for s in highlight_subset)
+        assert all(s in metadata[group_by].unique() for s in highlight_subset)
     
     # Boxplots of significant features by ANOVA/LMM (all groups)
     grouped = metadata[[group_by]].join(features).groupby(group_by)
@@ -311,16 +312,16 @@ def errorbar_sigfeats(features, metadata, group_by, fset, control=None, rank_by=
             df_ordered['colour'] = ['grey' for s in df_ordered[group_by]]
 
         if highlight_subset is not None:
-            df_ordered.loc[np.where(df_ordered[group_by].isin(highlight_subset))[0],'colour'] = 'red'
+            df_ordered.loc[np.where(df_ordered[group_by].isin(highlight_subset))[0],'colour'] = highlight_colour
                     
         plt.close('all')
         fig, ax = plt.subplots(figsize=figsize)
         ax.errorbar(x=group_by,
                     y=feat, 
                     yerr='error',
+                    color='grey',
                     data=df_ordered, 
-                    # ecolor=list(df_ordered['colour']), 
-                    color='dimgray', **kwargs)
+                    **kwargs)
         
         idxs = np.where(df_ordered['colour']!='grey')[0]
         values = df_ordered.loc[idxs,feat].values

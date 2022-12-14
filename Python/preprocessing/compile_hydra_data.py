@@ -396,6 +396,10 @@ def process_feature_summaries(metadata_path,
     new_cols = list(set(metadata.columns) - set(meta_col_order))
     meta_col_order.extend(new_cols)
     
+    if imaging_dates is not None:
+        metadata = metadata[metadata['date_yyyymmdd'].astype(str).isin(imaging_dates)]
+        features = features.reindex(metadata.index)
+    
     return features, metadata[meta_col_order]
 
 #%% Main
