@@ -41,12 +41,14 @@ NAN_THRESH_FEATURE = 0.05
 MIN_SKEL_PER_VIDEO = None
 MIN_SKEL_SUM = None
 
-FEATURE_SET = 256 #['speed_50th', 'angular_velocity_abs_50th', 'motion_mode_forward_fraction'] #256
+FEATURE_SET = 256 #['speed_50th', 'angular_velocity_abs_50th', 'motion_mode_forward_fraction']
 
 P_VALUE_THRESHOLD = 0.05
 FDR_METHOD = 'fdr_by'
 N_LOWEST_PVAL = 10
 MAX_N_FEATS = 10
+
+ALIGN_BLUELIGHT = False # TODO: Should be True, bluelight WAS used for recordings
 
 METHOD = 'complete' # 'complete','linkage','average','weighted','centroid'
 METRIC = 'euclidean' # 'euclidean','cosine','correlation'
@@ -207,7 +209,7 @@ if __name__ == '__main__':
                                                        results_dir=res_dir, 
                                                        compile_day_summaries=True, 
                                                        imaging_dates=IMAGING_DATES, 
-                                                       align_bluelight=False, 
+                                                       align_bluelight=ALIGN_BLUELIGHT, 
                                                        window_summaries=False,
                                                        n_wells=N_WELLS)
 
@@ -246,7 +248,8 @@ if __name__ == '__main__':
     if FEATURE_SET is not None:
         # subset for selected feature set (and remove path curvature features)
         if isinstance(FEATURE_SET, int) and FEATURE_SET in [8,16,256]:
-            features = select_feat_set(features, 'tierpsy_{}'.format(FEATURE_SET), append_bluelight=False)
+            features = select_feat_set(features, 'tierpsy_{}'.format(FEATURE_SET), 
+                                       append_bluelight=ALIGN_BLUELIGHT)
             features = features[[f for f in features.columns if 'path_curvature' not in f]]
         elif isinstance(FEATURE_SET, list) or isinstance(FEATURE_SET, set):
             assert all(f in features.columns for f in FEATURE_SET)
@@ -284,7 +287,7 @@ if __name__ == '__main__':
                          saveto=control_clustermap_path,
                          label_size=15,
                          show_xlabels=True,
-                         bluelight_col_colours=False)
+                         bluelight_col_colours=ALIGN_BLUELIGHT)
     
     # save feature order to file
     control_feature_order = np.array(control_featZ.columns)[cg.dendrogram_col.reordered_ind]
@@ -314,11 +317,11 @@ if __name__ == '__main__':
                          method=METHOD, 
                          metric=METRIC,
                          figsize=[20,40], # (20,40)
-                         sub_adj={'bottom':0.01,'left':0,'top':1,'right':0.85},
+                         sub_adj={'bottom':0.2,'left':0,'top':1,'right':0.85},
                          saveto=full_clustermap_path,
-                         label_size=(2,25), # (2,2)
-                         show_xlabels=False,
-                         bluelight_col_colours=False)
+                         label_size=(5,25), # (2,2)
+                         show_xlabels=True,
+                         bluelight_col_colours=ALIGN_BLUELIGHT)
     
     # save clustered feature order for all strains
     full_feature_order = np.array(featZ.columns)[fg.dendrogram_col.reordered_ind]
@@ -338,7 +341,7 @@ if __name__ == '__main__':
                      features,
                      group_by='food_type',
                      control='OP50',
-                     save_dir=Path(SAVE_DIR) / 'Stats',
+                     save_dir=stats_dir,
                      feature_set=None,
                      pvalue_threshold=P_VALUE_THRESHOLD,
                      fdr_method=FDR_METHOD)
@@ -348,8 +351,8 @@ if __name__ == '__main__':
                         features,
                         group_by='food_type',
                         control='OP50',
-                        save_dir=Path(SAVE_DIR) / 'Plots',
-                        stats_dir=Path(SAVE_DIR) / 'Stats',
+                        save_dir=plot_dir,
+                        stats_dir=stats_dir,
                         feature_set=None,
                         pvalue_threshold=P_VALUE_THRESHOLD,
                         drop_insignificant=True,
@@ -402,7 +405,7 @@ if __name__ == '__main__':
         fig, ax = plt.subplots(figsize=(15,8), dpi=900)
         ax.plot(ranked_nsig)
         ax.set_xticklabels(ranked_nsig.index.to_list(), rotation=90, fontsize=15)
-        _ = [t.set_color(i) for (i,t) in zip(['red' if i.get_text() in ['MYb10','MYb330','MYb541'] 
+        _ = [t.set_color(i) for (i,t) in zip(['red' if i.get_text() in hit_strains_nsig[:10]
                                               else 'black' for i in ax.xaxis.get_ticklabels()], 
                                              ax.xaxis.get_ticklabels())]
         plt.xlabel("Strains (ranked)", fontsize=15, labelpad=10)
@@ -422,31 +425,31 @@ if __name__ == '__main__':
         plt.subplots_adjust(left=0.03, right=0.99, bottom=0.15)
         plt.savefig(lowest_pval_path)
         plt.close()
-    
-        print("\nMaking errorbar plots")
-        errorbar_sigfeats(features, metadata, 
-                          group_by='food_type', 
-                          fset=feature_list,
-                          control='OP50', 
-                          rank_by='mean',
-                          max_feats2plt=MAX_N_FEATS,
-                          highlight_subset=['MYb541','MYb330','MYb10'],
-                          figsize=[20,8], 
-                          fontsize=20,
-                          ms=30,
-                          elinewidth=10,
-                          highlight_colour='red',
-                          fmt='-',
-                          tight_layout=[0.01,0.01,0.99,0.99],
-                          saveDir=plot_dir / 'errorbar')
 
     # If no sigfeats, subset for top strains ranked by lowest p-value by t-test for any feature    
     if len(hit_strains_nsig) == 0:
         print("\Saving lowest %d strains ranked by p-value for any feature" % N_LOWEST_PVAL)
-        write_list_to_file(hit_strains_pval, stats_dir / 'Top100_lowest_pval.txt')
+        write_list_to_file(hit_strains_pval, stats_dir / 'Top{0}_lowest_pval.txt'.format(N_LOWEST_PVAL))
         hit_strains = hit_strains_pval
     elif len(hit_strains_nsig) > 0:
         hit_strains = hit_strains_nsig
+    
+    print("\nMaking errorbar plots")
+    errorbar_sigfeats(features, metadata, 
+                      group_by='food_type', 
+                      fset=feature_list,
+                      control='OP50', 
+                      rank_by='mean',
+                      max_feats2plt=MAX_N_FEATS,
+                      highlight_subset=hit_strains[:10],
+                      figsize=[20,8], 
+                      fontsize=20,
+                      ms=30,
+                      elinewidth=10,
+                      highlight_colour='red',
+                      fmt='-',
+                      tight_layout=[0.01,0.01,0.99,0.99],
+                      saveDir=plot_dir / 'errorbar')
 
     # Individual boxplots of significant features by pairwise t-test (each group vs control)
     boxplots_sigfeats(features,
@@ -465,7 +468,10 @@ if __name__ == '__main__':
                       sns_colour_palette="tab10",
                       verbose=False)
 
-
+    strain_info = pd.read_csv('/Users/sm5911/Documents/Microbiome_Screen/strain_info.csv')
+    metadata = metadata.merge(strain_info, how='left', left_on='food_type', right_on='strainID')
+    metadata[metadata['food_type'].isin(hit_strains[:10])]
+    
     ### Heatmap ###
     
     # features (x-axis columns) ordered by control clustered feature order
@@ -496,7 +502,7 @@ if __name__ == '__main__':
                             save_dir=Path(SAVE_DIR) / 'timeseries-speed',
                             group_by='food_type',
                             control='OP50',
-                            groups_list=hit_strains,
+                            groups_list=hit_strains[:10],
                             feature='speed',
                             n_wells=N_WELLS,
                             bluelight_stim_type=None,

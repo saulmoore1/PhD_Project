@@ -10,15 +10,17 @@ Analysis of fepD E. coli oxidative stress mutants
 
 #%% Imports 
 
+import numpy as np
 import pandas as pd
 import seaborn as sns
 from tqdm import tqdm
 from pathlib import Path
+from matplotlib import pyplot as plt
 from preprocessing.compile_hydra_data import compile_metadata, process_feature_summaries
 from filter_data.clean_feature_summaries import clean_summary_results
 from visualisation.plotting_helper import sig_asterix, boxplots_sigfeats, all_in_one_boxplots
 from write_data.write import write_list_to_file
-from time_series.plot_timeseries import plot_timeseries_feature #selected_strains_timeseries
+from time_series.plot_timeseries import plot_timeseries_feature, plot_timeseries, get_strain_timeseries
 
 from tierpsytools.analysis.statistical_tests import univariate_tests, get_effect_sizes
 from tierpsytools.preprocessing.filter_data import select_feat_set
@@ -440,56 +442,56 @@ if __name__ == '__main__':
                             col_dict=colour_dict)
 
 
-    # # bespoke timeseries    
-    # treatment_list = []
-    # for treatment in tqdm(treatment_list):
-    #     groups = ['BW', 'fepD', treatment]
-    #     print("Plotting timeseries speed for %s" % treatment)
+    # bespoke timeseries
+    treatment_list = ['acnA; acnB']
+    for treatment in tqdm(treatment_list):
+        groups = ['BW', 'fepD', treatment]
+        print("Plotting timeseries speed for %s" % treatment)
         
-    #     bluelight_frames = [(i*FPS, j*FPS) for (i, j) in BLUELIGHT_TIMEPOINTS_SECONDS]
-    #     feature = 'speed'
+        bluelight_frames = [(i*FPS, j*FPS) for (i, j) in BLUELIGHT_TIMEPOINTS_SECONDS]
+        feature = 'speed'
     
-    #     save_dir = Path(SAVE_DIR) / 'timeseries-speed' / 'rescues'
-    #     ts_plot_dir = save_dir / 'Plots' / treatment
-    #     ts_plot_dir.mkdir(exist_ok=True, parents=True)
-    #     save_path = ts_plot_dir / 'speed_bluelight.pdf'
+        save_dir = Path(SAVE_DIR) / 'timeseries-speed' / 'rescues'
+        ts_plot_dir = save_dir / 'Plots' / treatment
+        ts_plot_dir.mkdir(exist_ok=True, parents=True)
+        save_path = ts_plot_dir / 'speed_bluelight.pdf'
         
-    #     plt.close('all')
-    #     fig, ax = plt.subplots(figsize=(15,6), dpi=300)
-    #     col_dict = dict(zip(groups, sns.color_palette('tab10', len(groups))))
+        plt.close('all')
+        fig, ax = plt.subplots(figsize=(15,6), dpi=300)
+        col_dict = dict(zip(groups, sns.color_palette('tab10', len(groups))))
     
-    #     for group in groups:
+        for group in groups:
             
-    #         # get control timeseries
-    #         group_ts = get_strain_timeseries(metadata,
-    #                                          project_dir=Path(PROJECT_DIR),
-    #                                          strain=group,
-    #                                          group_by='treatment',
-    #                                          feature_list=[feature],
-    #                                          save_dir=save_dir,
-    #                                          n_wells=N_WELLS,
-    #                                          verbose=True)
+            # get control timeseries
+            group_ts = get_strain_timeseries(metadata,
+                                              project_dir=Path(PROJECT_DIR),
+                                              strain=group,
+                                              group_by='treatment',
+                                              feature_list=[feature],
+                                              save_dir=save_dir,
+                                              n_wells=N_WELLS,
+                                              verbose=True)
             
-    #         ax = plot_timeseries(df=group_ts,
-    #                              feature=feature,
-    #                              error=True,
-    #                              max_n_frames=360*FPS, 
-    #                              smoothing=10*FPS, 
-    #                              ax=ax,
-    #                              bluelight_frames=bluelight_frames,
-    #                              colour=col_dict[group])
+            ax = plot_timeseries(df=group_ts,
+                                  feature=feature,
+                                  error=True,
+                                  max_n_frames=360*FPS, 
+                                  smoothing=10*FPS, 
+                                  ax=ax,
+                                  bluelight_frames=bluelight_frames,
+                                  colour=col_dict[group])
     
-    #     plt.ylim(-20, 300)
-    #     xticks = np.linspace(0, 360*FPS, int(360/60)+1)
-    #     ax.set_xticks(xticks)
-    #     ax.set_xticklabels([str(int(x/FPS/60)) for x in xticks])   
-    #     ax.set_xlabel('Time (minutes)', fontsize=20, labelpad=10)
-    #     ylab = feature.replace('_50th'," (µm s$^{-1}$)")
-    #     ax.set_ylabel(ylab, fontsize=20, labelpad=10)
-    #     ax.legend(groups, fontsize=12, frameon=False, loc='best', handletextpad=1)
-    #     plt.subplots_adjust(left=0.1, top=0.98, bottom=0.15, right=0.98)
+        plt.ylim(-20, 300)
+        xticks = np.linspace(0, 360*FPS, int(360/60)+1)
+        ax.set_xticks(xticks)
+        ax.set_xticklabels([str(int(x/FPS/60)) for x in xticks])   
+        ax.set_xlabel('Time (minutes)', fontsize=20, labelpad=10)
+        ylab = feature.replace('_50th'," (µm s$^{-1}$)")
+        ax.set_ylabel(ylab, fontsize=20, labelpad=10)
+        ax.legend(groups, fontsize=12, frameon=False, loc='best', handletextpad=1)
+        plt.subplots_adjust(left=0.1, top=0.98, bottom=0.15, right=0.98)
     
-    #     # save plot
-    #     print("Saving to: %s" % save_path)
-    #     plt.savefig(save_path)
+        # save plot
+        print("Saving to: %s" % save_path)
+        plt.savefig(save_path)
 

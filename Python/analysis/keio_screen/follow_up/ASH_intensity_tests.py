@@ -1,10 +1,13 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Analysis of N2 worms on fepD supplemented with citrate, uric acid or NaOH
+ASH lite-1 intesity tests - to find a suitable blue light intensity that does not result in a 
+saturated response on BW and fepD with ChR2 expressing worms (+ retinal)
+
+Hydra rig blue light intensity settings: 1,2,3,5,8
 
 @author: sm5911
-@date: 13/12/2022
+@date: 09/01/2023
 
 """
 
@@ -21,15 +24,16 @@ from preprocessing.compile_hydra_data import compile_metadata, process_feature_s
 from filter_data.clean_feature_summaries import clean_summary_results
 from visualisation.plotting_helper import sig_asterix, boxplots_sigfeats, all_in_one_boxplots
 from write_data.write import write_list_to_file
-from time_series.plot_timeseries import plot_timeseries_feature, plot_timeseries, get_strain_timeseries
+from time_series.plot_timeseries import plot_timeseries, get_strain_timeseries
+# from time_series.plot_timeseries import plot_timeseries_feature
 
 from tierpsytools.analysis.statistical_tests import univariate_tests, get_effect_sizes
 from tierpsytools.preprocessing.filter_data import select_feat_set
 
 #%% Globals
 
-PROJECT_DIR = "/Volumes/hermes$/Keio_FepD_Citrate"
-SAVE_DIR = "/Users/sm5911/Documents/Keio_FepD_Citrate"
+PROJECT_DIR = "/Volumes/hermes$/Keio_ASH_intensity_tests"
+SAVE_DIR = "/Users/sm5911/Documents/Keio_ASH_Intensity_Tests"
 
 N_WELLS = 6
 FPS = 25
@@ -39,11 +43,8 @@ nan_threshold_col = 0.05
 
 FEATURE_SET = ['speed_50th']
 
-BLUELIGHT_TIMEPOINTS_SECONDS = [(60, 70),(160, 170),(260, 270)]
-
-WINDOW_DICT = {0:(290,300)}
-
-WINDOW_NAME_DICT = {0:"20-30 seconds after blue light 3"}
+BLUELIGHT_TIMEPOINTS_SECONDS = [(300, 310),(360, 370),(420, 430)]
+VIDEO_LENGTH_SECONDS = 780
 
 #%% Functions
 
@@ -239,187 +240,32 @@ if __name__ == '__main__':
     bluelight_videos = [i for i in metadata['imgstore_name'] if 'bluelight' in i]
     metadata = metadata[metadata['imgstore_name'].isin(bluelight_videos)]
 
-    # perform anova and t-tests comparing each treatment to BW control
-    treatment_cols = ['bacteria_strain','drug_type','drug_imaging_plate_conc']
-    metadata['treatment'] = metadata[treatment_cols].astype(str).agg('-'.join, axis=1)
-    metadata['treatment'] = [i.replace('-NaOH-1.0','-NaOH') for i in metadata['treatment']]
-    metadata['treatment'] = [i.replace('-nan','') for i in metadata['treatment']]
-
-    # strain list
-    strain_list = list(metadata['treatment'].unique())
-    uric_acid_strains = ['BW','fepD','BW-NaOH','fepD-NaOH','BW-uric acid-0.01','BW-uric acid-0.005',
-                         'fepD-uric acid-0.01','fepD-uric acid-0.005']
-    citrate_strains = ['BW','fepD','BW-citrate-1.0','BW-citrate-5.0','BW-citrate-10.0',
-                       'fepD-citrate-1.0','fepD-citrate-5.0','fepD-citrate-10.0']
-    assert all(u in strain_list for u in uric_acid_strains)
-    assert all(c in strain_list for c in citrate_strains)
-    assert metadata['window'].nunique() == 1 and 0 in metadata['window'].unique()
-
-    #### boxplots comparing each treatment to control
+    treatment_cols = ['bacteria_strain','rig_intensity']
+    metadata['treatment'] = metadata.loc[:,treatment_cols].astype(str).agg('-'.join, axis=1)
+    treatment_list = sorted(metadata['treatment'].unique())
     
-    # compare uric acid treatments vs BW-NaOH
-    meta_UA = metadata[metadata['treatment'].isin(uric_acid_strains)]
-    feat_UA = features.reindex(meta_UA.index)
+    intensity_list = sorted(metadata['rig_intensity'].unique())
     
-    stats(meta_UA,
-          feat_UA,
-          group_by='treatment',
-          control='BW-NaOH',
-          save_dir=Path(SAVE_DIR) / 'Stats_Uric_Acid',
-          feature_set=feature_list,
-          pvalue_threshold=0.05,
-          fdr_method='fdr_bh')
-
-    colour_dict = dict(zip(uric_acid_strains, sns.color_palette('tab10', len(uric_acid_strains))))
-    all_in_one_boxplots(meta_UA,
-                        feat_UA,
-                        group_by='treatment',
-                        control='BW-NaOH',
-                        sigasterix=True,
-                        fontsize=15,
-                        order=uric_acid_strains,
-                        colour_dict=colour_dict,
-                        feature_set=feature_list,
-                        save_dir=Path(SAVE_DIR) / 'Plots_Uric_Acid' / 'all-in-one',
-                        ttest_path=Path(SAVE_DIR) / 'Stats_Uric_Acid' / 't-test' /\
-                            't-test_results.csv',
-                        pvalue_threshold=0.05,
-                        figsize=(15,8),
-                        ylim_minmax=(0,300),
-                        subplots_adjust={'bottom':0.35,'top':0.9,'left':0.1,'right':0.95})
-
-    # compare uric acid treatments vs fepD-NaOH
-    meta_UA = metadata[metadata['treatment'].isin(uric_acid_strains)]
-    feat_UA = features.reindex(meta_UA.index)
     
-    stats(meta_UA,
-          feat_UA,
-          group_by='treatment',
-          control='fepD-NaOH',
-          save_dir=Path(SAVE_DIR) / 'Stats_Uric_Acid_vs_fepD',
-          feature_set=feature_list,
-          pvalue_threshold=0.05,
-          fdr_method='fdr_bh')
-
-    colour_dict = dict(zip(uric_acid_strains, sns.color_palette('tab10', len(uric_acid_strains))))
-    all_in_one_boxplots(meta_UA,
-                        feat_UA,
-                        group_by='treatment',
-                        control='fepD-NaOH',
-                        sigasterix=True,
-                        fontsize=15,
-                        order=uric_acid_strains,
-                        colour_dict=colour_dict,
-                        feature_set=feature_list,
-                        save_dir=Path(SAVE_DIR) / 'Plots_Uric_Acid_vs_fepD' / 'all-in-one',
-                        ttest_path=Path(SAVE_DIR) / 'Stats_Uric_Acid_vs_fepD' / 't-test' /\
-                            't-test_results.csv',
-                        pvalue_threshold=0.05,
-                        figsize=(15,8),
-                        ylim_minmax=(0,300),
-                        subplots_adjust={'bottom':0.35,'top':0.9,'left':0.1,'right':0.95})
-
-
-    # compare citrate treatments vs BW
-    meta_citrate = metadata[metadata['treatment'].isin(citrate_strains)]
-    feat_citrate = features.reindex(meta_citrate.index)
+    # timeseries - speed
     
-    stats(meta_citrate,
-          feat_citrate,
-          group_by='treatment',
-          control='BW',
-          save_dir=Path(SAVE_DIR) / 'Stats_Citrate_vs_BW',
-          feature_set=feature_list,
-          pvalue_threshold=0.05,
-          fdr_method='fdr_bh')
-
-    colour_dict = dict(zip(citrate_strains, sns.color_palette('tab10', len(citrate_strains))))
-    all_in_one_boxplots(meta_citrate,
-                        feat_citrate,
-                        group_by='treatment',
-                        control='BW',
-                        sigasterix=True,
-                        fontsize=15,
-                        order=citrate_strains,
-                        colour_dict=colour_dict,
-                        feature_set=feature_list,
-                        save_dir=Path(SAVE_DIR) / 'Plots_Citrate_vs_BW' / 'all-in-one',
-                        ttest_path=Path(SAVE_DIR) / 'Stats_Citrate_vs_BW' / 't-test' /\
-                            't-test_results.csv',
-                        pvalue_threshold=0.05,
-                        figsize=(15,8),
-                        ylim_minmax=(0,300),
-                        subplots_adjust={'bottom':0.35,'top':0.9,'left':0.1,'right':0.95})
-
-    # compare citrate treatments vs fepD
-    stats(meta_citrate,
-          feat_citrate,
-          group_by='treatment',
-          control='fepD',
-          save_dir=Path(SAVE_DIR) / 'Stats_Citrate_vs_fepD',
-          feature_set=feature_list,
-          pvalue_threshold=0.05,
-          fdr_method='fdr_bh')
-    
-    colour_dict = dict(zip(citrate_strains, sns.color_palette('tab10', len(citrate_strains))))
-    all_in_one_boxplots(meta_citrate,
-                        feat_citrate,
-                        group_by='treatment',
-                        control='fepD',
-                        sigasterix=True,
-                        fontsize=15,
-                        order=citrate_strains,
-                        colour_dict=colour_dict,
-                        feature_set=feature_list,
-                        save_dir=Path(SAVE_DIR) / 'Plots_Citrate_vs_fepD' / 'all-in-one',
-                        ttest_path=Path(SAVE_DIR) / 'Stats_Citrate_vs_fepD' / 't-test' /\
-                            't-test_results.csv',
-                        pvalue_threshold=0.05,
-                        figsize=(15,8),
-                        ylim_minmax=(0,300),
-                        subplots_adjust={'bottom':0.35,'top':0.9,'left':0.1,'right':0.95})
-    
-    ### timeseries plots ###
-    # speed of worms on uric acid strains vs BW-NaOH
-    # colour_dict = dict(zip(uric_acid_strains, sns.color_palette('tab10', len(uric_acid_strains))))
-    # plot_timeseries_feature(meta_UA,
-    #                         project_dir=Path(PROJECT_DIR),
-    #                         save_dir=Path(SAVE_DIR) / 'timeseries-speed' / 'uric_acid_strains',
-    #                         group_by='treatment',
-    #                         control='BW-NaOH',
-    #                         groups_list=uric_acid_strains,
-    #                         feature='speed',
-    #                         n_wells=6,
-    #                         bluelight_stim_type='bluelight',
-    #                         video_length_seconds=360,
-    #                         bluelight_timepoints_seconds=BLUELIGHT_TIMEPOINTS_SECONDS,
-    #                         smoothing=10,
-    #                         fps=FPS,
-    #                         ylim_minmax=(-20,300),
-    #                         col_dict=colour_dict)
-
-    
-    ### uric acid timeseries ###
-    
-    for conc in ['0.01','0.005']:
-      
-        treatment_list = ['BW-NaOH','fepD-NaOH',
-                          'BW-uric acid-{0}'.format(conc),'fepD-uric acid-{0}'.format(conc)]
+    for intensity in tqdm(intensity_list):
+        groups = ['BW-' + str(intensity), 'fepD-' + str(intensity)]
+        print("Plotting timeseries speed for rig intensity: %s" % intensity)
+        
         bluelight_frames = [(i*FPS, j*FPS) for (i, j) in BLUELIGHT_TIMEPOINTS_SECONDS]
         feature = 'speed'
     
-        save_dir = Path(SAVE_DIR) / 'timeseries-speed' / 'Uric_Acid'
-        save_dir.mkdir(exist_ok=True, parents=True)
-        save_path = save_dir / 'speed_bluelight_uric_acid-{0}.pdf'.format(conc)
+        save_dir = Path(SAVE_DIR) / 'timeseries-speed'
+        ts_plot_dir = save_dir / 'Plots'
+        ts_plot_dir.mkdir(exist_ok=True, parents=True)
+        save_path = ts_plot_dir / 'speed_bluelight_intensity_{}.pdf'.format(intensity)
         
         plt.close('all')
         fig, ax = plt.subplots(figsize=(15,6), dpi=300)
-        col_dict = {'BW-NaOH': sns.color_palette('tab10',2)[0],
-                    'fepD-NaOH':sns.color_palette('tab10',2)[1],
-                    'BW-uric acid-{0}'.format(conc):'lightskyblue',
-                    'fepD-uric acid-{0}'.format(conc):'sandybrown'}
+        col_dict = dict(zip(groups, sns.color_palette('tab10', len(groups))))
     
-        for group in tqdm(treatment_list):
+        for group in groups:
             
             # get control timeseries
             group_ts = get_strain_timeseries(metadata,
@@ -434,20 +280,20 @@ if __name__ == '__main__':
             ax = plot_timeseries(df=group_ts,
                                  feature=feature,
                                  error=True,
-                                 max_n_frames=360*FPS, 
+                                 max_n_frames=VIDEO_LENGTH_SECONDS*FPS, 
                                  smoothing=10*FPS, 
                                  ax=ax,
                                  bluelight_frames=bluelight_frames,
                                  colour=col_dict[group])
     
-        plt.ylim(-20, 300)
-        xticks = np.linspace(0, 360*FPS, int(360/60)+1)
+        plt.ylim(-200, 350)
+        xticks = np.linspace(0, VIDEO_LENGTH_SECONDS*FPS, int(VIDEO_LENGTH_SECONDS/60)+1)
         ax.set_xticks(xticks)
         ax.set_xticklabels([str(int(x/FPS/60)) for x in xticks])   
         ax.set_xlabel('Time (minutes)', fontsize=20, labelpad=10)
         ylab = feature.replace('_50th'," (µm s$^{-1}$)")
         ax.set_ylabel(ylab, fontsize=20, labelpad=10)
-        ax.legend(treatment_list, fontsize=12, frameon=False, loc='best', handletextpad=1)
+        ax.legend(groups, fontsize=12, frameon=False, loc='best', handletextpad=1)
         plt.subplots_adjust(left=0.1, top=0.98, bottom=0.15, right=0.98)
     
         # save plot
@@ -455,26 +301,25 @@ if __name__ == '__main__':
         plt.savefig(save_path)
 
 
-    ### citrate timeseries ###
-     
-    for conc in ['1.0','5.0','10.0']:
+    # timeseries - absolute speed
     
-        treatment_list = ['BW','fepD','fepD-citrate-{0}'.format(conc),'BW-citrate-{0}'.format(conc)]
+    for intensity in tqdm(intensity_list):
+        groups = ['BW-' + str(intensity), 'fepD-' + str(intensity)]
+        print("Plotting timeseries absolute speed for rig intensity: %s" % intensity)
+        
         bluelight_frames = [(i*FPS, j*FPS) for (i, j) in BLUELIGHT_TIMEPOINTS_SECONDS]
         feature = 'speed'
     
-        save_dir = Path(SAVE_DIR) / 'timeseries-speed' / 'Citrate'
-        save_dir.mkdir(exist_ok=True, parents=True)
-        save_path = save_dir / 'speed_bluelight_citrate-{0}.pdf'.format(conc)
+        save_dir = Path(SAVE_DIR) / 'timeseries-speed'
+        ts_plot_dir = save_dir / 'Plots'
+        ts_plot_dir.mkdir(exist_ok=True, parents=True)
+        save_path = ts_plot_dir / 'absolute_speed_bluelight_intensity_{}.pdf'.format(intensity)
         
         plt.close('all')
         fig, ax = plt.subplots(figsize=(15,6), dpi=300)
-        col_dict = {'BW': sns.color_palette('tab10',2)[0],
-                    'fepD':sns.color_palette('tab10',2)[1],
-                    'BW-citrate-{0}'.format(conc):'lightskyblue',
-                    'fepD-citrate-{0}'.format(conc):'sandybrown'}
+        col_dict = dict(zip(groups, sns.color_palette('tab10', len(groups))))
     
-        for group in tqdm(treatment_list):
+        for group in groups:
             
             # get control timeseries
             group_ts = get_strain_timeseries(metadata,
@@ -486,26 +331,29 @@ if __name__ == '__main__':
                                              n_wells=N_WELLS,
                                              verbose=True)
             
+            # convert to absolute speed
+            group_ts['speed'] = np.abs(group_ts['speed'])
+
+            
             ax = plot_timeseries(df=group_ts,
                                  feature=feature,
                                  error=True,
-                                 max_n_frames=360*FPS, 
+                                 max_n_frames=VIDEO_LENGTH_SECONDS*FPS,
                                  smoothing=10*FPS, 
                                  ax=ax,
                                  bluelight_frames=bluelight_frames,
                                  colour=col_dict[group])
     
-        plt.ylim(-20, 300)
-        xticks = np.linspace(0, 360*FPS, int(360/60)+1)
+        plt.ylim(-20, 350)
+        xticks = np.linspace(0, VIDEO_LENGTH_SECONDS*FPS, int(VIDEO_LENGTH_SECONDS/60)+1)
         ax.set_xticks(xticks)
         ax.set_xticklabels([str(int(x/FPS/60)) for x in xticks])   
         ax.set_xlabel('Time (minutes)', fontsize=20, labelpad=10)
-        ylab = feature.replace('_50th'," (µm s$^{-1}$)")
+        ax.set_ylabel("Absolute Speed (µm s$^{-1}$)", fontsize=20, labelpad=10)
         ax.set_ylabel(ylab, fontsize=20, labelpad=10)
-        ax.legend(treatment_list, fontsize=12, frameon=False, loc='best', handletextpad=1)
+        ax.legend(groups, fontsize=12, frameon=False, loc='best', handletextpad=1)
         plt.subplots_adjust(left=0.1, top=0.98, bottom=0.15, right=0.98)
     
         # save plot
         print("Saving to: %s" % save_path)
         plt.savefig(save_path)
-

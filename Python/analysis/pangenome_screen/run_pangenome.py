@@ -325,20 +325,19 @@ if __name__ == '__main__':
                        scale_outliers=False,
                        ylim_minmax=None)
 
-    anova_path = stats_dir / 'ANOVA' / 'ANOVA_results.csv'
     
     # load results + record significant features
     print("\nLoading statistics results")
+    anova_path = stats_dir / 'ANOVA' / 'ANOVA_results.csv'
     anova_table = pd.read_csv(anova_path, index_col=0)            
     pvals = anova_table.sort_values(by='pvals', ascending=True)['pvals'] # rank features by p-value
     fset = pvals[pvals < P_VALUE_THRESHOLD].index.to_list()
     print("\n%d significant features found by ANOVA (P<0.05, %s)" % (len(fset), FDR_METHOD))
     
     ### t-test
-        
-    ttest_path = stats_dir / 't-test' / 't-test_results.csv'
-     
+             
     # read t-test results + record significant features (NOT ORDERED)
+    ttest_path = stats_dir / 't-test' / 't-test_results.csv'
     ttest_table = pd.read_csv(ttest_path, index_col=0)
     pvals_t = ttest_table[[c for c in ttest_table if "pvals_" in c]] 
     pvals_t.columns = [c.split('pvals_')[-1] for c in pvals_t.columns]       
