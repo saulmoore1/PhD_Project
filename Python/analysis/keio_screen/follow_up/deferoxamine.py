@@ -240,12 +240,12 @@ if __name__ == '__main__':
     metadata = metadata[metadata['imgstore_name'].isin(bluelight_videos)]
 
     # perform anova and t-tests comparing each treatment to BW control
-    treatment_cols = ['bacteria_strain','drug_type']
+    treatment_cols = ['bacteria_strain','drug_type','drug_imaging_plate_conc']
     metadata['treatment'] = metadata[treatment_cols].astype(str).agg('-'.join, axis=1)
     metadata['treatment'] = [i.replace('-nan','') for i in metadata['treatment']]
 
     # strain list
-    treatment_list = ['BW', 'fepD', 'BW-deferoxamine', 'fepD-deferoxamine']
+    treatment_list = sorted(metadata['treatment'].unique())
     assert all([t in metadata['treatment'].unique() for t in treatment_list])
 
     metadata['window'] = metadata['window'].astype(int)
@@ -276,7 +276,7 @@ if __name__ == '__main__':
                         save_dir=Path(SAVE_DIR) / 'Plots',
                         ttest_path=Path(SAVE_DIR) / 'Stats' / 't-test' / 't-test_results.csv',
                         pvalue_threshold=0.05,
-                        figsize=(15,8),
+                        figsize=(12,15),
                         ylim_minmax=(0,300),
                         subplots_adjust={'bottom':0.35,'top':0.9,'left':0.1,'right':0.95})
 
@@ -303,57 +303,65 @@ if __name__ == '__main__':
                         save_dir=Path(SAVE_DIR) / 'Plots_vs_fepD',
                         ttest_path=Path(SAVE_DIR) / 'Stats_vs_fepD' / 't-test' / 't-test_results.csv',
                         pvalue_threshold=0.05,
-                        figsize=(15,8),
+                        figsize=(12,15),
                         ylim_minmax=(0,300),
-                        subplots_adjust={'bottom':0.35,'top':0.9,'left':0.1,'right':0.95})
+                        subplots_adjust={'bottom':0.35,'top':0.9,'left':0.2,'right':0.95})
         
     # timeseries
 
-    groups = ['BW', 'fepD', 'fepD-deferoxamine']
-        
-    bluelight_frames = [(i*FPS, j*FPS) for (i, j) in BLUELIGHT_TIMEPOINTS_SECONDS]
-    feature = 'speed'
-
-    save_dir = Path(SAVE_DIR) / 'timeseries-speed'
-    save_dir.mkdir(exist_ok=True, parents=True)
-    save_path = save_dir / 'speed_bluelight.pdf'
+    ts_list = ['BW-deferoxamine-0.5',
+               'BW-deferoxamine-1.0',
+               'BW-deferoxamine-5.0',
+               'fepD-deferoxamine-0.5',
+               'fepD-deferoxamine-1.0',
+               'fepD-deferoxamine-5.0']
     
-    print("Plotting timeseries speed")
-
-    plt.close('all')
-    fig, ax = plt.subplots(figsize=(15,6), dpi=300)
-
-    for group in groups:
+    for t in tqdm(ts_list):
+        groups = ['BW', 'fepD', t]
+            
+        bluelight_frames = [(i*FPS, j*FPS) for (i, j) in BLUELIGHT_TIMEPOINTS_SECONDS]
+        feature = 'speed'
+    
+        save_dir = Path(SAVE_DIR) / 'timeseries-speed'
+        save_dir.mkdir(exist_ok=True, parents=True)
+        save_path = save_dir / '{}_speed_bluelight.pdf'.format(t)
         
-        # get control timeseries
-        group_ts = get_strain_timeseries(metadata,
-                                         project_dir=Path(PROJECT_DIR),
-                                         strain=group,
-                                         group_by='treatment',
-                                         feature_list=[feature],
-                                         save_dir=save_dir,
-                                         n_wells=N_WELLS,
-                                         verbose=True)
-        
-        ax = plot_timeseries(df=group_ts,
-                             feature=feature,
-                             error=True,
-                             max_n_frames=360*FPS, 
-                             smoothing=10*FPS, 
-                             ax=ax,
-                             bluelight_frames=bluelight_frames,
-                             colour=colour_dict[group])
-
-    plt.ylim(-10, 300)
-    xticks = np.linspace(0, 360*FPS, int(360/60)+1)
-    ax.set_xticks(xticks)
-    ax.set_xticklabels([str(int(x/FPS/60)) for x in xticks])   
-    ax.set_xlabel('Time (minutes)', fontsize=20, labelpad=10)
-    ylab = feature.replace('_50th'," (µm s$^{-1}$)")
-    ax.set_ylabel(ylab, fontsize=20, labelpad=10)
-    ax.legend(groups, fontsize=12, frameon=False, loc='best', handletextpad=1)
-    plt.subplots_adjust(left=0.1, top=0.98, bottom=0.15, right=0.98)
-
-    # save plot
-    print("Saving to: %s" % save_path)
-    plt.savefig(save_path)
+        print("Plotting timeseries speed")
+    
+        plt.close('all')
+        fig, ax = plt.subplots(figsize=(15,6), dpi=300)
+    
+        for group in groups:
+            
+            # get control timeseries
+            group_ts = get_strain_timeseries(metadata,
+                                             project_dir=Path(PROJECT_DIR),
+                                             strain=group,
+                                             group_by='treatment',
+                                             feature_list=[feature],
+                                             save_dir=save_dir,
+                                             n_wells=N_WELLS,
+                                             verbose=True)
+            
+            ax = plot_timeseries(df=group_ts,
+                                 feature=feature,
+                                 error=True,
+                                 max_n_frames=360*FPS, 
+                                 smoothing=10*FPS, 
+                                 ax=ax,
+                                 bluelight_frames=bluelight_frames,
+                                 colour=colour_dict[group])
+    
+        plt.ylim(-10, 300)
+        xticks = np.linspace(0, 360*FPS, int(360/60)+1)
+        ax.set_xticks(xticks)
+        ax.set_xticklabels([str(int(x/FPS/60)) for x in xticks])   
+        ax.set_xlabel('Time (minutes)', fontsize=20, labelpad=10)
+        ylab = feature.replace('_50th'," (µm s$^{-1}$)")
+        ax.set_ylabel(ylab, fontsize=20, labelpad=10)
+        ax.legend(groups, fontsize=12, frameon=False, loc='best', handletextpad=1)
+        plt.subplots_adjust(left=0.1, top=0.98, bottom=0.15, right=0.98)
+    
+        # save plot
+        print("Saving to: %s" % save_path)
+        plt.savefig(save_path)

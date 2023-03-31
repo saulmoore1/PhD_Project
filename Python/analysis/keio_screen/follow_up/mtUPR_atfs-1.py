@@ -280,9 +280,9 @@ if __name__ == '__main__':
                         save_dir=Path(SAVE_DIR) / 'Plots',
                         ttest_path=Path(SAVE_DIR) / 'Stats' / 't-test' / 't-test_results.csv',
                         pvalue_threshold=0.05,
-                        figsize=(15,8),
+                        figsize=(8,15),
                         ylim_minmax=(0,300),
-                        subplots_adjust={'bottom':0.35,'top':0.9,'left':0.1,'right':0.95})
+                        subplots_adjust={'bottom':0.3,'top':0.9,'left':0.2,'right':0.95})
     
     # # compare vs N2-fepD  
     # stats(metadata,
@@ -326,7 +326,7 @@ if __name__ == '__main__':
           pvalue_threshold=0.05,
           fdr_method='fdr_bh')
         
-    colour_dict = dict(zip(para_list, sns.color_palette('tab10', len(para_list))))
+    colour_dict_para = dict(zip(para_list, sns.color_palette('tab10', len(para_list))))
     all_in_one_boxplots(meta_para,
                         feat_para,
                         group_by='treatment',
@@ -334,121 +334,119 @@ if __name__ == '__main__':
                         sigasterix=True,
                         fontsize=15,
                         order=para_list,
-                        colour_dict=colour_dict,
+                        colour_dict=colour_dict_para,
                         feature_set=feature_list,
                         save_dir=Path(SAVE_DIR) / 'Plots_PQ',
                         ttest_path=Path(SAVE_DIR) / 'Stats_PQ' / 't-test' / 't-test_results.csv',
                         pvalue_threshold=0.05,
-                        figsize=(15,8),
+                        figsize=(8,15),
                         ylim_minmax=(0,300),
-                        subplots_adjust={'bottom':0.35,'top':0.9,'left':0.1,'right':0.95})
+                        subplots_adjust={'bottom':0.3,'top':0.9,'left':0.2,'right':0.95})
     
     # timeseries - without paraquat
     
-    for worm in tqdm(worm_strain_list):
-        groups = ['BW', 'fepD']
-        print("Plotting timeseries speed for %s" % worm)
+    print("Plotting timeseries speed (no paraquat)")
+
+    groups = ['N2-fepD', 'TM4525-BW', 'TM4525-fepD']
         
-        bluelight_frames = [(i*FPS, j*FPS) for (i, j) in BLUELIGHT_TIMEPOINTS_SECONDS]
-        feature = 'speed'
+    bluelight_frames = [(i*FPS, j*FPS) for (i, j) in BLUELIGHT_TIMEPOINTS_SECONDS]
+    feature = 'speed'
+
+    save_dir = Path(SAVE_DIR) / 'timeseries-speed'
+    ts_plot_dir = save_dir / 'TM4525'
+    ts_plot_dir.mkdir(exist_ok=True, parents=True)
+    save_path = ts_plot_dir / 'TM4525_speed_bluelight.pdf'
     
-        save_dir = Path(SAVE_DIR) / 'timeseries-speed'
-        ts_plot_dir = save_dir / worm
-        ts_plot_dir.mkdir(exist_ok=True, parents=True)
-        save_path = ts_plot_dir / '{}_speed_bluelight.pdf'.format(worm)
+    plt.close('all')
+    fig, ax = plt.subplots(figsize=(15,6), dpi=300)
+    
+    for group in groups:
+                
+        # get control timeseries
+        group_ts = get_strain_timeseries(metadata,
+                                         project_dir=Path(PROJECT_DIR),
+                                         strain=group,
+                                         group_by='treatment',
+                                         feature_list=[feature],
+                                         save_dir=save_dir,
+                                         n_wells=N_WELLS,
+                                         verbose=True)
         
-        plt.close('all')
-        fig, ax = plt.subplots(figsize=(15,6), dpi=300)
-        col_dict = dict(zip(groups, sns.color_palette('tab10', len(groups))))
-    
-        for group in groups:
-            
-            treatment = worm + '-' + group
-            
-            # get control timeseries
-            group_ts = get_strain_timeseries(metadata,
-                                             project_dir=Path(PROJECT_DIR),
-                                             strain=treatment,
-                                             group_by='treatment',
-                                             feature_list=[feature],
-                                             save_dir=save_dir,
-                                             n_wells=N_WELLS,
-                                             verbose=True)
-            
-            ax = plot_timeseries(df=group_ts,
-                                  feature=feature,
-                                  error=True,
-                                  max_n_frames=360*FPS, 
-                                  smoothing=10*FPS, 
-                                  ax=ax,
-                                  bluelight_frames=bluelight_frames,
-                                  colour=col_dict[group])
-    
-        plt.ylim(-20, 260)
-        xticks = np.linspace(0, 360*FPS, int(360/60)+1)
-        ax.set_xticks(xticks)
-        ax.set_xticklabels([str(int(x/FPS/60)) for x in xticks])   
-        ax.set_xlabel('Time (minutes)', fontsize=20, labelpad=10)
-        ylab = feature.replace('_50th'," (µm s$^{-1}$)")
-        ax.set_ylabel(ylab, fontsize=20, labelpad=10)
-        ax.legend(groups, fontsize=12, frameon=False, loc='best', handletextpad=1)
-        plt.subplots_adjust(left=0.1, top=0.98, bottom=0.15, right=0.98)
-    
-        # save plot
-        print("Saving to: %s" % save_path)
-        plt.savefig(save_path)
+        ax = plot_timeseries(df=group_ts,
+                             feature=feature,
+                             error=True,
+                             max_n_frames=360*FPS, 
+                             smoothing=10*FPS, 
+                             ax=ax,
+                             bluelight_frames=bluelight_frames,
+                             colour=colour_dict[group])
+
+    plt.ylim(-20, 260)
+    xticks = np.linspace(0, 360*FPS, int(360/60)+1)
+    ax.set_xticks(xticks)
+    ax.set_xticklabels([str(int(x/FPS/60)) for x in xticks])   
+    ax.set_xlabel('Time (minutes)', fontsize=20, labelpad=10)
+    ylab = feature.replace('_50th'," (µm s$^{-1}$)")
+    ax.set_ylabel(ylab, fontsize=20, labelpad=10)
+    ax.legend(groups, fontsize=12, frameon=False, loc='best', handletextpad=1)
+    plt.subplots_adjust(left=0.1, top=0.98, bottom=0.15, right=0.98)
+
+    # save plot
+    print("Saving to: %s" % save_path)
+    plt.savefig(save_path)
+
 
     # timeseries - with paraquat
     
-    for worm in tqdm(worm_strain_list):
-        groups = ['BW-Paraquat', 'fepD-Paraquat']
-        print("Plotting timeseries speed for %s" % worm)
+    print("Plotting timeseries speed (paraquat)")
+
+    groups = ['N2-BW-Paraquat','TM4525-BW-Paraquat','TM4525-BW']
         
-        bluelight_frames = [(i*FPS, j*FPS) for (i, j) in BLUELIGHT_TIMEPOINTS_SECONDS]
-        feature = 'speed'
+    colour_dict_para = dict(zip(groups, sns.color_palette('tab10', len(groups))))
     
-        save_dir = Path(SAVE_DIR) / 'timeseries-speed'
-        ts_plot_dir = save_dir / worm
-        ts_plot_dir.mkdir(exist_ok=True, parents=True)
-        save_path = ts_plot_dir / '{}_speed_bluelight.pdf'.format(worm + '_' + 'Paraquat')
+    bluelight_frames = [(i*FPS, j*FPS) for (i, j) in BLUELIGHT_TIMEPOINTS_SECONDS]
+    feature = 'speed'
+
+    save_dir = Path(SAVE_DIR) / 'timeseries-speed'
+    ts_plot_dir = save_dir / 'TM4525'
+    ts_plot_dir.mkdir(exist_ok=True, parents=True)
+    save_path = ts_plot_dir / 'TM4525_Paraquat_speed_bluelight.pdf'
+    
+    plt.close('all')
+    fig, ax = plt.subplots(figsize=(15,6), dpi=300)
+    
+    for group in groups:
+                
+        # get control timeseries
+        group_ts = get_strain_timeseries(metadata,
+                                         project_dir=Path(PROJECT_DIR),
+                                         strain=group,
+                                         group_by='treatment',
+                                         feature_list=[feature],
+                                         save_dir=save_dir,
+                                         n_wells=N_WELLS,
+                                         verbose=True)
         
-        plt.close('all')
-        fig, ax = plt.subplots(figsize=(15,6), dpi=300)
-        col_dict = dict(zip(groups, sns.color_palette('tab10', len(groups))))
+        ax = plot_timeseries(df=group_ts,
+                             feature=feature,
+                             error=True,
+                             max_n_frames=360*FPS, 
+                             smoothing=10*FPS, 
+                             ax=ax,
+                             bluelight_frames=bluelight_frames,
+                             colour=colour_dict_para[group])
+
+    plt.ylim(-20, 260)
+    xticks = np.linspace(0, 360*FPS, int(360/60)+1)
+    ax.set_xticks(xticks)
+    ax.set_xticklabels([str(int(x/FPS/60)) for x in xticks])   
+    ax.set_xlabel('Time (minutes)', fontsize=20, labelpad=10)
+    ylab = feature.replace('_50th'," (µm s$^{-1}$)")
+    ax.set_ylabel(ylab, fontsize=20, labelpad=10)
+    ax.legend(groups, fontsize=12, frameon=False, loc='best', handletextpad=1)
+    plt.subplots_adjust(left=0.1, top=0.98, bottom=0.15, right=0.98)
+
+    # save plot
+    print("Saving to: %s" % save_path)
+    plt.savefig(save_path)
     
-        for group in groups:
-            
-            treatment = worm + '-' + group
-            
-            # get control timeseries
-            group_ts = get_strain_timeseries(metadata,
-                                             project_dir=Path(PROJECT_DIR),
-                                             strain=treatment,
-                                             group_by='treatment',
-                                             feature_list=[feature],
-                                             save_dir=save_dir,
-                                             n_wells=N_WELLS,
-                                             verbose=True)
-            
-            ax = plot_timeseries(df=group_ts,
-                                  feature=feature,
-                                  error=True,
-                                  max_n_frames=360*FPS, 
-                                  smoothing=10*FPS, 
-                                  ax=ax,
-                                  bluelight_frames=bluelight_frames,
-                                  colour=col_dict[group])
-    
-        plt.ylim(-20, 260)
-        xticks = np.linspace(0, 360*FPS, int(360/60)+1)
-        ax.set_xticks(xticks)
-        ax.set_xticklabels([str(int(x/FPS/60)) for x in xticks])   
-        ax.set_xlabel('Time (minutes)', fontsize=20, labelpad=10)
-        ylab = feature.replace('_50th'," (µm s$^{-1}$)")
-        ax.set_ylabel(ylab, fontsize=20, labelpad=10)
-        ax.legend(groups, fontsize=12, frameon=False, loc='best', handletextpad=1)
-        plt.subplots_adjust(left=0.1, top=0.98, bottom=0.15, right=0.98)
-    
-        # save plot
-        print("Saving to: %s" % save_path)
-        plt.savefig(save_path)
