@@ -23,7 +23,6 @@ from tierpsytools.analysis.statistical_tests import univariate_tests, get_effect
 #%% Globals
 
 PROJECT_DIR = "/Users/sm5911/Documents/Keio_UV_Paraquat_Antioxidant"
-
 SAVE_DIR = "/Users/sm5911/OneDrive - Imperial College London/Publications/Keio_Paper/Figures/Fig1"
 
 DPI = 900
@@ -204,7 +203,7 @@ if __name__ == '__main__':
         trans = transforms.blended_transform_factory(ax.transData, ax.transAxes) #y=scaled
         p_text = sig_asterix([p])[0]
         ax.text(i, 1.01, p_text, fontsize=35, ha='center', va='bottom', transform=trans)
+        
     plt.subplots_adjust(left=0.08, bottom=0.2, right=0.99)
-
     plt.savefig(Path(SAVE_DIR) / 'Fig1f.png', dpi=DPI)  
       

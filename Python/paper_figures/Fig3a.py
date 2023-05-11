@@ -18,10 +18,15 @@ from matplotlib import pyplot as plt
 from matplotlib import transforms
 
 from visualisation.plotting_helper import sig_asterix
-
 from tierpsytools.analysis.statistical_tests import univariate_tests, get_effect_sizes
 
 #%% Globals
+
+PROJECT_DIR_LIST = ['/Volumes/hermes$/Keio_Proteomics_Mutants_6WP',
+                    '/Volumes/hermes$/Keio_FepD_Oxidative_Stress_Mutants',
+                    '/Volumes/hermes$/Keio_FepD_Mutants']
+
+SAVE_DIR = '/Users/sm5911/Documents/Keio_Bacteria_Mutants_Combined'
 
 PROJECT_DIR = "/Users/sm5911/Documents/Keio_Proteomics_Mutants"
 SAVE_DIR = "/Users/sm5911/OneDrive - Imperial College London/Publications/Keio_Paper/Figures/Fig3"
@@ -103,7 +108,6 @@ def stats(metadata,
           (nsig, group_by, control, pvalue_threshold, fdr_method))
 
     return anova_results, ttest_results
-
 
 #%% Main
 

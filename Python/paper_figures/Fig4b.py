@@ -17,17 +17,19 @@ from tqdm import tqdm
 from pathlib import Path
 from matplotlib import pyplot as plt
 from matplotlib import transforms
+
 from preprocessing.compile_hydra_data import compile_metadata, process_feature_summaries
 from filter_data.clean_feature_summaries import clean_summary_results
 from visualisation.plotting_helper import sig_asterix
-from tierpsytools.analysis.statistical_tests import univariate_tests, get_effect_sizes
 from time_series.plot_timeseries import plot_timeseries, get_strain_timeseries
+from tierpsytools.analysis.statistical_tests import univariate_tests, get_effect_sizes
 
 #%% Globals 
 
 PROJECT_DIR_LIST = ['/Volumes/hermes$/Keio_Worm_Stress_Mutants',
                     '/Volumes/hermes$/Keio_Worm_Stress_Mutants_2',
-                    '/Volumes/hermes$/Keio_Worm_Stress_Mutants_3']
+                    '/Volumes/hermes$/Keio_Worm_Stress_Mutants_3',
+                    '/Volumes/hermes$/Keio_Worm_Stress_Mutants_4']
 
 SAVE_DIR = '/Users/sm5911/Documents/Keio_Worm_Stress_Mutants_Combined'
 
@@ -69,10 +71,12 @@ WORM_STRAIN_DICT = {"N2":"N2",
                     "gas-1":"gas-1(fc21)",
                     "msrA":"msra-1(tm1421)",
                     ### Neuropeptide pathways
-                    "pdfr-1":"pdfr-1(ok3425)",
                     "PS8997":"flp-1(sy1599)",
                     "VC2490":"flp-2(gk1039)+W07E11.1",
                     "VC2591":"flp-2(ok3351)",
+                    "frpr-3":"frpr-3(ok3302)",
+                    "frpr-18":"frpr-18(ok2698)",
+                    "pdfr-1":"pdfr-1(ok3425)",
                     ### Neurotransmitters
                     "eat-4":"eat-4(n2474)",
                     ### Mitochondria
@@ -84,12 +88,14 @@ WORM_STRAIN_DICT = {"N2":"N2",
 
 WORM_GROUP_DICT = {'neuron_ablation':["N2","ASJ-ablated","AIY-ablated","RID(RNAi) [OMG94]"],
                    'neuropeptides_&_neurotransmitters':["N2","pdfr-1(ok3425)","flp-1(sy1599)",
-                                                        "flp-2(ok3351)","flp-2(gk1039)+W07E11.1","eat-4(n2474)"],
+                                                        "flp-2(ok3351)","flp-2(gk1039)+W07E11.1",
+                                                        "frpr-3(ok3302)", "frpr-18(ok2698)", "eat-4(n2474)"],
                    'antioxidant':["N2","prdx-2(gk169)","sod-1","sod-1; sod-5","sod-2","sod-1; sod-2",
                                   "sod-3","sod-2; sod-3","sod-4","sod-4; sod-5","sod-5","sod-3; sod-5",
                                   "OE sod-1","OE sod-2","OE ctl-1+ctl-2+ctl-3","clk-1(qm30)",
                                   "gas-1(fc21)","msra-1(tm1421)"],
                    'mitochondria':["N2","nuo-6 [FGC49]","nuo-6(qm200)","isp-1(qm150)","sdha-2(tm1420)"]}
+
 #%% Functions
 
 def stats(metadata,
@@ -197,7 +203,7 @@ if __name__ == '__main__':
         meta_list = []
         feat_list = []
         for i, (meta, feat) in enumerate(zip(metadata_list, features_list)):
-            if i == 0:
+            if i == 0: # only for '/Volumes/hermes$/Keio_Worm_Stress_Mutants' metadata
                 assert meta['window'].nunique() == 6
                 meta = meta[meta['window']==5]
                 feat = feat.reindex(meta.index)
@@ -443,8 +449,8 @@ if __name__ == '__main__':
         
         if not save_path.exists():
         
-            groups = ['N2-fepD', worm+'-BW', worm+'-fepD']
-            colour_dict = dict(zip(groups, sns.color_palette(palette='tab10', n_colors=3)))
+            groups = ['N2-BW', 'N2-fepD', worm+'-BW', worm+'-fepD']
+            colour_dict = dict(zip(groups, sns.color_palette(palette='tab10', n_colors=4)))
         
             plt.close('all')
             fig, ax = plt.subplots(figsize=(15,6), dpi=300)
@@ -456,6 +462,7 @@ if __name__ == '__main__':
                 group_meta['dirpath'] = [str(s).split('/Results/')[0] for s in group_meta['featuresN_filename']]
                 dirnames = sorted(group_meta['dirpath'].unique())
                 
+                # if combining timeseries results across multiple project directories
                 if len(dirnames) > 1:
                     group_ts_list = []
                     for project_dir in dirnames:        
@@ -519,8 +526,8 @@ if __name__ == '__main__':
         
         if not save_path.exists():
         
-            groups = ['N2-fepD-Paraquat', worm+'-BW-Paraquat', worm+'-fepD-Paraquat']
-            colour_dict = dict(zip(groups, sns.color_palette(palette='tab10', n_colors=3)))
+            groups = ['N2-BW-Paraquat', 'N2-fepD-Paraquat', worm+'-BW-Paraquat', worm+'-fepD-Paraquat']
+            colour_dict = dict(zip(groups, sns.color_palette(palette='tab10', n_colors=4)))
     
             plt.close('all')
             fig, ax = plt.subplots(figsize=(15,6), dpi=300)

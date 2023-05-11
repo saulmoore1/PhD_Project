@@ -20,20 +20,16 @@ from matplotlib import pyplot as plt
 from matplotlib import transforms
 
 from visualisation.plotting_helper import sig_asterix
-
 from tierpsytools.analysis.statistical_tests import univariate_tests, get_effect_sizes
 
 #%% Globals 
-PROJECT_DIR = "/Users/sm5911/Documents/Keio_Worm_Stress_Mutants"
 
+PROJECT_DIR = "/Users/sm5911/Documents/Keio_Worm_Stress_Mutants"
 SAVE_DIR = "/Users/sm5911/OneDrive - Imperial College London/Publications/Keio_Paper/Figures/Fig4"
 
 FEATURE = 'speed_50th'
-
 P_VALUE_THRESHOLD = 0.05
-
 FDR_METHOD = 'fdr_bh'
-
 DPI = 900
 
 #%% Functions

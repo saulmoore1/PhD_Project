@@ -1,7 +1,7 @@
 {
-"project_dir": "/Volumes/hermes$/KeioScreen2_96WP",
-"path_sup_info": "/Volumes/hermes$/KeioScreen2_96WP/AuxiliaryFiles/Baba_et_al_2006/Supporting_Information/Supplementary_Table_7.xls",
-"save_dir": "/Users/sm5911/Documents/Keio_Conf_Screen",
+"project_dir": "/Volumes/hermes$/Saul/Keio_Screen/Data/Keio_Screen_Confirmation",
+"path_sup_info": "/Volumes/hermes$/Saul/Keio_Screen/Data/Keio_Screen_Confirmation/AuxiliaryFiles/Baba_et_al_2006/Supporting_Information/Supplementary_Table_7.xls",
+"save_dir": "/Users/sm5911/Documents/Keio_Screen_Confirmation",
 "grouping_variable": "gene_name",
 "compile_day_summaries": true,
 "align_bluelight": true,
