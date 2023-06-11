@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Figure X - C. elegans mutants on Keio fepD mutant E. coli 
+Combinbed results for worm mutant experiments so far on fepD / BW both with/without paraquat 
+(boxplots and timeseries)
 
 @author: sm5911
-@date: 26/03/2023
+@date: 10/06/2023
 
 """
 
@@ -30,6 +31,8 @@ PROJECT_DIR_LIST = ['/Volumes/hermes$/Keio_Worm_Stress_Mutants',
                     '/Volumes/hermes$/Keio_Worm_Stress_Mutants_2',
                     '/Volumes/hermes$/Keio_Worm_Stress_Mutants_3',
                     '/Volumes/hermes$/Keio_Worm_Stress_Mutants_4']
+# /Users/sm5911/Documents/Keio_Worm_Mutants_Supplements # TODO
+# /Users/sm5911/Documents/Keio_Worm_Stress_Mutant_UPRmt
 
 SAVE_DIR = '/Users/sm5911/Documents/Keio_Worm_Stress_Mutants_Combined'
 
