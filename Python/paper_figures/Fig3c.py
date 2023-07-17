@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Figure 2a and 2b - (a) boxplots and (b) timeseries of fepD, BW, BW+paraquat
+Fig 3a
 
 @author: sm5911
-@date: 10/06/2023
+@date: 15/06/2023
 
 """
 
@@ -17,16 +17,19 @@ from matplotlib import pyplot as plt
 from matplotlib import transforms
 
 from visualisation.plotting_helper import sig_asterix
-from tierpsytools.analysis.statistical_tests import univariate_tests, get_effect_sizes
+from tierpsytools.analysis.statistical_tests import (univariate_tests, 
+                                                     get_effect_sizes, 
+                                                     _multitest_correct)
 
 #%% Globals
 
-PROJECT_DIR = "/Users/sm5911/Documents/Keio_UV_Paraquat_Antioxidant"
-SAVE_DIR = "/Users/sm5911/OneDrive - Imperial College London/Publications/Keio_Paper/Figures/Fig2"
+PROJECT_DIR = "/Users/sm5911/Documents/Keio_FepD_Citrate"
+SAVE_DIR = "/Users/sm5911/OneDrive - Imperial College London/Publications/Keio_Paper/Figures/Fig3"
 
-DPI = 900
+FEATURE = 'speed_50th'
 P_VALUE_THRESHOLD = 0.05
 FDR_METHOD = 'fdr_bh'
+DPI = 900
 
 #%% Functions
 
@@ -71,7 +74,7 @@ def stats(metadata,
         anova_results['significance'] = sig_asterix(anova_results['pvals'])
         anova_results = anova_results.sort_values(by=['pvals'], ascending=True) # rank by p-value
              
-    # Perform t-tests
+    # perform t-tests
     stats_t, pvals_t, reject_t = univariate_tests(X=features,
                                                   y=metadata[group_by],
                                                   control=control,
@@ -113,43 +116,37 @@ def main():
     bluelight_videos = [i for i in metadata['imgstore_name'] if 'bluelight' in i]
     metadata = metadata[metadata['imgstore_name'].isin(bluelight_videos)]
     
-    # subset metadata for window 5 (20-30 seconds after blue light pulse 3)
-    metadata = metadata[metadata['window']==5]
+    # drop uric acid/NaOH results
+    metadata = metadata[~metadata['drug_type'].isin(['uric acid','NaOH'])]
     
-    # subset to remove antioxidant results
-    metadata = metadata[~metadata['drug_type'].isin(['NAC','Vitamin C'])]
+    # create new treatment column for citrate/concentration
+    metadata['treatment'] = metadata[['bacteria_strain','drug_type','drug_imaging_plate_conc']
+                                     ].astype(str).agg('-'.join, axis=1)
+    metadata['treatment'] = [i.replace('.0',' mM').replace('-nan','') for i in metadata['treatment']]
+    
+    features = features.reindex(metadata.index)
+    assert all(features.index == metadata.index)
 
-    # subset for results for live cultures only
-    metadata = metadata.query("is_dead=='N'")
-    
-    # subset for 1mM paraquat results only
-    metadata = metadata[metadata['drug_imaging_plate_conc']!=0.5]
-    
-    treatment_cols = ['food_type','drug_type']
-    metadata['treatment'] = metadata[treatment_cols].astype(str).agg('-'.join, axis=1)
-    metadata['treatment'] = [i.replace('-nan','') for i in metadata['treatment']]
-
-    # drop fepD+paraquat results
-    metadata = metadata[metadata['treatment']!='fepD-Paraquat']
-    
-    # reindex features summmaries for new metadata subset
-    features = features.reindex(metadata.index)[['speed_50th']]
-    assert all(metadata.index == features.index)
+    metadata['treatment_plot'] = metadata[['drug_type','drug_imaging_plate_conc']
+                                          ].astype(str).agg('-'.join, axis=1)
+    metadata['treatment_plot'] = [i.replace('.0',' mM').replace('-nan','') for i in 
+                                  metadata['treatment_plot']]
+    order = metadata['treatment_plot'].unique()
 
     # boxplots
-    
-    plot_df = metadata.join(features)
-    order = ['BW','fepD','BW-Paraquat']
-    colour_dict = dict(zip(order, sns.color_palette(palette='tab10', n_colors=len(order))))
+    plot_df = metadata.join(features[[FEATURE]])
+    colour_dict = dict(zip(['BW','fepD'], sns.color_palette(palette='tab10', n_colors=2)))
 
     plt.close('all')
     sns.set_style('ticks')
-    fig = plt.figure(figsize=[10,10])
-    ax = fig.add_subplot(1,1,1)
-    sns.boxplot(x='treatment', 
-                y='speed_50th', 
-                data=plot_df, 
+    fig, ax = plt.subplots(figsize=(10,10))
+    sns.boxplot(x='treatment_plot', 
+                y='speed_50th',
+                hue='bacteria_strain',
                 order=order,
+                hue_order=['BW','fepD'],
+                dodge=True,
+                data=plot_df, 
                 palette=colour_dict,
                 showfliers=False, 
                 showmeans=False,
@@ -160,23 +157,23 @@ def main():
                 flierprops={"marker":"x", 
                             "markersize":15, 
                             "markeredgecolor":"r"},
-                # boxprops={'facecolor': 'lightgray'},
                 width=0.75)
-    sns.stripplot(x='treatment', 
-                  y='speed_50th', 
+    sns.stripplot(x='treatment_plot', 
+                  y='speed_50th',
+                  hue='bacteria_strain',
+                  order=order,
+                  hue_order=['BW','fepD'],
+                  dodge=True,
                   data=plot_df,
                   s=10,
-                  order=order,
-                  hue=None,
                   palette=[sns.color_palette('Greys',2)[1]],
-                  color=None,
                   marker=".",
                   edgecolor='k',
                   linewidth=0.3)
 
     ax.axes.get_xaxis().get_label().set_visible(False) # remove x axis label
-    ax.axes.set_xticklabels([l.get_text().replace('-','\n+ ') for l in ax.axes.get_xticklabels()], 
-                            fontsize=30)
+    ax.axes.set_xticklabels([l.get_text().replace('nan','none').replace('-','\n') 
+                             for l in ax.axes.get_xticklabels()], fontsize=30)
     ax.tick_params(axis='x', which='major', pad=15)
     ax.axes.set_ylabel('Speed (µm s$^{-1}$)', fontsize=30, labelpad=30)                             
     plt.yticks(fontsize=30)
@@ -188,43 +185,80 @@ def main():
     ax.spines['bottom'].set_linewidth(linewidth)
     ax.xaxis.set_tick_params(width=linewidth, length=linewidth*2)
     ax.yaxis.set_tick_params(width=linewidth, length=linewidth*2)
-            
-    # do stats
+    
+    # do stats - compare all treatments to fepD no citrate control
     anova_results, ttest_results = stats(metadata,
                                          features,
                                          group_by='treatment',
-                                         control='BW',
-                                         feat='speed_50th',
+                                         control='fepD',
+                                         feat=FEATURE,
                                          pvalue_threshold=P_VALUE_THRESHOLD,
                                          fdr_method=FDR_METHOD)
     
-    # load t-test results for window
+    # load t-test results
     pvals = ttest_results[[c for c in ttest_results.columns if 'pval' in c]]
     pvals.columns = [c.replace('pvals_','') for c in pvals.columns]
 
     # Add p-value to plot  
+    pval_label_offset = 30
+    fontsize_label = 25
     meta_grouped = metadata.groupby('treatment')
     for i, treatment in enumerate(order[1:], start=1):
         text = ax.get_xticklabels()[i]
-        assert text.get_text() == treatment.replace('-','\n+ ')
+        assert text.get_text() == treatment.replace('-','\n')
 
-        pval = pvals[treatment]
-        p = pval.loc['speed_50th']
-        p_text = sig_asterix([p])[0]
+        meta_fepD = meta_grouped.get_group('fepD-'+treatment)
+        feat_fepD = features[[FEATURE]].reindex(meta_fepD.index)
+        y_pos = feat_fepD[FEATURE].max() + pval_label_offset
         
-        meta_treatment = meta_grouped.get_group(treatment)
-        feat_treatment = features.reindex(meta_treatment.index)
-        y_pos = feat_treatment['speed_50th'].max() + 35
+        p = pvals.loc['speed_50th','fepD-'+treatment]
+        p_text = sig_asterix([p],ns=True)[0]
+        ax.text(i+0.19, y_pos, p_text, fontsize=fontsize_label, ha='center', va='top')
+            
+    # do stats - compare BW vs fepD for each treatment_plot separately (apply multiple test correct)    
+    pvals_dict = {}
+    meta_grouped = metadata.groupby('treatment_plot')
+    for group in order:
+        _meta = meta_grouped.get_group(group)
+        _feat = features.reindex(_meta.index)
         
-        # trans = transforms.blended_transform_factory(ax.transData, ax.transAxes) #y=scaled
-        ax.text(i, y_pos, p_text, fontsize=35, ha='center', va='top') # transform=trans
+        ttest_df = stats(_meta, 
+                         _feat, 
+                         group_by='bacteria_strain',
+                         control='BW',
+                         feat=FEATURE,
+                         pvalue_threshold=P_VALUE_THRESHOLD,
+                         fdr_method=FDR_METHOD)
+        
+        pvals_dict[group] = ttest_df.loc[FEATURE, 'pvals_fepD']
+    
+    # apply correction for multiple testing
+    reject, corrected_pvals = _multitest_correct(pd.Series(list(pvals_dict.values())), 
+                                                 multitest_method=FDR_METHOD, fdr=P_VALUE_THRESHOLD)
+        
+    pvals_dict = dict(zip(order, corrected_pvals))
+    pvals = pd.DataFrame.from_dict(pvals_dict, orient='index', columns=['pvals'])
+    pvals.index = [i.get_text() for i in ax.get_xticklabels()]
 
+    trans = transforms.blended_transform_factory(ax.transData, ax.transAxes) #y=scaled
+    for i, group in enumerate(pvals.index):
+        p = pvals.loc[group,'pvals']
+        p_text = sig_asterix([p],ns=True)[0]
+        #[x1, x1, x2, x2], [y, y+h, y+h, y]
+        ax.plot([i-0.2,i-0.2,i+0.2,i+0.2], [0.89,0.91,0.91,0.89], lw=1.5, c='k', transform=trans)
+        ax.text(i, 0.92, p_text, fontsize=fontsize_label, ha='center', va='center', transform=trans)
+
+    
+    ax.get_legend().remove()
+    
     plt.subplots_adjust(left=0.2, bottom=0.2, right=0.99)
-    plt.savefig(Path(SAVE_DIR) / 'Fig2a.png', dpi=DPI)  
-      
-    return
+    plt.savefig(Path(SAVE_DIR) / 'Fig3c.png', dpi=DPI)  
+    
+    return 
 
 #%% Main
 
 if __name__ == '__main__':
     main()
+    
+    

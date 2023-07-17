@@ -1,184 +1,112 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Figure 2c - Boxplots of worm neuron ablation and neuropeptide mutants on fepD vs BW
+Figure 2d - Fast effect - Arousal-like behaviour on fepD occurs quickly, within 30 minutes on food
 
 @author: sm5911
-@date: 10/06/2023
+@date: 12/06/2023
 
 """
 
-#%% Imports 
+#%% Imports
 
-import numpy as np
 import pandas as pd
 import seaborn as sns
-from tqdm import tqdm
 from pathlib import Path
 from matplotlib import pyplot as plt
 from matplotlib import transforms
 
 from visualisation.plotting_helper import sig_asterix
-from time_series.plot_timeseries import plot_timeseries, get_strain_timeseries
-from tierpsytools.analysis.statistical_tests import univariate_tests, get_effect_sizes
+from tierpsytools.analysis.statistical_tests import _multitest_correct
+from analysis.keio_screen.follow_up.keio_acute_effect import (
+    WINDOW_LIST,
+    WINDOW_NAME_DICT, 
+    WINDOW_DICT, 
+    BLUELIGHT_TIMEPOINTS_MINUTES,
+    fast_effect_stats)
 
-#%% Globals 
+#%% Globals
 
-PROJECT_DIR = "/Users/sm5911/Documents/Keio_Worm_Stress_Mutants_Combined"
+PROJECT_DIR = "/Users/sm5911/Documents/Keio_Acute_Effect"
 SAVE_DIR = "/Users/sm5911/OneDrive - Imperial College London/Publications/Keio_Paper/Figures/Fig2"
 
 FEATURE = 'speed_50th'
 FDR_METHOD = 'fdr_bh'
 P_VALUE_THRESHOLD = 0.05
-DPI = 900
+DPI = 600
 
-WORM_STRAIN_MAPPING_DICT = {"N2":"N2",
-                            "ZD763":"ASJ-ablated",
-                            "QD71":"AIY-ablated",
-                            # "PY7505":"ASI-ablated",
-                            # "RID(RNAi)::unc-31":"RID(RNAi)",
-                            "RID(RNAi)_lite-1(wt)":"RID(RNAi) [OMG94]",
-                            "PS8997":"flp-1(sy1599)",
-                            "VC2490":"flp-2(gk1039)+W07E11.1",
-                            "VC2591":"flp-2(ok3351)",
-                            "frpr-3":"frpr-3(ok3302)",
-                            "frpr-18":"frpr-18(ok2698)",
-                            "pdfr-1":"pdfr-1(ok3425)",
-                            "eat-4":"eat-4(n2474)"}
+STRAINS_LIST = ['BW','fepD']
 
 #%% Functions
 
-def stats(metadata,
-          features,
-          group_by='treatment',
-          control='BW',
-          feat='speed_50th',
-          pvalue_threshold=0.05,
-          fdr_method='fdr_bh'):
-        
-    assert all(metadata.index == features.index)
-    features = features[[feat]]
-
-    # print mean sample size
-    sample_size = metadata.groupby(group_by).count()
-    print("Mean sample size of %s/window: %d" % (group_by, 
-                                                 int(sample_size[sample_size.columns[-1]].mean())))
-
-    n = len(metadata[group_by].unique())
-    if n > 2:
-   
-        # Perform ANOVA - is there variation among strains?
-        stats, pvals, reject = univariate_tests(X=features, 
-                                                y=metadata[group_by], 
-                                                control=control, 
-                                                test='ANOVA',
-                                                comparison_type='multiclass',
-                                                multitest_correction=fdr_method,
-                                                alpha=pvalue_threshold,
-                                                n_permutation_test=None)
-
-        # get effect sizes
-        effect_sizes = get_effect_sizes(X=features,
-                                        y=metadata[group_by],
-                                        control=control,
-                                        effect_type=None,
-                                        linked_test='ANOVA')
-
-        # compile results
-        anova_results = pd.concat([stats, effect_sizes, pvals, reject], axis=1)
-        anova_results.columns = ['stats','effect_size','pvals','reject']     
-        anova_results['significance'] = sig_asterix(anova_results['pvals'])
-        anova_results = anova_results.sort_values(by=['pvals'], ascending=True) # rank by p-value
-             
-    # Perform t-tests
-    stats_t, pvals_t, reject_t = univariate_tests(X=features,
-                                                  y=metadata[group_by],
-                                                  control=control,
-                                                  test='t-test',
-                                                  comparison_type='binary_each_group',
-                                                  multitest_correction=fdr_method,
-                                                  alpha=pvalue_threshold)
+def main():
     
-    effect_sizes_t = get_effect_sizes(X=features,
-                                      y=metadata[group_by],
-                                      control=control,
-                                      linked_test='t-test')
+    # load clean metadata and feature summaries results
+    metadata_path = Path(PROJECT_DIR) / 'metadata.csv'
+    features_path = Path(PROJECT_DIR) / 'features.csv'
     
-    stats_t.columns = ['stats_' + str(c) for c in stats_t.columns]
-    pvals_t.columns = ['pvals_' + str(c) for c in pvals_t.columns]
-    reject_t.columns = ['reject_' + str(c) for c in reject_t.columns]
-    effect_sizes_t.columns = ['effect_size_' + str(c) for c in effect_sizes_t.columns]
-    ttest_results = pd.concat([stats_t, pvals_t, reject_t, effect_sizes_t], axis=1)
-        
-    nsig = sum(reject_t.sum(axis=1) > 0)
-    print("%d significant features between any %s vs %s (t-test, P<%.2f, %s)" %\
-          (nsig, group_by, control, pvalue_threshold, fdr_method))
+    metadata = pd.read_csv(metadata_path, header=0, index_col=None, dtype={'comments':str})
+    features = pd.read_csv(features_path, header=0, index_col=None)
 
-    return anova_results, ttest_results
-
-
-#%% Main
-
-if __name__ == '__main__':
-    
-    metadata_combined_path = Path(PROJECT_DIR) / 'metadata.csv'
-    features_combined_path = Path(PROJECT_DIR) / 'features.csv'
-    
-    # load metadata and features summaries
-    metadata = pd.read_csv(metadata_combined_path, header=0, index_col=None, dtype={'comments':str})
-    features = pd.read_csv(features_combined_path, header=0, index_col=None)
-
-    # subset metadata results for bluelight videos only 
+    # subset metadata for bluelight videos only
     bluelight_videos = [i for i in metadata['imgstore_name'] if 'bluelight' in i]
     metadata = metadata[metadata['imgstore_name'].isin(bluelight_videos)]
-    
-    # drop paraquat results
-    metadata = metadata[metadata['drug_type']!='Paraquat']
-    
-    # subset metadata for selected strains
-    metadata = metadata[metadata['worm_strain'].isin(WORM_STRAIN_MAPPING_DICT.keys())]
-    
-    # strain name mapping
-    metadata['worm_strain'] = metadata['worm_strain'].map(WORM_STRAIN_MAPPING_DICT)
-    
-    # combine worm+food as new column 'treatment' 
-    metadata['treatment'] = metadata[['worm_strain','bacteria_strain']
-                                     ].astype(str).agg('-'.join, axis=1)
 
-    features = features.reindex(metadata.index)
-
-    worm_strain_list = list(WORM_STRAIN_MAPPING_DICT.values())
-    treatment_list = [worm + '-BW' if i % 2 == 0 else worm + '-fepD' for 
-                      i, worm in enumerate(np.repeat(worm_strain_list, 2))]
-
-    # stats: compare worm speed vs N2 worms on BW for each treatment (worm+food) combination
-    anova_results, ttest_results = stats(metadata,
-                                         features,
-                                         group_by='treatment',
-                                         control='N2-BW',
-                                         feat='speed_50th',
-                                         pvalue_threshold=P_VALUE_THRESHOLD,
-                                         fdr_method=FDR_METHOD)
+    # subset metadata for 'arousal' windows only (20-30s after blue light)
+    metadata = metadata[metadata['window'].isin(WINDOW_LIST)]
+        
+    # subset metadata for BW and fepD only
+    metadata = metadata[metadata['gene_name'].isin(STRAINS_LIST)]
     
-    # t-test pvals
-    pvals = ttest_results[[c for c in ttest_results.columns if 'pval' in c]]
-    pvals.columns = [c.replace('pvals_','') for c in pvals.columns]
+    # reindex features for new metadata subset
+    features = features[[FEATURE]].reindex(metadata.index)
+            
+    # stats - applied separately for each window, then corrected for multiple testing
+        
+    pvals_dict = {}
+    for window in WINDOW_LIST:
+        meta_window = metadata[metadata['window']==window]
+        feat_window = features.reindex(meta_window.index)
+        
+        ttest_df = fast_effect_stats(meta_window, 
+                                     feat_window, 
+                                     group_by='gene_name',
+                                     control='BW',
+                                     save_dir=None,
+                                     feature_set=None,
+                                     pvalue_threshold=P_VALUE_THRESHOLD,
+                                     fdr_method=FDR_METHOD)
+        
+        pvals_dict[window] = ttest_df.loc[FEATURE, 'pvals_fepD']
+    
+    # apply correction for multiple testing
+    reject, corrected_pvals = _multitest_correct(pd.Series(list(pvals_dict.values())), 
+                                                 multitest_method=FDR_METHOD, fdr=P_VALUE_THRESHOLD)
+        
+    pvals_dict = dict(zip(WINDOW_LIST, corrected_pvals))
+    pvals = pd.DataFrame.from_dict(pvals_dict, orient='index', columns=['pvals'])
 
+    # remove one outlier datapoint for the plot
+    outlier_idx = list(features[features[FEATURE]<-20].index)
+    assert len(outlier_idx)==1
+    features = features.drop(axis=0, index=outlier_idx)
+    metadata = metadata.reindex(features.index)
+    
     # boxplots
-
     plot_df = metadata.join(features)
-    cols = sns.color_palette(palette='Greys', n_colors=2)
-    colour_dict = {i:(cols[0] if '-BW' in i else cols[1]) for i in treatment_list}
-
+    
     plt.close('all')
     sns.set_style('ticks')
-    fig = plt.figure(figsize=[14,18])
-    ax = fig.add_subplot(1,1,1)
-    sns.boxplot(x='speed_50th',
-                y='treatment',
-                data=plot_df, 
-                order=treatment_list,
-                palette=colour_dict,
+    fig, ax = plt.subplots(figsize=(18,9))
+    sns.boxplot(data=plot_df,
+                x='window',
+                y='speed_50th',
+                hue='gene_name',
+                order=WINDOW_LIST,
+                hue_order=['BW','fepD'],
+                dodge=True,
+                # colour=colours,
+                # palette=colour_dict,
                 showfliers=False, 
                 showmeans=False,
                 meanprops={"marker":"x", 
@@ -186,40 +114,76 @@ if __name__ == '__main__':
                            "markeredgecolor":"k"},
                 flierprops={"marker":"x", 
                             "markersize":15, 
-                            "markeredgecolor":"r"})
-    sns.stripplot(x='speed_50th',
-                  y='treatment',
-                  data=plot_df,
-                  s=12,
-                  order=treatment_list,
-                  hue=None,
-                  palette=None,
-                  color='dimgray',
+                            "markeredgecolor":"r"},
+                width=0.8)
+    sns.stripplot(data=plot_df,
+                  x='window',
+                  y='speed_50th',
+                  hue='gene_name',
+                  order=WINDOW_LIST,
+                  hue_order=['BW','fepD'],
+                  dodge=True,
+                  s=10,
+                  palette=[sns.color_palette('Greys',2)[1]],
+                  color=None,
                   marker=".",
                   edgecolor='k',
-                  linewidth=0.3) #facecolors="none"
-    
-    ax.axes.get_yaxis().get_label().set_visible(False) # remove y axis label
-    ax.axes.set_yticklabels([l.get_text() for l in ax.axes.get_yticklabels()], fontsize=25)
-    ax.tick_params(axis='y', which='major', pad=15)
-    ax.axes.set_xlabel('Speed (µm s$^{-1}$)', fontsize=30, labelpad=25)                             
-    plt.xticks(fontsize=20)
-    plt.xlim(-20, 250)
-            
-    # scale x axis for annotations    
-    trans = transforms.blended_transform_factory(ax.transAxes, ax.transData) #x=scaled
-    
+                  linewidth=0.2)
+
     # add pvalues to plot
-    for i, treatment in enumerate(treatment_list, start=0):
-        if treatment == 'N2-BW':
-            continue
-        else:
-            p = pvals.loc['speed_50th', treatment]
-            text = ax.get_yticklabels()[i]
-            assert text.get_text() == treatment
-            p_text = sig_asterix([p])[0]
-            ax.text(1.03, i, p_text, fontsize=30, ha='left', va='center', transform=trans)
+    # y_offset_label = 35
+    fontsize_label = 25
+    trans = transforms.blended_transform_factory(ax.transData, ax.transAxes) #y=scaled
+
+    # metadata_grouped = metadata.groupby('window')
+    for i, window in enumerate(WINDOW_LIST, start=0):
+        text = ax.get_xticklabels()[i]
+        assert text.get_text() == str(window)
+        
+        # meta_window = metadata_grouped.get_group(window)
+        # meta_fep_window = meta_window[meta_window['gene_name']=='fepD']
+        # feat_window = features.reindex(meta_fep_window.index)
+        # y_pos = feat_window[FEATURE].max() + y_offset_label
+
+        p = pvals.loc[window,'pvals']
+        p_text = sig_asterix([p],ns=True)[0]
+        ax.text(i+0.19, 1, p_text, fontsize=fontsize_label, ha='center', va='bottom', 
+                transform=trans)
             
-    plt.subplots_adjust(left=0.4, right=0.9, bottom=0.15, top=0.95)
+    # handles, labels = ax.get_legend_handles_labels()
+    # ax.legend(handles[:2], labels[:2], fontsize=fontsize_label, loc='upper right',
+    #           frameon=False, handletextpad=0.75)
+    ax.get_legend().remove()
+
+    ax.set_xlabel('Time (minutes)', fontsize=30, labelpad=30)
+    
+    # rename x-axis tick labels with time in minutes
+    time_dict = dict(zip(WINDOW_LIST, BLUELIGHT_TIMEPOINTS_MINUTES))
+    ax.axes.set_xticklabels([time_dict[int(l.get_text())] for l in ax.axes.get_xticklabels()], 
+                            fontsize=25, rotation=0, ha='center')
+    ax.tick_params(axis='x', which='major', pad=10)
+    ax.axes.set_ylabel('Speed (µm s$^{-1}$)', fontsize=30, labelpad=30)                             
+    plt.yticks(fontsize=25)
+    plt.ylim(-20, 300)
+    ax.spines['top'].set_visible(False)
+    ax.spines['right'].set_visible(False)
+    linewidth = 2
+    ax.spines['left'].set_linewidth(linewidth)
+    ax.spines['bottom'].set_linewidth(linewidth)
+    ax.xaxis.set_tick_params(width=linewidth, length=linewidth*3)
+    ax.yaxis.set_tick_params(width=linewidth, length=linewidth*2)
+        
+    # scale x axis for annotations    
+    # trans = transforms.blended_transform_factory(ax.transData, ax.transAxes) #y=scaled
+        
+    plt.subplots_adjust(left=0.12, right=0.95, bottom=0.15, top=0.9)
     plt.savefig(Path(SAVE_DIR) / 'Fig2c.png', dpi=DPI)  
+
+    return
+
+ 
+#%% Main
+
+if __name__ == '__main__':
+    main()
 

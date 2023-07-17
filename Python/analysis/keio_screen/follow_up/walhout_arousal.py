@@ -17,18 +17,15 @@ from tqdm import tqdm
 from pathlib import Path
 
 from visualisation.plotting_helper import errorbar_sigfeats
-from write_data.write import write_list_to_file
 from tierpsytools.analysis.statistical_tests import univariate_tests, get_effect_sizes
 from visualisation.plotting_helper import sig_asterix
 
 #%% Globals
 
-PROJECT_DIR = "/Users/sm5911/Documents/Keio_Screen"
-
-WALHOUT_SI_PATH = "/Users/sm5911/Documents/Keio_Screen/Walhout_2019_arousal_crossref/Walhout_2019_SI_Table1.xlsx"
+PROJECT_DIR = "/Users/sm5911/Documents/Keio_Screen_Initial"
+WALHOUT_SI_PATH = "/Users/sm5911/Documents/Keio_Screen_Initial/Walhout_2019_arousal_crossref/Walhout_2019_SI_Table1.xlsx"
 
 FEATURE_LIST = ['speed_50th']
-
 STIMULUS_LIST = ['bluelight']
 
 #%% Functions
@@ -212,7 +209,7 @@ def main():
                       tight_layout=[0.01,0.01,0.99,0.99],
                       saveDir=save_dir / 'errorbar' / 'fep_labelled')
     
-    # read initial screen t-test results
+    # initial screen t-test results
     ttest_results = stats(metadata, 
                           features, 
                           group_by='gene_name',

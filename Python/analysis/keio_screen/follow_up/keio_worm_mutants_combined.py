@@ -46,7 +46,7 @@ DPI = 900
 FPS = 25
 BLUELIGHT_TIMEPOINTS_SECONDS = [(60, 70),(160, 170),(260, 270)]
 
-OMIT_STRAINS_LIST = ["RID(RNAi)::unc-31", "PY7505", "nuo-6"]
+OMIT_STRAINS_LIST = ["RID(RNAi)::unc-31", "PY7505", "nuo-6(qm200)"]
 
 WORM_STRAIN_DICT = {"N2":"N2",
                     ### neuron ablation / RNAi

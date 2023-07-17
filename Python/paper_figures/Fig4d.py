@@ -1,20 +1,20 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Figure 2a and 2b - (a) boxplots and (b) timeseries of fepD, BW, BW+paraquat
+Figure 4d - Supplementation with Vitamin C and NAC + fepD antioxidant mutants
 
 @author: sm5911
-@date: 10/06/2023
+@date: 16/06/2023
 
 """
 
-#%% Imports 
+#%% Imports
 
+# import numpy as np
 import pandas as pd
 import seaborn as sns
 from pathlib import Path
 from matplotlib import pyplot as plt
-from matplotlib import transforms
 
 from visualisation.plotting_helper import sig_asterix
 from tierpsytools.analysis.statistical_tests import univariate_tests, get_effect_sizes
@@ -22,11 +22,12 @@ from tierpsytools.analysis.statistical_tests import univariate_tests, get_effect
 #%% Globals
 
 PROJECT_DIR = "/Users/sm5911/Documents/Keio_UV_Paraquat_Antioxidant"
-SAVE_DIR = "/Users/sm5911/OneDrive - Imperial College London/Publications/Keio_Paper/Figures/Fig2"
+SAVE_DIR = "/Users/sm5911/OneDrive - Imperial College London/Publications/Keio_Paper/Figures/Fig4"
 
-DPI = 900
+FEATURE = 'speed_50th'
 P_VALUE_THRESHOLD = 0.05
 FDR_METHOD = 'fdr_bh'
+DPI=900
 
 #%% Functions
 
@@ -71,7 +72,7 @@ def stats(metadata,
         anova_results['significance'] = sig_asterix(anova_results['pvals'])
         anova_results = anova_results.sort_values(by=['pvals'], ascending=True) # rank by p-value
              
-    # Perform t-tests
+    # perform t-tests
     stats_t, pvals_t, reject_t = univariate_tests(X=features,
                                                   y=metadata[group_by],
                                                   control=control,
@@ -103,53 +104,51 @@ def stats(metadata,
 
 def main():
     
-    metadata_path = Path(PROJECT_DIR) / 'metadata.csv'
-    features_path = Path(PROJECT_DIR) / 'features.csv'
+    # load metadata and features summary results
+    metadata = pd.read_csv(Path(PROJECT_DIR) / 'metadata.csv', header=0, index_col=None,
+                           dtype={'comments':str})
+    features = pd.read_csv(Path(PROJECT_DIR) / 'features.csv', header=0, index_col=None)
     
-    metadata = pd.read_csv(metadata_path, header=0, index_col=None, dtype={'comments':str})
-    features = pd.read_csv(features_path, header=0, index_col=None)
-    
-    # subset metadata results for bluelight videos only 
+    # subset for bluelight videos only 
     bluelight_videos = [i for i in metadata['imgstore_name'] if 'bluelight' in i]
     metadata = metadata[metadata['imgstore_name'].isin(bluelight_videos)]
-    
-    # subset metadata for window 5 (20-30 seconds after blue light pulse 3)
+
+    # subset for window 5 (20-30 seconds after blue light 3)
     metadata = metadata[metadata['window']==5]
     
-    # subset to remove antioxidant results
-    metadata = metadata[~metadata['drug_type'].isin(['NAC','Vitamin C'])]
-
-    # subset for results for live cultures only
-    metadata = metadata.query("is_dead=='N'")
+    # subset for live bacteria only
+    metadata = metadata[metadata['is_dead']=='N']
     
-    # subset for 1mM paraquat results only
-    metadata = metadata[metadata['drug_imaging_plate_conc']!=0.5]
+    # subset to remove paraquat results
+    metadata = metadata[metadata['drug_type']!='Paraquat']    
     
-    treatment_cols = ['food_type','drug_type']
+    # reindex features
+    features = features.reindex(metadata.index)
+    
+    treatment_cols = ['food_type','drug_type','drug_imaging_plate_conc']
     metadata['treatment'] = metadata[treatment_cols].astype(str).agg('-'.join, axis=1)
-    metadata['treatment'] = [i.replace('-nan','') for i in metadata['treatment']]
+    metadata['treatment'] = [i.replace('-nan','').replace('.0','') for i in metadata['treatment']]
 
-    # drop fepD+paraquat results
-    metadata = metadata[metadata['treatment']!='fepD-Paraquat']
+    metadata['treatment_plot'] = metadata[['drug_type','drug_imaging_plate_conc']
+                                          ].astype(str).agg('-'.join, axis=1)
+    metadata['treatment_plot'] = [i.replace('nan-nan','None').replace('.0','') for i in 
+                                  metadata['treatment_plot']]
+    order = ['None','Vitamin C-0.5','Vitamin C-1','NAC-0.5','NAC-1']
     
-    # reindex features summmaries for new metadata subset
-    features = features.reindex(metadata.index)[['speed_50th']]
-    assert all(metadata.index == features.index)
-
     # boxplots
+    plot_df = metadata.join(features[[FEATURE]])
+    colour_dict = dict(zip(['BW','fepD'], sns.color_palette(palette='tab10', n_colors=2)))
     
-    plot_df = metadata.join(features)
-    order = ['BW','fepD','BW-Paraquat']
-    colour_dict = dict(zip(order, sns.color_palette(palette='tab10', n_colors=len(order))))
-
     plt.close('all')
     sns.set_style('ticks')
-    fig = plt.figure(figsize=[10,10])
-    ax = fig.add_subplot(1,1,1)
-    sns.boxplot(x='treatment', 
-                y='speed_50th', 
-                data=plot_df, 
+    fig, ax = plt.subplots(figsize=(12,10))
+    sns.boxplot(x='treatment_plot', 
+                y='speed_50th',
+                hue='food_type',
                 order=order,
+                hue_order=['BW','fepD'],
+                dodge=True,
+                data=plot_df, 
                 palette=colour_dict,
                 showfliers=False, 
                 showmeans=False,
@@ -160,24 +159,25 @@ def main():
                 flierprops={"marker":"x", 
                             "markersize":15, 
                             "markeredgecolor":"r"},
-                # boxprops={'facecolor': 'lightgray'},
                 width=0.75)
-    sns.stripplot(x='treatment', 
-                  y='speed_50th', 
+    sns.stripplot(x='treatment_plot', 
+                  y='speed_50th',
+                  hue='food_type',
+                  order=order,
+                  hue_order=['BW','fepD'],
+                  dodge=True,
                   data=plot_df,
                   s=10,
-                  order=order,
-                  hue=None,
                   palette=[sns.color_palette('Greys',2)[1]],
-                  color=None,
                   marker=".",
                   edgecolor='k',
                   linewidth=0.3)
 
     ax.axes.get_xaxis().get_label().set_visible(False) # remove x axis label
-    ax.axes.set_xticklabels([l.get_text().replace('-','\n+ ') for l in ax.axes.get_xticklabels()], 
-                            fontsize=30)
-    ax.tick_params(axis='x', which='major', pad=15)
+    xlabs = [l.get_text().replace('-','\n') for l in ax.axes.get_xticklabels()]
+    xlabs = [l + ' mM' if l != 'None' else l for l in xlabs]
+    ax.axes.set_xticklabels(xlabs, fontsize=25, ha='center') #rotation=45
+    ax.tick_params(axis='x', which='major', pad=5)
     ax.axes.set_ylabel('Speed (µm s$^{-1}$)', fontsize=30, labelpad=30)                             
     plt.yticks(fontsize=30)
     plt.ylim(-20, 300)
@@ -188,40 +188,57 @@ def main():
     ax.spines['bottom'].set_linewidth(linewidth)
     ax.xaxis.set_tick_params(width=linewidth, length=linewidth*2)
     ax.yaxis.set_tick_params(width=linewidth, length=linewidth*2)
-            
-    # do stats
+    
+    # do stats - compare all treatments to fepD no citrate control
     anova_results, ttest_results = stats(metadata,
                                          features,
                                          group_by='treatment',
                                          control='BW',
-                                         feat='speed_50th',
+                                         feat=FEATURE,
                                          pvalue_threshold=P_VALUE_THRESHOLD,
                                          fdr_method=FDR_METHOD)
     
-    # load t-test results for window
+    # load t-test results
     pvals = ttest_results[[c for c in ttest_results.columns if 'pval' in c]]
     pvals.columns = [c.replace('pvals_','') for c in pvals.columns]
 
     # Add p-value to plot  
+    pval_label_offset = 40
+    fontsize_label = 25
     meta_grouped = metadata.groupby('treatment')
-    for i, treatment in enumerate(order[1:], start=1):
+    
+    for i, drug in enumerate(order):
         text = ax.get_xticklabels()[i]
-        assert text.get_text() == treatment.replace('-','\n+ ')
-
-        pval = pvals[treatment]
-        p = pval.loc['speed_50th']
-        p_text = sig_asterix([p])[0]
+        assert text.get_text() == (drug.replace('-','\n') + ' mM' if drug!='None' else drug)
         
-        meta_treatment = meta_grouped.get_group(treatment)
-        feat_treatment = features.reindex(meta_treatment.index)
-        y_pos = feat_treatment['speed_50th'].max() + 35
-        
-        # trans = transforms.blended_transform_factory(ax.transData, ax.transAxes) #y=scaled
-        ax.text(i, y_pos, p_text, fontsize=35, ha='center', va='top') # transform=trans
-
-    plt.subplots_adjust(left=0.2, bottom=0.2, right=0.99)
-    plt.savefig(Path(SAVE_DIR) / 'Fig2a.png', dpi=DPI)  
-      
+        if drug == 'None':
+            meta_fepD = meta_grouped.get_group('fepD')
+            feat_fepD = features[[FEATURE]].reindex(meta_fepD.index)
+            y_pos = feat_fepD[FEATURE].max() + pval_label_offset
+            p = pvals.loc['speed_50th','fepD']
+            p_text = sig_asterix([p],ns=True)[0]
+            ax.text(i+0.19, y_pos, p_text, fontsize=fontsize_label, ha='center', va='top')
+        else:
+            meta_BW = meta_grouped.get_group('BW-'+drug)
+            feat_BW = features[[FEATURE]].reindex(meta_BW.index)
+            y1_pos = feat_BW[FEATURE].max() + pval_label_offset
+            p1 = pvals.loc['speed_50th','BW-'+drug]
+            p1_text = sig_asterix([p1],ns=True)[0]
+            ax.text(i-0.19, y1_pos, p1_text, fontsize=fontsize_label, ha='center', va='top')
+            
+            meta_fepD = meta_grouped.get_group('fepD-'+drug)
+            feat_fepD = features[[FEATURE]].reindex(meta_fepD.index)
+            y2_pos = feat_fepD[FEATURE].max() + pval_label_offset
+            p2 = pvals.loc['speed_50th','fepD-'+drug]
+            p2_text = sig_asterix([p2],ns=True)[0]
+            ax.text(i+0.19, y2_pos, p2_text, fontsize=fontsize_label, ha='center', va='top')
+            
+    ax.get_legend().remove()
+    
+    plt.subplots_adjust(left=0.15, bottom=0.2, right=0.99)
+    plt.savefig(Path(SAVE_DIR) / 'Fig4d.png', dpi=DPI)      
+    
+    
     return
 
 #%% Main

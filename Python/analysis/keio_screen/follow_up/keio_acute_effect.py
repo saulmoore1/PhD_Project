@@ -100,9 +100,6 @@ def fast_effect_stats(metadata,
     if n > 2:
    
         # Perform ANOVA - is there variation among strains at each window?
-        anova_path = Path(save_dir) / 'ANOVA' / 'ANOVA_results.csv'
-        anova_path.parent.mkdir(parents=True, exist_ok=True)
-
         stats, pvals, reject = univariate_tests(X=features, 
                                                 y=metadata[group_by], 
                                                 control=control, 
@@ -124,7 +121,10 @@ def fast_effect_stats(metadata,
         test_results.columns = ['stats','effect_size','pvals','reject']     
         test_results['significance'] = sig_asterix(test_results['pvals'])
         test_results = test_results.sort_values(by=['pvals'], ascending=True) # rank by p-value
-        test_results.to_csv(anova_path, header=True, index=True)
+        if save_dir is not None:
+            anova_path = Path(save_dir) / 'ANOVA' / 'ANOVA_results.csv'
+            anova_path.parent.mkdir(parents=True, exist_ok=True)
+            test_results.to_csv(anova_path, header=True, index=True)
 
         # use reject mask to find significant feature set
         fset = pvals.loc[reject['ANOVA']].sort_values(by='ANOVA', ascending=True).index.to_list()
@@ -132,8 +132,9 @@ def fast_effect_stats(metadata,
         if len(fset) > 0:
             print("%d significant features found by ANOVA by '%s' (P<%.2f, %s)" %\
                   (len(fset), group_by, pvalue_threshold, fdr_method))
-            anova_sigfeats_path = anova_path.parent / 'ANOVA_sigfeats.txt'
-            write_list_to_file(fset, anova_sigfeats_path)
+            if save_dir is not None:
+                anova_sigfeats_path = anova_path.parent / 'ANOVA_sigfeats.txt'
+                write_list_to_file(fset, anova_sigfeats_path)
              
     # Perform t-tests
     stats_t, pvals_t, reject_t = univariate_tests(X=features,
@@ -156,15 +157,21 @@ def fast_effect_stats(metadata,
     ttest_results = pd.concat([stats_t, pvals_t, reject_t, effect_sizes_t], axis=1)
     
     # save results
-    ttest_path = Path(save_dir) / 't-test' / 't-test_results.csv'
-    ttest_path.parent.mkdir(exist_ok=True, parents=True)
-    ttest_results.to_csv(ttest_path, header=True, index=True)
+    if save_dir is not None:
+        ttest_path = Path(save_dir) / 't-test' / 't-test_results.csv'
+        ttest_path.parent.mkdir(exist_ok=True, parents=True)
+        ttest_results.to_csv(ttest_path, header=True, index=True)
     
     nsig = sum(reject_t.sum(axis=1) > 0)
     print("%d significant features between any %s vs %s (t-test, P<%.2f, %s)" %\
           (nsig, group_by, control, pvalue_threshold, fdr_method))
 
-    return
+    if save_dir is not None:
+        return
+    elif n > 2:
+        return test_results, ttest_results
+    else:
+        return ttest_results
     
 
 def main():

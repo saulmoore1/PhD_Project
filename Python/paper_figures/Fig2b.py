@@ -68,7 +68,6 @@ def main():
     
     treatment_list = list(metadata['treatment'].unique())
 
-
     # timeseries speed: BW, fepD, BW+paraquat
          
     bluelight_frames = [(i*FPS, j*FPS) for (i, j) in BLUELIGHT_TIMEPOINTS_SECONDS]        
@@ -105,9 +104,13 @@ def main():
     ax.set_xticklabels([str(int(x/FPS/60)) for x in xticks])
     ax.set_xlabel('Time (minutes)', fontsize=25, labelpad=10)
     ax.xaxis.set_tick_params(labelsize=20)
-    ax.set_ylabel("Speed (µm s$^{-1}$)", fontsize=25, labelpad=10)
+    ax.set_ylabel("Speed (µm s$^{-1}$)", fontsize=25, labelpad=15)
     ax.yaxis.set_tick_params(labelsize=20)
-    ax.legend(treatment_list, fontsize=25, frameon=False, loc='upper right', handletextpad=1)
+    leg = ax.legend(treatment_list, fontsize=20, frameon=False, 
+                    loc='upper right', handletextpad=0.75)
+    # change the line width for the legend
+    for l in leg.get_lines():
+        l.set_linewidth(3)
     plt.subplots_adjust(left=0.1, top=0.98, bottom=0.15, right=0.98)
 
     # save plot

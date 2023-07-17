@@ -17,13 +17,16 @@ CUSTOM_STYLE = 'visualisation/style_sheet_20210126.mplstyle'
 
 #%% Functions
 
-def sig_asterix(pvalues_array):
+def sig_asterix(pvalues_array, ns=True):
     """ Convert p-values to asterisks for showing significance on plots 
         
         Parameters
         ----------
         pvalues_array : list, np.array, pd.Series
             1-D vector of p-values to convert to asterisk significance notation
+            
+        ns : bool
+            True returns 'ns' for non-significant p-values, False returns an empty string ''
             
         Returns
         -------
@@ -38,7 +41,10 @@ def sig_asterix(pvalues_array):
         elif p < 0.05:
             asterix.append('*')
         else:
-            asterix.append('ns')
+            if ns:
+                asterix.append('n.s.')
+            else:
+                asterix.append('')
     return asterix
 
 def hexcolours(n):
@@ -268,8 +274,8 @@ def barplot_sigfeats(test_pvalues_df=None, saveDir=None, p_value_threshold=0.05,
 
 def errorbar_sigfeats(features, metadata, group_by, fset, control=None, rank_by='median', 
                       highlight_subset=None, max_feats2plt=10, figsize=[130,6], fontsize=4, 
-                      tight_layout=None, color='dimgray', saveDir=None, highlight_colour='red',
-                      **kwargs):
+                      tight_layout=None, color='dimgray', saveDir=None, saveName=None, 
+                      highlight_colour='red', **kwargs):
     """ Plot mean feature value with errorbars (+/- 1.98 * std) for all groups in 
         metadata['group_by'] for each feature in feature set provided 
     """
@@ -355,7 +361,8 @@ def errorbar_sigfeats(features, metadata, group_by, fset, control=None, rank_by=
              
         if saveDir is not None:
             Path(saveDir).mkdir(exist_ok=True, parents=True)
-            plt.savefig(saveDir / (str(f + 1) + '_' + feat + '_errorbar.pdf'))
+            plt.savefig(Path(saveDir) / (saveName if saveName is not None else 
+                                         (str(f + 1) + '_' + feat + '_errorbar.pdf')))
         
     return
     

@@ -197,9 +197,9 @@ def main():
         features, metadata = process_feature_summaries(metadata_path, 
                                                        results_dir=res_dir, 
                                                        compile_day_summaries=True, 
-                                                       imaging_dates=None, 
+                                                       imaging_dates=None,
                                                        align_bluelight=False, 
-                                                       window_summaries=False,
+                                                       window_summaries=True,
                                                        n_wells=N_WELLS)
 
         # Clean results - Remove bad well data + features with too many NaNs/zero std + impute NaNs
@@ -237,7 +237,7 @@ def main():
             features = features[FEATURE_SET].copy()
     feature_list = features.columns.tolist()
     
-    # TODO: Use control no tapping from 20220803 mutant worm experiments (no bluelight, so use prestim)
+    # TODO: For no tap control use 20220803 mutant worm experiments (no bluelight, use prestim)
     
     treatment_cols = ['food_type','drug_type'] # 'tap_stimulus'
     metadata['treatment'] = metadata[treatment_cols].astype(str).agg('-'.join, axis=1)

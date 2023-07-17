@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Figure 2a and 2b - (a) boxplots and (b) timeseries of fepD, BW, BW+paraquat
+Figure 5a - Boxplots of worm mitochondrial mutants on BW and fepD
 
 @author: sm5911
-@date: 10/06/2023
+@date: 16/06/2023
 
 """
 
@@ -14,19 +14,25 @@ import pandas as pd
 import seaborn as sns
 from pathlib import Path
 from matplotlib import pyplot as plt
-from matplotlib import transforms
 
 from visualisation.plotting_helper import sig_asterix
 from tierpsytools.analysis.statistical_tests import univariate_tests, get_effect_sizes
 
-#%% Globals
+#%% Globals 
 
-PROJECT_DIR = "/Users/sm5911/Documents/Keio_UV_Paraquat_Antioxidant"
-SAVE_DIR = "/Users/sm5911/OneDrive - Imperial College London/Publications/Keio_Paper/Figures/Fig2"
+PROJECT_DIR = "/Users/sm5911/Documents/Keio_Worm_Stress_Mutants_Combined"
+SAVE_DIR = "/Users/sm5911/OneDrive - Imperial College London/Publications/Keio_Paper/Figures/Fig5"
 
-DPI = 900
-P_VALUE_THRESHOLD = 0.05
+FEATURE = 'speed_50th'
 FDR_METHOD = 'fdr_bh'
+P_VALUE_THRESHOLD = 0.05
+DPI = 900
+
+WORM_STRAIN_MAPPING_DICT = {"N2":"N2",
+                            "FGC49":"nuo-6 [FGC49]",
+                            "MQ887":"isp-1(qm150)",
+                            "isp-1":"isp-1(qm150)",
+                            "TM1420":"sdha-2(tm1420)"}
 
 #%% Functions
 
@@ -71,7 +77,7 @@ def stats(metadata,
         anova_results['significance'] = sig_asterix(anova_results['pvals'])
         anova_results = anova_results.sort_values(by=['pvals'], ascending=True) # rank by p-value
              
-    # Perform t-tests
+    # perform t-tests
     stats_t, pvals_t, reject_t = univariate_tests(X=features,
                                                   y=metadata[group_by],
                                                   control=control,
@@ -100,128 +106,143 @@ def stats(metadata,
     else:
         return ttest_results
 
-
 def main():
     
     metadata_path = Path(PROJECT_DIR) / 'metadata.csv'
     features_path = Path(PROJECT_DIR) / 'features.csv'
     
+    # load metadata and features summaries
     metadata = pd.read_csv(metadata_path, header=0, index_col=None, dtype={'comments':str})
     features = pd.read_csv(features_path, header=0, index_col=None)
-    
+
     # subset metadata results for bluelight videos only 
     bluelight_videos = [i for i in metadata['imgstore_name'] if 'bluelight' in i]
     metadata = metadata[metadata['imgstore_name'].isin(bluelight_videos)]
     
-    # subset metadata for window 5 (20-30 seconds after blue light pulse 3)
-    metadata = metadata[metadata['window']==5]
+    # drop paraquat results
+    metadata = metadata[metadata['drug_type']!='Paraquat']
     
-    # subset to remove antioxidant results
-    metadata = metadata[~metadata['drug_type'].isin(['NAC','Vitamin C'])]
+    # subset metadata for selected strains
+    metadata = metadata[metadata['worm_strain'].isin(WORM_STRAIN_MAPPING_DICT.keys())]
+    
+    # strain name mapping
+    metadata['worm_strain'] = metadata['worm_strain'].map(WORM_STRAIN_MAPPING_DICT)
+    
+    # combine worm+food as new column 'treatment' 
+    metadata['treatment'] = metadata[['worm_strain','bacteria_strain']
+                                     ].astype(str).agg('-'.join, axis=1)
 
-    # subset for results for live cultures only
-    metadata = metadata.query("is_dead=='N'")
-    
-    # subset for 1mM paraquat results only
-    metadata = metadata[metadata['drug_imaging_plate_conc']!=0.5]
-    
-    treatment_cols = ['food_type','drug_type']
-    metadata['treatment'] = metadata[treatment_cols].astype(str).agg('-'.join, axis=1)
-    metadata['treatment'] = [i.replace('-nan','') for i in metadata['treatment']]
+    features = features.reindex(metadata.index)
 
-    # drop fepD+paraquat results
-    metadata = metadata[metadata['treatment']!='fepD-Paraquat']
+    # record worm strains (drop duplicates)
+    worm_strain_list = list(dict.fromkeys(WORM_STRAIN_MAPPING_DICT.values()))
+
+    # stats: compare worm speed vs N2 worms on BW for each treatment (worm+food) combination
+    anova_results, ttest_results = stats(metadata,
+                                         features,
+                                         group_by='treatment',
+                                         control='N2-BW',
+                                         feat='speed_50th',
+                                         pvalue_threshold=P_VALUE_THRESHOLD,
+                                         fdr_method=FDR_METHOD)
     
-    # reindex features summmaries for new metadata subset
-    features = features.reindex(metadata.index)[['speed_50th']]
-    assert all(metadata.index == features.index)
+    # t-test pvals
+    pvals = ttest_results[[c for c in ttest_results.columns if 'pval' in c]]
+    pvals.columns = [c.replace('pvals_','') for c in pvals.columns]
 
     # boxplots
-    
-    plot_df = metadata.join(features)
-    order = ['BW','fepD','BW-Paraquat']
-    colour_dict = dict(zip(order, sns.color_palette(palette='tab10', n_colors=len(order))))
 
+    plot_df = metadata.join(features)
+    colour_dict = dict(zip(['BW','fepD'], sns.color_palette(palette='tab10', n_colors=2)))
+    
     plt.close('all')
     sns.set_style('ticks')
-    fig = plt.figure(figsize=[10,10])
+    fig = plt.figure(figsize=[10,9])
     ax = fig.add_subplot(1,1,1)
-    sns.boxplot(x='treatment', 
-                y='speed_50th', 
+    sns.boxplot(x='worm_strain',
+                y='speed_50th',
+                dodge=True,
+                hue='bacteria_strain',
+                hue_order=['BW','fepD'],
+                order=worm_strain_list,            
                 data=plot_df, 
-                order=order,
                 palette=colour_dict,
                 showfliers=False, 
                 showmeans=False,
                 meanprops={"marker":"x", 
                            "markersize":5,
                            "markeredgecolor":"k"},
-                medianprops={'color': 'black'},
                 flierprops={"marker":"x", 
                             "markersize":15, 
                             "markeredgecolor":"r"},
-                # boxprops={'facecolor': 'lightgray'},
-                width=0.75)
-    sns.stripplot(x='treatment', 
-                  y='speed_50th', 
+                width=0.8)
+    sns.stripplot(x='worm_strain',
+                  y='speed_50th',
                   data=plot_df,
                   s=10,
-                  order=order,
-                  hue=None,
+                  order=worm_strain_list,
+                  hue='bacteria_strain',
+                  hue_order=['BW','fepD'],
+                  dodge=True,
                   palette=[sns.color_palette('Greys',2)[1]],
                   color=None,
                   marker=".",
                   edgecolor='k',
-                  linewidth=0.3)
-
-    ax.axes.get_xaxis().get_label().set_visible(False) # remove x axis label
-    ax.axes.set_xticklabels([l.get_text().replace('-','\n+ ') for l in ax.axes.get_xticklabels()], 
-                            fontsize=30)
-    ax.tick_params(axis='x', which='major', pad=15)
-    ax.axes.set_ylabel('Speed (µm s$^{-1}$)', fontsize=30, labelpad=30)                             
-    plt.yticks(fontsize=30)
-    plt.ylim(-20, 300)
+                  linewidth=0.2) #facecolors="none"
+    
+    linewidth = 2
     ax.spines['top'].set_visible(False)
     ax.spines['right'].set_visible(False)
-    linewidth = 2
     ax.spines['left'].set_linewidth(linewidth)
     ax.spines['bottom'].set_linewidth(linewidth)
-    ax.xaxis.set_tick_params(width=linewidth, length=linewidth*2)
+    ax.xaxis.set_tick_params(width=linewidth, length=linewidth*3)
     ax.yaxis.set_tick_params(width=linewidth, length=linewidth*2)
+    ax.axes.get_xaxis().get_label().set_visible(False) # remove x axis label
+    ax.axes.set_xticklabels([l.get_text().replace(' ','\n').replace('(','\n(') 
+                             for l in ax.axes.get_xticklabels()],
+                            fontsize=25, rotation=0, ha='center')
+    ax.tick_params(axis='x', which='major', pad=10)
+    ax.axes.set_ylabel('Speed (µm s$^{-1}$)', fontsize=30, labelpad=30)
+    plt.yticks(fontsize=25)
+    plt.ylim(-20, 300)
             
-    # do stats
-    anova_results, ttest_results = stats(metadata,
-                                         features,
-                                         group_by='treatment',
-                                         control='BW',
-                                         feat='speed_50th',
-                                         pvalue_threshold=P_VALUE_THRESHOLD,
-                                         fdr_method=FDR_METHOD)
-    
-    # load t-test results for window
-    pvals = ttest_results[[c for c in ttest_results.columns if 'pval' in c]]
-    pvals.columns = [c.replace('pvals_','') for c in pvals.columns]
-
-    # Add p-value to plot  
-    meta_grouped = metadata.groupby('treatment')
-    for i, treatment in enumerate(order[1:], start=1):
+    # add pvalues to plot
+    y_offset_label = 40
+    fontsize_label = 25
+    for i, worm in enumerate(worm_strain_list, start=0):
         text = ax.get_xticklabels()[i]
-        assert text.get_text() == treatment.replace('-','\n+ ')
-
-        pval = pvals[treatment]
-        p = pval.loc['speed_50th']
-        p_text = sig_asterix([p])[0]
+        assert text.get_text() == worm.replace(' ','\n').replace('(','\n(')
         
-        meta_treatment = meta_grouped.get_group(treatment)
-        feat_treatment = features.reindex(meta_treatment.index)
-        y_pos = feat_treatment['speed_50th'].max() + 35
-        
-        # trans = transforms.blended_transform_factory(ax.transData, ax.transAxes) #y=scaled
-        ax.text(i, y_pos, p_text, fontsize=35, ha='center', va='top') # transform=trans
+        meta_grouped = metadata.groupby('treatment')
+        if worm == 'N2':
+            meta_fepD = meta_grouped.get_group('N2-fepD')
+            feat_fepD = features[[FEATURE]].reindex(meta_fepD.index)
+            y_pos = feat_fepD[FEATURE].max() + y_offset_label
+            
+            p = pvals.loc['speed_50th','N2-fepD']
+            p_text = sig_asterix([p],ns=False)[0]
+            ax.text(i+0.19, y_pos, p_text, fontsize=fontsize_label, ha='center', va='top') # transform=trans
+        else:
+            meta_BW = meta_grouped.get_group(worm+'-BW')
+            feat_BW = features[[FEATURE]].reindex(meta_BW.index)
+            y1_pos = feat_BW[FEATURE].max() + y_offset_label
 
-    plt.subplots_adjust(left=0.2, bottom=0.2, right=0.99)
-    plt.savefig(Path(SAVE_DIR) / 'Fig2a.png', dpi=DPI)  
-      
+            meta_fepD = meta_grouped.get_group(worm+'-fepD')
+            feat_fepD = features[[FEATURE]].reindex(meta_fepD.index)
+            y2_pos = feat_fepD[FEATURE].max() + y_offset_label
+            
+            p1 = pvals.loc['speed_50th',worm+'-BW']
+            p2 = pvals.loc['speed_50th',worm+'-fepD']
+            p1_text = sig_asterix([p1],ns=True)[0]
+            p2_text = sig_asterix([p2],ns=True)[0]
+            ax.text(i-0.19, y1_pos, p1_text, fontsize=fontsize_label, ha='center', va='top') # transform=trans
+            ax.text(i+0.19, y2_pos, p2_text, fontsize=fontsize_label, ha='center', va='top') # transform=trans
+
+    ax.get_legend().remove()
+    
+    plt.subplots_adjust(left=0.12, right=0.98, bottom=0.15, top=0.95)
+    plt.savefig(Path(SAVE_DIR) / 'Fig5a.png', dpi=DPI)  
+
     return
 
 #%% Main

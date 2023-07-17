@@ -1,15 +1,18 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Figure 2a and 2b - (a) boxplots and (b) timeseries of fepD, BW, BW+paraquat
+
+Figure 4a - Vertical boxplots of C. elegans mutants of antioxidant and neural pathways thought to 
+be involved in stress response
 
 @author: sm5911
-@date: 10/06/2023
+@date: 02/02/2023
 
 """
 
 #%% Imports 
 
+import numpy as np
 import pandas as pd
 import seaborn as sns
 from pathlib import Path
@@ -19,14 +22,15 @@ from matplotlib import transforms
 from visualisation.plotting_helper import sig_asterix
 from tierpsytools.analysis.statistical_tests import univariate_tests, get_effect_sizes
 
-#%% Globals
+#%% Globals 
 
-PROJECT_DIR = "/Users/sm5911/Documents/Keio_UV_Paraquat_Antioxidant"
-SAVE_DIR = "/Users/sm5911/OneDrive - Imperial College London/Publications/Keio_Paper/Figures/Fig2"
+PROJECT_DIR = "/Users/sm5911/Documents/Keio_Worm_Stress_Mutants"
+SAVE_DIR = "/Users/sm5911/OneDrive - Imperial College London/Publications/Keio_Paper/Figures/Fig4"
 
-DPI = 900
+FEATURE = 'speed_50th'
 P_VALUE_THRESHOLD = 0.05
 FDR_METHOD = 'fdr_bh'
+DPI = 900
 
 #%% Functions
 
@@ -43,7 +47,8 @@ def stats(metadata,
 
     # print mean sample size
     sample_size = metadata.groupby(group_by).count()
-    print("Mean sample size of %s: %d" % (group_by, int(sample_size['well_name'].mean())))
+    print("Mean sample size of %s/window: %d" % (group_by, 
+                                                 int(sample_size[sample_size.columns[-1]].mean())))
 
     n = len(metadata[group_by].unique())
     if n > 2:
@@ -95,59 +100,47 @@ def stats(metadata,
     print("%d significant features between any %s vs %s (t-test, P<%.2f, %s)" %\
           (nsig, group_by, control, pvalue_threshold, fdr_method))
 
-    if n > 2:
-        return anova_results, ttest_results
-    else:
-        return ttest_results
+    return anova_results, ttest_results
 
 
-def main():
+#%% Main
+
+if __name__ == '__main__':
     
     metadata_path = Path(PROJECT_DIR) / 'metadata.csv'
     features_path = Path(PROJECT_DIR) / 'features.csv'
     
     metadata = pd.read_csv(metadata_path, header=0, index_col=None, dtype={'comments':str})
     features = pd.read_csv(features_path, header=0, index_col=None)
-    
+
     # subset metadata results for bluelight videos only 
     bluelight_videos = [i for i in metadata['imgstore_name'] if 'bluelight' in i]
     metadata = metadata[metadata['imgstore_name'].isin(bluelight_videos)]
     
     # subset metadata for window 5 (20-30 seconds after blue light pulse 3)
     metadata = metadata[metadata['window']==5]
-    
-    # subset to remove antioxidant results
-    metadata = metadata[~metadata['drug_type'].isin(['NAC','Vitamin C'])]
 
-    # subset for results for live cultures only
-    metadata = metadata.query("is_dead=='N'")
-    
-    # subset for 1mM paraquat results only
-    metadata = metadata[metadata['drug_imaging_plate_conc']!=0.5]
-    
-    treatment_cols = ['food_type','drug_type']
-    metadata['treatment'] = metadata[treatment_cols].astype(str).agg('-'.join, axis=1)
+    metadata['treatment'] = metadata[['food_type','drug_type']].astype(str).agg('-'.join, axis=1)
     metadata['treatment'] = [i.replace('-nan','') for i in metadata['treatment']]
 
-    # drop fepD+paraquat results
-    metadata = metadata[metadata['treatment']!='fepD-Paraquat']
-    
-    # reindex features summmaries for new metadata subset
-    features = features.reindex(metadata.index)[['speed_50th']]
-    assert all(metadata.index == features.index)
+    # subset for KO strains only (remove OE strains)
+    metadata = metadata[['iptg' not in i for i in metadata['treatment']]]
+    metadata = metadata[np.logical_or(['BW' in i for i in metadata['treatment']],
+                                      ['fepD' in i for i in metadata['treatment']])]
 
-    # boxplots
+    features = features.reindex(metadata.index)
     
+    # boxplot
     plot_df = metadata.join(features)
-    order = ['BW','fepD','BW-Paraquat']
-    colour_dict = dict(zip(order, sns.color_palette(palette='tab10', n_colors=len(order))))
+    order = sorted(metadata['treatment'].unique(), reverse=True)
+    colour_dict = dict(zip(order, sns.color_palette(palette='tab10', n_colors=len(order))[::-1]))
 
     plt.close('all')
     sns.set_style('ticks')
-    fig = plt.figure(figsize=[10,10])
+    fig = plt.figure(figsize=[12,18])
     ax = fig.add_subplot(1,1,1)
-    sns.boxplot(x='treatment', 
-                y='speed_50th', 
+    sns.boxplot(x='speed_50th',
+                y='treatment',
                 data=plot_df, 
                 order=order,
                 palette=colour_dict,
@@ -156,75 +149,56 @@ def main():
                 meanprops={"marker":"x", 
                            "markersize":5,
                            "markeredgecolor":"k"},
-                medianprops={'color': 'black'},
                 flierprops={"marker":"x", 
                             "markersize":15, 
-                            "markeredgecolor":"r"},
-                # boxprops={'facecolor': 'lightgray'},
-                width=0.75)
-    sns.stripplot(x='treatment', 
-                  y='speed_50th', 
+                            "markeredgecolor":"r"})
+    dates = metadata['date_yyyymmdd'].unique()
+    sns.stripplot(x='speed_50th',
+                  y='treatment',
                   data=plot_df,
-                  s=10,
+                  s=12,
                   order=order,
                   hue=None,
-                  palette=[sns.color_palette('Greys',2)[1]],
-                  color=None,
+                  palette=None,
+                  color='dimgray',
                   marker=".",
                   edgecolor='k',
-                  linewidth=0.3)
-
-    ax.axes.get_xaxis().get_label().set_visible(False) # remove x axis label
-    ax.axes.set_xticklabels([l.get_text().replace('-','\n+ ') for l in ax.axes.get_xticklabels()], 
-                            fontsize=30)
-    ax.tick_params(axis='x', which='major', pad=15)
-    ax.axes.set_ylabel('Speed (µm s$^{-1}$)', fontsize=30, labelpad=30)                             
-    plt.yticks(fontsize=30)
-    plt.ylim(-20, 300)
-    ax.spines['top'].set_visible(False)
-    ax.spines['right'].set_visible(False)
-    linewidth = 2
-    ax.spines['left'].set_linewidth(linewidth)
-    ax.spines['bottom'].set_linewidth(linewidth)
-    ax.xaxis.set_tick_params(width=linewidth, length=linewidth*2)
-    ax.yaxis.set_tick_params(width=linewidth, length=linewidth*2)
-            
+                  linewidth=0.3) #facecolors="none"
+    
+    ax.axes.get_yaxis().get_label().set_visible(False) # remove y axis label
+    ax.axes.set_yticklabels([l.get_text() for l in ax.axes.get_yticklabels()], fontsize=25)
+    ax.tick_params(axis='y', which='major', pad=15)
+    ax.axes.set_xlabel('Speed (µm s$^{-1}$)', fontsize=30, labelpad=25)                             
+    plt.xticks(fontsize=20)
+    plt.xlim(-20, 250)
+        
     # do stats
+    control = 'fepD'
     anova_results, ttest_results = stats(metadata,
                                          features,
                                          group_by='treatment',
-                                         control='BW',
+                                         control=control,
                                          feat='speed_50th',
                                          pvalue_threshold=P_VALUE_THRESHOLD,
                                          fdr_method=FDR_METHOD)
     
-    # load t-test results for window
+    # t-test pvals
     pvals = ttest_results[[c for c in ttest_results.columns if 'pval' in c]]
     pvals.columns = [c.replace('pvals_','') for c in pvals.columns]
-
-    # Add p-value to plot  
-    meta_grouped = metadata.groupby('treatment')
-    for i, treatment in enumerate(order[1:], start=1):
-        text = ax.get_xticklabels()[i]
-        assert text.get_text() == treatment.replace('-','\n+ ')
-
-        pval = pvals[treatment]
-        p = pval.loc['speed_50th']
-        p_text = sig_asterix([p])[0]
-        
-        meta_treatment = meta_grouped.get_group(treatment)
-        feat_treatment = features.reindex(meta_treatment.index)
-        y_pos = feat_treatment['speed_50th'].max() + 35
-        
-        # trans = transforms.blended_transform_factory(ax.transData, ax.transAxes) #y=scaled
-        ax.text(i, y_pos, p_text, fontsize=35, ha='center', va='top') # transform=trans
-
-    plt.subplots_adjust(left=0.2, bottom=0.2, right=0.99)
-    plt.savefig(Path(SAVE_DIR) / 'Fig2a.png', dpi=DPI)  
-      
-    return
-
-#%% Main
-
-if __name__ == '__main__':
-    main()
+    
+    # scale x axis for annotations    
+    trans = transforms.blended_transform_factory(ax.transAxes, ax.transData) #x=scaled
+    
+    # add pvalues to plot
+    for i, treatment in enumerate(order, start=0):
+        if treatment == control:
+            continue
+        else:
+            p = pvals.loc['speed_50th', treatment]
+            text = ax.get_yticklabels()[i]
+            assert text.get_text() == treatment
+            p_text = sig_asterix([p])[0]
+            ax.text(1.03, i, p_text, fontsize=35, ha='left', va='center', transform=trans)
+            
+    plt.subplots_adjust(left=0.3, right=0.9)
+    plt.savefig(Path(SAVE_DIR) / 'Fig3a.png', dpi=DPI)  
