@@ -40,8 +40,8 @@ from tierpsytools.preprocessing.filter_data import select_feat_set
 
 #%% GLOBALS
 
-JSON_PARAMETERS_PATH = "analysis/20210406_parameters_keio_initial_screen.json"
-# JSON_PARAMETERS_PATH = "analysis/20210914_parameters_keio_confirmation_screen.json"
+# JSON_PARAMETERS_PATH = "analysis/20210406_parameters_keio_initial_screen.json"
+JSON_PARAMETERS_PATH = "analysis/20210914_parameters_keio_confirmation_screen.json"
 
 N_LOWEST_PVAL = 100
 SUBSET_HIT_STRAINS = False
@@ -515,13 +515,21 @@ def compare_strains_keio(features, metadata, args):
     # save clustered feature order for all strains
     full_feature_order = np.array(featZ.columns)[fg.dendrogram_col.reordered_ind]
     full_feature_order_df = pd.DataFrame(columns=['feature_name'], 
-                                                index=range(1, len(full_feature_order) + 1),
-                                                data=full_feature_order)
+                                         index=range(1, len(full_feature_order) + 1),
+                                         data=full_feature_order)
     full_feature_order_path = full_clustermap_path.parent / (full_clustermap_path.stem + 
-                                                                '_feature_order.csv')
+                                                             '_feature_order.csv')
     full_feature_order_df.to_csv(full_feature_order_path, header=True, index=True)
 
+    # save clustered strain order to file
     full_strain_order = [l.get_text() for l in fg.ax_heatmap.get_yticklabels()]
+    full_strain_order_df = pd.DataFrame(columns=['strain_name'],
+                                        index=range(1, len(full_strain_order) + 1),
+                                        data=full_strain_order)
+    
+    full_strain_order_path = full_clustermap_path.parent / (full_clustermap_path.stem + 
+                                                            '_strain_order.csv')
+    full_strain_order_df.to_csv(full_strain_order_path, header=True, index=True)
 
     ### Heatmap - features (x-axis columns) ordered by control clustered feature order
     

@@ -7,7 +7,7 @@
 "align_bluelight": true,
 "omit_strains": null,
 "dates": ["20210914","20210921","20210928"],
-"n_top_feats": null,
+"n_top_feats": 256,
 "percentile_to_use": null,
 "drop_size_features": false,
 "norm_features_only": false,

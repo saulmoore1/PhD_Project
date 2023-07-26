@@ -262,7 +262,7 @@ def main():
         plot_dir = Path(SAVE_DIR) / 'Plots' / WINDOW_NAME_DICT[window]
 
         # T-tests comparing supplementation of BW and fepD lawns with enterobactin, iron and paraquat
-        # against BW and fepD withoout the drugs added. 
+        # against BW and fepD without drugs added: 
         # - BW vs BW + enterobactin
         # - BW vs BW + iron
         # - BW vs BW + paraquat
