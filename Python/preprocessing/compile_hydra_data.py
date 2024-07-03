@@ -183,7 +183,7 @@ def compile_metadata(aux_dir,
             else:
                 day_meta = compile_day_metadata(aux_dir=aux_dir, 
                                                 day=date, 
-                                                n_wells=n_wells, 
+                                                n_wells=n_wells,
                                                 from_source_plate=from_source_plate, 
                                                 from_robot_runlog=from_robot_runlog)
 

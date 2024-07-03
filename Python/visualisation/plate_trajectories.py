@@ -322,7 +322,7 @@ if __name__ == "__main__":
                         
     parser.add_argument("--downsample", help="Downsample trajectory data by \
                         plotting the worm centroid for every 'nth' frame",
-                        default=20)
+                        default=25)
         
     parser.add_argument("--filter_trajectories", help="Filter trsjectory data by global threshold \
                         parameters for movement and duration", default=False)
