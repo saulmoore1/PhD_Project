@@ -136,6 +136,8 @@ def main():
     
     aux_dir = Path(PROJECT_DIR) / 'AuxiliaryFiles'
     res_dir = Path(PROJECT_DIR) / 'Results'
+    assert aux_dir.exists()
+    assert res_dir.exists()
     
     if not metadata_path_local.exists() or not features_path_local.exists():
 
@@ -147,7 +149,7 @@ def main():
                                                    n_wells=N_WELLS, 
                                                    add_well_annotations=False,
                                                    from_source_plate=True)
-                
+        
         # compile feature summaries
         features, metadata = process_feature_summaries(metadata_path, 
                                                        results_dir=res_dir, 
