@@ -66,8 +66,8 @@ def trajectory_lengths(featuresN_file, names=None, only_wells=None):
     # read trajectories data
     try:
         trajectories_df = read_trajectories(featuresN_file,
-                                            names=None,
-                                            only_wells=None)        
+                                            names=names,
+                                            only_wells=only_wells)        
     except Exception as e:
         print("\nWARNING! Could not read trajectories data from file:\n%s\n%s" % (featuresN_file, e))
         
@@ -81,7 +81,11 @@ def trajectory_lengths(featuresN_file, names=None, only_wells=None):
     for worm in worm_ids:
         traj_length = grouped.get_group(worm).shape[0]
         worm_trajectory_lengths[worm] = traj_length
-    worm_trajectory_lengths = pd.DataFrame.from_dict(worm_trajectory_lengths, orient='index', columns=['length_n_frames']).reset_index(drop=False).rename(columns={'index': 'worm_index_joined'})
+    worm_trajectory_lengths = pd.DataFrame.from_dict(worm_trajectory_lengths, 
+                                                     orient='index', 
+                                                     columns=['length_n_frames']
+                                                     ).reset_index(drop=False).rename(
+                                                         columns={'index': 'worm_index_joined'})
     print('Trajectories data extracted in %.3f seconds' %(time()-tick))
     
     # tick=time()
@@ -98,12 +102,18 @@ def trajectory_lengths(featuresN_file, names=None, only_wells=None):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('-f', '--featuresN_file',
-                        help="Path to featuresN HDF5 file to extract trajectories data from",
-                        default=None, type=str)
+                        help="Path to featuresN HDF5 file to extract trajectories data from.",
+                        default=None, type=str) #default=EXAMPLE_FILE
+    parser.add_argument('--names',
+                        help="Names of series data to read. If none, all series data will be read.",
+                        default=None, type=list)
+    parser.add_argument('--only_wells',
+                        help="List of well names to read from the featuresN file. If None, the data will not be filtered by well.",
+                        default=None, type=list)
     args = parser.parse_args()
     assert args.featuresN_file is not None and Path(args.featuresN_file).is_file()
     
-    worm_trajectory_lengths = trajectory_lengths(args.featuresN_file)
+    worm_trajectory_lengths = trajectory_lengths(args.featuresN_file, args.names, args.only_wells)
     print("Trajectory lengths calculated for %d worms" % worm_trajectory_lengths.shape[0])
     
     
