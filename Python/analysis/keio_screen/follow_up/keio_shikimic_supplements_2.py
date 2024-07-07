@@ -344,7 +344,7 @@ def main():
                                      bluelight_frames=bluelight_frames,
                                      colour=colour_dict_ts[group])
         
-            plt.ylim(-10, 300)
+            plt.ylim(-10, 350)
             xticks = np.linspace(0, 360*FPS, int(360/60)+1)
             ax.set_xticks(xticks)
             ax.set_xticklabels([str(int(x/FPS/60)) for x in xticks])   
