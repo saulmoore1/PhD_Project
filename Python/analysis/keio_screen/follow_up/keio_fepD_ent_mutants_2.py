@@ -1,19 +1,20 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Analyse results of FepD_supplementation data (collected by Alan and Riju) in which Shikimic acid,
-Gentisic acid and 2,3-dihydroxybenzoic acid (or none - control) was added to the following bacteria:
-    - BW, fepD, entA, entE, fepD_entA, and fepD_entE
+Analyse results of FepD project data (collected by Alan and Riju) for the following bacteria 
+mutants (15 strains total):
+    - BW, fepD, aceE, entA, entC, entE, entF, fepD_entA, fepD_entC, fepD_entE, fepD_entF,
+      aceE_entA, aceE_entF, fepD_entA_aceE, fepD_entF_aceE
 
 This script:
     - compiles project metadata and feature summaries
     - cleans the summary results
-    - calculates statistics for speed_50th across treatment groups (t-tests and ANOVA)
-    - plots box plots of speed_50th (all treatments together)
-    - plots time-series of speed throughout bluelight video (each treatment overlayed with BW and fepD)
+    - calculates statistics for speed_50th across strains (t-tests and ANOVA)
+    - plots box plots of speed_50th (all strains together)
+    - plots time-series of speed throughout bluelight video (each strain overlayed with BW and fepD)
 
 @author: Saul Moore (sm5911)
-@date: 03/07/2024
+@date: 07/07/2024
     
 """
 
@@ -26,19 +27,18 @@ from tqdm import tqdm
 from pathlib import Path
 from matplotlib import transforms
 from matplotlib import pyplot as plt
-from matplotlib import patches as mpatches
 
 from preprocessing.compile_hydra_data import compile_metadata, process_feature_summaries
 from filter_data.clean_feature_summaries import clean_summary_results
 from visualisation.plotting_helper import sig_asterix
 from time_series.plot_timeseries import plot_timeseries, get_strain_timeseries
 from tierpsytools.analysis.statistical_tests import univariate_tests, get_effect_sizes
-from tierpsytools.plot.plot_plate_from_raw_video import plot_plates_from_metadata
+# from tierpsytools.plot.plot_plate_from_raw_video import plot_plates_from_metadata
 
 #%% Globals
 
-PROJECT_DIR = "/Volumes/hermes$/Saul/Keio_Screen/Data/Keio_Shikimic_Supplements_2"
-SAVE_DIR = "/Users/sm5911/Documents/PhD_DLBG/Keio_Shikimic_Supplements_2"
+PROJECT_DIR = "/Volumes/hermes$/Saul/Keio_Screen/Data/Keio_FepD_Ent_Mutants_2"
+SAVE_DIR = "/Users/sm5911/Documents/PhD_DLBG/Keio_FepD_Ent_Mutants_2"
 
 NAN_THRESHOLD_ROW = 0.8
 NAN_THRESHOLD_COL = 0.05
@@ -79,7 +79,7 @@ def stats(metadata,
     n = len(metadata[group_by].unique())
     if n > 2:
    
-        # perform ANOVA - is there variation among strains?
+        # Perform ANOVA - is there variation among strains?
         stats, pvals, reject = univariate_tests(X=features, 
                                                 y=metadata[group_by], 
                                                 control=control, 
@@ -136,21 +136,16 @@ def main():
     
     aux_dir = Path(PROJECT_DIR) / 'AuxiliaryFiles'
     res_dir = Path(PROJECT_DIR) / 'Results'
-    assert aux_dir.exists()
-    assert res_dir.exists()
     
     if not metadata_path_local.exists() or not features_path_local.exists():
 
-        if not Path(SAVE_DIR).exists():
-            Path(SAVE_DIR).mkdir(parents=True, exist_ok=True)
-
-        # compile metadata
+        # compile metadata and feature summaries
+        
         metadata, metadata_path = compile_metadata(aux_dir, 
                                                    n_wells=N_WELLS, 
                                                    add_well_annotations=False,
                                                    from_source_plate=True)
-        
-        # compile feature summaries
+                
         features, metadata = process_feature_summaries(metadata_path, 
                                                        results_dir=res_dir, 
                                                        compile_day_summaries=True, 
@@ -159,7 +154,7 @@ def main():
                                                        window_summaries=True,
                                                        n_wells=N_WELLS)
 
-        # clean results - remove bad well data + features with too many NaNs/zero std + impute NaNs
+        # Clean results - Remove bad well data + features with too many NaNs/zero std + impute NaNs
         features, metadata = clean_summary_results(features, 
                                                    metadata,
                                                    feature_columns=None,
@@ -172,7 +167,7 @@ def main():
                                                    drop_size_related_feats=False,
                                                    norm_feats_only=False)
         
-        # save clean metadata and features            
+        # save clean metadata and features
         metadata.to_csv(metadata_path_local, index=False)
         features.to_csv(features_path_local, index=False)
         
@@ -185,44 +180,36 @@ def main():
     
     assert not metadata['bacteria_strain'].isna().any()
 
-    # plot full plate view by tiling first raw video frame from each camera
-    plot_plates_from_metadata(metadata, save_dir=Path(SAVE_DIR), dpi=600)
+    # plot full plate view by tiling first raw video frame (prestim) from each camera
+    # plot_plates_from_metadata(metadata, save_dir=Path(SAVE_DIR), dpi=600)
+
+    # rename 'control_BW' to 'BW' in bacteria_strain column
+    metadata['bacteria_strain'] = ['BW' if i == 'control_BW' else i for i in 
+                                   metadata['bacteria_strain'].copy()]
 
     # subset metadata results for bluelight videos only 
     bluelight_videos = [i for i in metadata['imgstore_name'] if 'bluelight' in i]
     metadata = metadata[metadata['imgstore_name'].isin(bluelight_videos)]
-    
-    # omit outlier day
-    metadata = metadata[metadata['date_yyyymmdd']!=20240416]
         
     # subset features for new metadata
     features = features.reindex(metadata.index)
             
-    treatment_cols = ['bacteria_strain','supplement']
-    metadata['treatment'] = metadata[treatment_cols].astype(str).agg('-'.join, axis=1)
-    metadata['treatment'] = [i.replace('-none','') for i in metadata['treatment']]
-
-    treatment_list = ['BW','fepD'] + [i for i in sorted(metadata['treatment'].unique()) 
+    strain_list = ['BW','fepD'] + [i for i in sorted(metadata['bacteria_strain'].unique()) 
                                    if i not in ['BW','fepD']]
 
-    # boxplots vs BW (with experiment day replicate highlighted)
-    
+    # boxplot
     plot_df = metadata.join(features)
-    colour_dict = dict(zip(treatment_list, 
-                           sns.color_palette(palette='tab10', n_colors=len(treatment_list))))
-    day_colour_dict = dict(zip(list(plot_df['date_yyyymmdd'].unique()), 
-                               sns.color_palette(palette='Set2', 
-                                                 n_colors=plot_df['date_yyyymmdd'].nunique())))
+    colour_dict = dict(zip(strain_list, 
+                           sns.color_palette(palette='tab10', n_colors=len(strain_list))))
 
     plt.close('all')
     sns.set_style('ticks')
     fig = plt.figure(figsize=[12,18])
     ax = fig.add_subplot(1,1,1)
-
     sns.boxplot(x='speed_50th',
-                y='treatment',
+                y='bacteria_strain',
                 data=plot_df, 
-                order=treatment_list,
+                order=strain_list,
                 palette=colour_dict,
                 showfliers=False, 
                 showmeans=False,
@@ -232,35 +219,30 @@ def main():
                 flierprops={"marker":"x", 
                             "markersize":15, 
                             "markeredgecolor":"r"})
-        
-    patch_list = []
-    for day in list(plot_df['date_yyyymmdd'].unique()):
-        day_df = plot_df[plot_df['date_yyyymmdd']==day]
-        sns.stripplot(x='speed_50th',
-                      y='treatment',
-                      data=day_df,
-                      s=12,
-                      order=treatment_list,
-                      hue=None,
-                      palette=None,
-                      color=day_colour_dict[day],
-                      marker=".",
-                      edgecolor='k',
-                      linewidth=0.3) #facecolors="none"
-        patch_list.append(mpatches.Patch(color=day_colour_dict[day], label=str(day)))
+    sns.stripplot(x='speed_50th',
+                  y='bacteria_strain',
+                  data=plot_df,
+                  s=12,
+                  order=strain_list,
+                  hue=None,
+                  palette=None,
+                  color='dimgray',
+                  marker=".",
+                  edgecolor='k',
+                  linewidth=0.3) #facecolors="none"
     
     ax.axes.get_yaxis().get_label().set_visible(False) # remove y axis label
     ax.axes.set_yticklabels([l.get_text() for l in ax.axes.get_yticklabels()], fontsize=25)
     ax.tick_params(axis='y', which='major', pad=15)
     ax.axes.set_xlabel('Speed (µm s$^{-1}$)', fontsize=30, labelpad=25)                             
     plt.xticks(fontsize=20)
-    plt.xlim(-20, 320)
+    plt.xlim(-20, 250)
         
-    # do stats vs BW
+    # do stats
     control = 'BW'
     anova_results, ttest_results = stats(metadata,
                                          features,
-                                         group_by='treatment',
+                                         group_by='bacteria_strain',
                                          control=control,
                                          feat='speed_50th',
                                          pvalue_threshold=P_VALUE_THRESHOLD,
@@ -282,7 +264,7 @@ def main():
     trans = transforms.blended_transform_factory(ax.transAxes, ax.transData) #x=scaled
     
     # add pvalues to plot
-    for i, strain in enumerate(treatment_list, start=0):
+    for i, strain in enumerate(strain_list, start=0):
         if strain == control:
             continue
         else:
@@ -291,22 +273,18 @@ def main():
             assert text.get_text() == strain
             p_text = sig_asterix([p])[0]
             ax.text(1.03, i, p_text, fontsize=35, ha='left', va='center', transform=trans)
-
-    # add day legend key to plot
-    plt.legend(title="Date (YYYYMMDD)", handles=patch_list)
-
-    # save plot            
-    plt.subplots_adjust(left=0.5, right=0.9)
+            
+    plt.subplots_adjust(left=0.3, right=0.9)
     boxplot_path = Path(SAVE_DIR) / 'Plots' / 'speed_50th_vs_{}.png'.format(control)
     boxplot_path.parent.mkdir(exist_ok=True, parents=True)
-    plt.savefig(boxplot_path, dpi=DPI)    
+    plt.savefig(boxplot_path, dpi=DPI)      
 
 
     # time-series plots
     
-    for treatment in tqdm(treatment_list[2:]):
+    for bacteria in tqdm(strain_list[2:]):
         
-        groups = ['BW','fepD', treatment]
+        groups = ['BW','fepD', bacteria]
         colour_dict_ts = dict(zip(groups, 
                                   sns.color_palette(palette='tab10', n_colors=len(groups))))
         bluelight_frames = [(i*FPS, j*FPS) for (i, j) in BLUELIGHT_TIMEPOINTS_SECONDS]
@@ -314,11 +292,11 @@ def main():
     
         save_dir = Path(SAVE_DIR) / 'timeseries-speed'
         save_dir.mkdir(exist_ok=True, parents=True)
-        save_path = save_dir / '{}_speed_bluelight.pdf'.format(treatment)
+        save_path = save_dir / '{}_speed_bluelight.pdf'.format(bacteria)
         
         if not save_path.exists():
         
-            print("Plotting timeseries speed for %s" % treatment)
+            print("Plotting timeseries speed for %s" % bacteria)
         
             plt.close('all')
             fig, ax = plt.subplots(figsize=(15,6), dpi=300)
@@ -329,7 +307,7 @@ def main():
                 group_ts = get_strain_timeseries(metadata,
                                                  project_dir=Path(PROJECT_DIR),
                                                  strain=group,
-                                                 group_by='treatment',
+                                                 group_by='bacteria_strain',
                                                  feature_list=[feature],
                                                  save_dir=save_dir,
                                                  n_wells=N_WELLS,
@@ -356,7 +334,7 @@ def main():
         
             # save plot
             print("Saving to: %s" % save_path)
-            plt.savefig(save_path)
+            plt.savefig(save_path)    
     
     return
 

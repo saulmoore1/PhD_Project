@@ -12,6 +12,9 @@ This script:
     - plots box plots of speed_50th (all treatments together)
     - plots time-series of speed throughout bluelight video (each treatment overlayed with BW and fepD)
 
+NB: Day 20240416 failed and has been omitteed from the analysis. This experiment has been repeated.
+    See Keio_Shikimic_Supplements_2
+
 @author: Saul Moore (sm5911)
 @date: 22/04/2024
     
@@ -37,7 +40,7 @@ from tierpsytools.analysis.statistical_tests import univariate_tests, get_effect
 
 #%% Globals
 
-PROJECT_DIR = "/Volumes/behavgenom$/Riju/fepD_supplementation"
+PROJECT_DIR = "/Volumes/hermes$/Saul/Keio_Screen/Data/Keio_Shikimic_Supplements"
 SAVE_DIR = "/Users/sm5911/Documents/PhD_DLBG/Keio_Shikimic_Supplements"
 
 NAN_THRESHOLD_ROW = 0.8
@@ -192,7 +195,7 @@ def main():
     bluelight_videos = [i for i in metadata['imgstore_name'] if 'bluelight' in i]
     metadata = metadata[metadata['imgstore_name'].isin(bluelight_videos)]
     
-    # # omit outlier day
+    # omit outlier day
     metadata = metadata[metadata['date_yyyymmdd']!=20240416]
         
     # subset features for new metadata

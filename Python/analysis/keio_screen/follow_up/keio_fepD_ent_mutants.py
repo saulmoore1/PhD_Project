@@ -13,6 +13,8 @@ This script:
     - plots box plots of speed_50th (all strains together)
     - plots time-series of speed throughout bluelight video (each strain overlayed with BW and fepD)
 
+NB: EXPERIMENTAL CONTROLS FAILED! WILL NEED TO BE REPEATED.
+
 @author: Saul Moore (sm5911)
 @date: 06/04/2024
     
@@ -37,8 +39,8 @@ from tierpsytools.analysis.statistical_tests import univariate_tests, get_effect
 
 #%% Globals
 
-PROJECT_DIR = "/Volumes/behavgenom$/Riju/fepD_project"
-SAVE_DIR = "/Users/sm5911/Documents/PhD_DLBG/Keio_FepD_AceE_EntACEF"
+PROJECT_DIR = "/Volumes/hermes$/Saul/Keio_Screen/Data/Keio_FepD_Ent_Mutants"
+SAVE_DIR = "/Users/sm5911/Documents/PhD_DLBG/Keio_FepD_Ent_Mutants"
 
 NAN_THRESHOLD_ROW = 0.8
 NAN_THRESHOLD_COL = 0.05
