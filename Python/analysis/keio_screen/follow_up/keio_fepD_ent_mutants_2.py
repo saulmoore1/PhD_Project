@@ -27,13 +27,16 @@ from tqdm import tqdm
 from pathlib import Path
 from matplotlib import transforms
 from matplotlib import pyplot as plt
+from scipy.stats import zscore
 
 from preprocessing.compile_hydra_data import compile_metadata, process_feature_summaries
 from filter_data.clean_feature_summaries import clean_summary_results
 from visualisation.plotting_helper import sig_asterix
+from clustering.hierarchical_clustering import plot_clustermap
 from time_series.plot_timeseries import plot_timeseries, get_strain_timeseries
 from tierpsytools.analysis.statistical_tests import univariate_tests, get_effect_sizes
-# from tierpsytools.plot.plot_plate_from_raw_video import plot_plates_from_metadata
+from tierpsytools.plot.plot_plate_from_raw_video import plot_plates_from_metadata
+from tierpsytools.preprocessing.filter_data import select_feat_set
 
 #%% Globals
 
@@ -181,7 +184,7 @@ def main():
     assert not metadata['bacteria_strain'].isna().any()
 
     # plot full plate view by tiling first raw video frame (prestim) from each camera
-    # plot_plates_from_metadata(metadata, save_dir=Path(SAVE_DIR), dpi=600)
+    plot_plates_from_metadata(metadata, save_dir=Path(SAVE_DIR), dpi=600)
 
     # rename 'control_BW' to 'BW' in bacteria_strain column
     metadata['bacteria_strain'] = ['BW' if i == 'control_BW' else i for i in 
@@ -196,6 +199,33 @@ def main():
             
     strain_list = ['BW','fepD'] + [i for i in sorted(metadata['bacteria_strain'].unique()) 
                                    if i not in ['BW','fepD']]
+
+
+    # HCA heatmaps for Tierpsy Top256 features
+    
+    # load Tierpsy Top256 feature set + subset for Top256 features only
+    features256 = select_feat_set(features, 
+                                  tierpsy_set_name='tierpsy_256', 
+                                  append_bluelight=False) # NB: results for only 251/256 features
+    
+    # z-normalise
+    featZ = features256.apply(zscore, axis=0)
+    
+    heatmap_path = Path(SAVE_DIR) / 'Plots' / 'heatmap_256.pdf'
+    heatmap_path.parent.mkdir(exist_ok=True, parents=True)
+    
+    fig = plot_clustermap(featZ, metadata, 
+                          group_by='bacteria_strain',
+                          row_colours=None,
+                          method='complete', 
+                          metric='euclidean',
+                          figsize=[15,20],
+                          sub_adj={'bottom':0.1,'left':0,'top':1,'right':0.9},
+                          saveto=heatmap_path,
+                          label_size=(3,10),
+                          show_xlabels=True,
+                          bluelight_col_colours=False)
+
 
     # boxplot
     plot_df = metadata.join(features)

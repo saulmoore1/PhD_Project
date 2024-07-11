@@ -26,14 +26,17 @@ from tqdm import tqdm
 from pathlib import Path
 from matplotlib import transforms
 from matplotlib import pyplot as plt
-from matplotlib import patches as mpatches
+from matplotlib import patches
+from scipy.stats import zscore
 
 from preprocessing.compile_hydra_data import compile_metadata, process_feature_summaries
 from filter_data.clean_feature_summaries import clean_summary_results
 from visualisation.plotting_helper import sig_asterix
+from clustering.hierarchical_clustering import plot_clustermap
 from time_series.plot_timeseries import plot_timeseries, get_strain_timeseries
 from tierpsytools.analysis.statistical_tests import univariate_tests, get_effect_sizes
 from tierpsytools.plot.plot_plate_from_raw_video import plot_plates_from_metadata
+from tierpsytools.preprocessing.filter_data import select_feat_set
 
 #%% Globals
 
@@ -191,9 +194,6 @@ def main():
     # subset metadata results for bluelight videos only 
     bluelight_videos = [i for i in metadata['imgstore_name'] if 'bluelight' in i]
     metadata = metadata[metadata['imgstore_name'].isin(bluelight_videos)]
-    
-    # omit outlier day
-    metadata = metadata[metadata['date_yyyymmdd']!=20240416]
         
     # subset features for new metadata
     features = features.reindex(metadata.index)
@@ -204,6 +204,33 @@ def main():
 
     treatment_list = ['BW','fepD'] + [i for i in sorted(metadata['treatment'].unique()) 
                                    if i not in ['BW','fepD']]
+
+    
+    # HCA heatmaps for Tierpsy Top256 features
+    
+    # load Tierpsy Top256 feature set + subset for Top256 features only
+    features256 = select_feat_set(features, 
+                                  tierpsy_set_name='tierpsy_256', 
+                                  append_bluelight=False) # NB: results for only 251/256 features
+    
+    # z-normalise
+    featZ = features256.apply(zscore, axis=0)
+    
+    heatmap_path = Path(SAVE_DIR) / 'Plots' / 'heatmap_256.pdf'
+    heatmap_path.parent.mkdir(exist_ok=True, parents=True)
+    
+    fig = plot_clustermap(featZ, metadata, 
+                          group_by='treatment',
+                          row_colours=None,
+                          method='complete', 
+                          metric='euclidean',
+                          figsize=[15,20],
+                          sub_adj={'bottom':0.1,'left':0,'top':1,'right':0.83},
+                          saveto=heatmap_path,
+                          label_size=(3,10),
+                          show_xlabels=True,
+                          bluelight_col_colours=False)
+
 
     # boxplots vs BW (with experiment day replicate highlighted)
     
@@ -247,7 +274,7 @@ def main():
                       marker=".",
                       edgecolor='k',
                       linewidth=0.3) #facecolors="none"
-        patch_list.append(mpatches.Patch(color=day_colour_dict[day], label=str(day)))
+        patch_list.append(patches.Patch(color=day_colour_dict[day], label=str(day)))
     
     ax.axes.get_yaxis().get_label().set_visible(False) # remove y axis label
     ax.axes.set_yticklabels([l.get_text() for l in ax.axes.get_yticklabels()], fontsize=25)
