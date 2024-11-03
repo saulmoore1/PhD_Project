@@ -3,13 +3,13 @@
 """
 Analyse fast-effect (acute response) videos
 - Bluelight delivered for 10 seconds every 30 minutes, for a total of 5 hours
-- window feature summaries +30 -> +60 seconds after each bluelight stimulus
+- Window feature summaries 20-30 seconds after each bluelight stimulus
 
 When do we start to see an effect on worm behaviour? At which timepoint/window? 
-Do we still see arousal of worms on siderophore mutants, even after a short period of time?
+Do we see a fast-acting C. elegans arousal on siderophore mutants?
 
 @author: sm5911
-@date: 24/11/2021
+@date: 24/11/2021 (updated: 28/10/2024)
 
 """
 
@@ -17,24 +17,25 @@ Do we still see arousal of worms on siderophore mutants, even after a short peri
 
 import pandas as pd
 import seaborn as sns
-from tqdm import tqdm
+#from tqdm import tqdm
 from pathlib import Path
+from matplotlib import pyplot as plt
+from matplotlib import transforms
 from preprocessing.compile_hydra_data import compile_metadata, process_feature_summaries
 from filter_data.clean_feature_summaries import clean_summary_results
 from time_series.plot_timeseries import plot_timeseries_feature # plot_timeseries_motion_mode
-from visualisation.plotting_helper import sig_asterix, all_in_one_boxplots
-from write_data.write import write_list_to_file
+from visualisation.plotting_helper import sig_asterix #, all_in_one_boxplots
 
-from tierpsytools.preprocessing.filter_data import select_feat_set
+#from tierpsytools.preprocessing.filter_data import select_feat_set
 from tierpsytools.analysis.statistical_tests import univariate_tests, get_effect_sizes
 from tierpsytools.analysis.statistical_tests import _multitest_correct
 
 #%% Globals
 
 PROJECT_DIR = "/Volumes/hermes$/Saul/Keio_Screen/Data/Keio_Acute_Effect"
-SAVE_DIR = "/Users/sm5911/Documents/Keio_Acute_Effect"
+SAVE_DIR = "/Users/sm5911/Documents/PhD_DLBG/5_Keio_Acute_Effect"
 
-FEATURE_SET = ['speed_50th']
+FEATURE = 'speed_50th'
 
 NAN_THRESHOLD_ROW = 0.8
 NAN_THRESHOLD_COL = 0.05
@@ -59,47 +60,103 @@ WINDOW_NAME_DICT = {0:"blue light 1", 1: "20-30 seconds after blue light 1",
                     14:"blue light 8", 15: "20-30 seconds after blue light 8"}
 
 WINDOW_LIST = [1,3,5,7,9,11,13,15]
+BLUELIGHT_TIMEPOINTS_MINUTES = [30,60,90,120,150,180,210,240]
+WINDOW_BLUELIGHT_DICT = dict(zip(WINDOW_LIST, BLUELIGHT_TIMEPOINTS_MINUTES))
+VIDEO_LENGTH_SECONDS = 5*60*60
+FPS = 25
 
 OMIT_STRAINS_LIST = ['trpD']
 
-FPS = 25
-BLUELIGHT_TIMEPOINTS_MINUTES = [30,60,90,120,150,180,210,240]
-
-VIDEO_LENGTH_SECONDS = 5*60*60
-
 #%% Functions
 
-def fast_effect_stats(metadata,
-                      features,
-                      group_by='gene_name',
-                      control='BW',
-                      save_dir=None,
-                      feature_set=None,
-                      pvalue_threshold=0.05,
-                      fdr_method='fdr_bh'):
-    
-    # check case-sensitivity
+def multi_window_stats(metadata,
+                       features, 
+                       group_by='gene_name',
+                       control='BW',
+                       strain_list=['BW','fepD'],
+                       save_dir=None,
+                       feature='speed_50th',
+                       pvalue_threshold=0.05,
+                       fdr_method='fdr_by'):
+
+    # check case-sensitivity of items in 'group_by' column
     assert len(metadata[group_by].unique()) == len(metadata[group_by].str.upper().unique())
     
-    if feature_set is not None:
-        feature_set = [feature_set] if isinstance(feature_set, str) else feature_set
-        assert isinstance(feature_set, list)
-        assert(all(f in features.columns for f in feature_set))
-    else:
-        feature_set = features.columns.tolist()
+    window_list = sorted(metadata['window'].unique())
+
+    # sample_size = metadata.groupby(group_by).count() # print mean sample size per group
+    # print("Mean sample size per %s: %d" % (group_by, int(sample_size[sample_size.columns[-1]].mean())))
+
+    if strain_list:
+        strain_list = [control] + [i for i in strain_list if i != control]
+        metadata = metadata[metadata['gene_name'].isin(strain_list)]
+        features = features.reindex(metadata.index)
         
-    features = features[feature_set].reindex(metadata.index)
+    pvalues_dict = {}
+
+    # Perform t-tests for each window separately and then perform multiple test correction
+    for window in window_list:
+        
+        meta_window = metadata[metadata['window']==window]
+        feat_window = features.reindex(meta_window.index)
+             
+        stats_t, pvals_t, reject_t = univariate_tests(X=feat_window,
+                                                      y=meta_window[group_by],
+                                                      control=control,
+                                                      test='t-test',
+                                                      comparison_type='binary_each_group',
+                                                      multitest_correction=fdr_method,
+                                                      alpha=pvalue_threshold)
+    
+        effect_sizes_t = get_effect_sizes(X=feat_window,
+                                          y=meta_window[group_by],
+                                          control=control,
+                                          linked_test='t-test')
+    
+        stats_t.columns = ['stats_' + str(c) for c in stats_t.columns]
+        pvals_t.columns = ['pvals_' + str(c) for c in pvals_t.columns]
+        reject_t.columns = ['reject_' + str(c) for c in reject_t.columns]
+        effect_sizes_t.columns = ['effect_size_' + str(c) for c in effect_sizes_t.columns]
+        window_ttest_results = pd.concat([stats_t, pvals_t, reject_t, effect_sizes_t], axis=1)
+        
+        pvalues_dict[window] = window_ttest_results.loc[feature, pvals_t.columns[0]]
+
+    # multiple test correction - account for separate testing across windows
+    reject, corrected_pvals = _multitest_correct(pd.Series(list(pvalues_dict.values())), 
+                                                 multitest_method=fdr_method, fdr=0.05)
+    
+    pvalues_dict = dict(zip([WINDOW_BLUELIGHT_DICT[w] for w in window_list], corrected_pvals))
+    pvals = pd.DataFrame.from_dict(pvalues_dict, orient='index', columns=strain_list[1:])
+    
+    if save_dir is not None:
+        ttest_corrected_savepath = Path(save_dir) / 't-test_window_results.csv'
+        ttest_corrected_savepath.parent.mkdir(exist_ok=True, parents=True)
+        pvals.to_csv(ttest_corrected_savepath)
+    
+    return pvals  
+  
+def stats(metadata,
+          features,
+          group_by='treatment',
+          control='BW',
+          feat='speed_50th',
+          pvalue_threshold=0.05,
+          fdr_method='fdr_bh'):
+    
+    """ Perform ANOVA and t-tests to compare worm speed on each treatment vs control """
+        
+    assert all(metadata.index == features.index)
+    features = features[[feat]]
 
     # print mean sample size
     sample_size = metadata.groupby(group_by).count()
-    print("Mean sample size of %s: %d" % (group_by, int(sample_size[sample_size.columns[-1]].mean())))
+    print("Mean sample size of %s/window: %d" % (group_by, 
+                                                 int(sample_size[sample_size.columns[-1]].mean())))
 
     n = len(metadata[group_by].unique())
-        
-    fset = []
     if n > 2:
    
-        # Perform ANOVA - is there variation among strains at each window?
+        # perform ANOVA - is there variation among strains?
         stats, pvals, reject = univariate_tests(X=features, 
                                                 y=metadata[group_by], 
                                                 control=control, 
@@ -116,25 +173,11 @@ def fast_effect_stats(metadata,
                                         effect_type=None,
                                         linked_test='ANOVA')
 
-        # compile + save results
-        test_results = pd.concat([stats, effect_sizes, pvals, reject], axis=1)
-        test_results.columns = ['stats','effect_size','pvals','reject']     
-        test_results['significance'] = sig_asterix(test_results['pvals'])
-        test_results = test_results.sort_values(by=['pvals'], ascending=True) # rank by p-value
-        if save_dir is not None:
-            anova_path = Path(save_dir) / 'ANOVA' / 'ANOVA_results.csv'
-            anova_path.parent.mkdir(parents=True, exist_ok=True)
-            test_results.to_csv(anova_path, header=True, index=True)
-
-        # use reject mask to find significant feature set
-        fset = pvals.loc[reject['ANOVA']].sort_values(by='ANOVA', ascending=True).index.to_list()
-
-        if len(fset) > 0:
-            print("%d significant features found by ANOVA by '%s' (P<%.2f, %s)" %\
-                  (len(fset), group_by, pvalue_threshold, fdr_method))
-            if save_dir is not None:
-                anova_sigfeats_path = anova_path.parent / 'ANOVA_sigfeats.txt'
-                write_list_to_file(fset, anova_sigfeats_path)
+        # compile results
+        anova_results = pd.concat([stats, effect_sizes, pvals, reject], axis=1)
+        anova_results.columns = ['stats','effect_size','pvals','reject']     
+        anova_results['significance'] = sig_asterix(anova_results['pvals'])
+        anova_results = anova_results.sort_values(by=['pvals'], ascending=True) # rank by p-value
              
     # Perform t-tests
     stats_t, pvals_t, reject_t = univariate_tests(X=features,
@@ -155,24 +198,13 @@ def fast_effect_stats(metadata,
     reject_t.columns = ['reject_' + str(c) for c in reject_t.columns]
     effect_sizes_t.columns = ['effect_size_' + str(c) for c in effect_sizes_t.columns]
     ttest_results = pd.concat([stats_t, pvals_t, reject_t, effect_sizes_t], axis=1)
-    
-    # save results
-    if save_dir is not None:
-        ttest_path = Path(save_dir) / 't-test' / 't-test_results.csv'
-        ttest_path.parent.mkdir(exist_ok=True, parents=True)
-        ttest_results.to_csv(ttest_path, header=True, index=True)
-    
+        
     nsig = sum(reject_t.sum(axis=1) > 0)
     print("%d significant features between any %s vs %s (t-test, P<%.2f, %s)" %\
           (nsig, group_by, control, pvalue_threshold, fdr_method))
 
-    if save_dir is not None:
-        return
-    elif n > 2:
-        return test_results, ttest_results
-    else:
-        return ttest_results
-    
+    return anova_results, ttest_results
+
 
 def main():
     
@@ -233,104 +265,192 @@ def main():
         assert not features.isna().sum(axis=1).any()
         assert not (features.std(axis=1) == 0).any()
     
-    # load feature set
-    if FEATURE_SET is not None:
-        # subset for selected feature set (and remove path curvature features)
-        if isinstance(FEATURE_SET, int) and FEATURE_SET in [8,16,256]:
-            features = select_feat_set(features, 'tierpsy_{}'.format(FEATURE_SET), append_bluelight=True)
-            features = features[[f for f in features.columns if 'path_curvature' not in f]]
-        elif isinstance(FEATURE_SET, list) or isinstance(FEATURE_SET, set):
-            assert all(f in features.columns for f in FEATURE_SET)
-            features = features[FEATURE_SET].copy()
-    feature_list = features.columns.tolist()
+    # # load feature set
+    # if FEATURE_SET is not None:
+    #     # subset for selected feature set (and remove path curvature features)
+    #     if isinstance(FEATURE_SET, int) and FEATURE_SET in [8,16,256]:
+    #         features = select_feat_set(features, 'tierpsy_{}'.format(FEATURE_SET), append_bluelight=True)
+    #         features = features[[f for f in features.columns if 'path_curvature' not in f]]
+    #     elif isinstance(FEATURE_SET, list) or isinstance(FEATURE_SET, set):
+    #         assert all(f in features.columns for f in FEATURE_SET)
+    #         features = features[FEATURE_SET].copy()
+    # feature_list = features.columns.tolist()
 
     # subset metadata results for bluelight videos only 
     bluelight_videos = [i for i in metadata['imgstore_name'] if 'bluelight' in i]
     metadata = metadata[metadata['imgstore_name'].isin(bluelight_videos)]
-    
-    control = 'BW'
-    
+        
     if OMIT_STRAINS_LIST is not None:
         metadata = metadata[~metadata['gene_name'].isin(OMIT_STRAINS_LIST)]
 
     metadata['window'] = metadata['window'].astype(int)
     if WINDOW_LIST is not None:
         metadata = metadata[metadata['window'].isin(WINDOW_LIST)]
-        
-    window_list = list(metadata['window'].unique())   
+            
+    features = features[[FEATURE]].reindex(metadata.index)
     
-    features = features.reindex(metadata.index)
+    strain_list = ['BW','fepD']
+    strain_lut = dict(zip(strain_list, sns.color_palette(palette="tab10", n_colors=len(strain_list))))
+        
+    # boxplot
+    plot_df = metadata.join(features)
+    plot_df = plot_df[plot_df['gene_name'].isin(strain_list)] # subset for BW and fepD only
+    
+    plt.close('all')
+    sns.set_style('ticks')
+    fig = plt.figure(figsize=[15,6])
+    ax = fig.add_subplot(1,1,1)
+    sns.boxplot(x='window',
+                y='speed_50th',
+                data=plot_df, 
+                order=WINDOW_LIST,
+                hue='gene_name',
+                hue_order=strain_list,
+                palette=strain_lut,
+                dodge=True,
+                showfliers=False, 
+                showmeans=False,
+                meanprops={"marker":"x", 
+                           "markersize":5,
+                           "markeredgecolor":"k"},
+                flierprops={"marker":"x", 
+                            "markersize":15, 
+                            "markeredgecolor":"r"})
+    dates = sorted(plot_df['date_yyyymmdd'].unique())
+    date_lut = dict(zip(dates, sns.color_palette(palette="Greys", n_colors=len(dates))))
+    for date in dates:
+        date_df = plot_df[plot_df['date_yyyymmdd']==date]
+        sns.stripplot(x='window',
+                      y='speed_50th',
+                      data=date_df,
+                      s=8,
+                      order=WINDOW_LIST,
+                      hue='gene_name',
+                      hue_order=strain_list,
+                      dodge=True,
+                      palette=[date_lut[date]] * 2,
+                      color=None,
+                      marker=".",
+                      edgecolor='k',
+                      linewidth=0.3) #facecolors="none"
+    
+    # do stats
+    pvals = multi_window_stats(metadata,
+                               features,
+                               group_by='gene_name',
+                               control='BW',
+                               save_dir=Path(SAVE_DIR) / 'Stats',
+                               feature='speed_50th',
+                               pvalue_threshold=0.05,
+                               fdr_method='fdr_bh') 
+    # NB: Benjamini-Hochberg correction used instead of Benjamini-Yekutieli 
+    #     only 2 strains (incl. BW control) / 1 feature - correction only needed for t-test across multiple windows   
+    
+    # scale y axis for annotations    
+    trans = transforms.blended_transform_factory(ax.transData, ax.transAxes) #y=scaled
+
+    # ax.axes.get_xaxis().get_label().set_visible(False) # remove x axis label
+    ax.axes.set_xticklabels(BLUELIGHT_TIMEPOINTS_MINUTES, fontsize=20)
+    ax.axes.set_xlabel('Time (minutes)', fontsize=25, labelpad=20)                           
+    ax.tick_params(axis='y', which='major', pad=15)
+    plt.yticks(fontsize=20)
+    ax.axes.set_ylabel('Speed (µm s$^{-1}$)', fontsize=25, labelpad=20)  
+    #plt.ylim(-50, 350)
+    handles, labels = ax.get_legend_handles_labels()
+    ax.legend(handles[:len(strain_list)], labels[:len(strain_list)], loc='best', frameon=False)
+    #plt.axhline(y=0, c='grey')
+    
+    # add pvalues to plot
+    for i, tp in enumerate(BLUELIGHT_TIMEPOINTS_MINUTES):
+        p = pvals.loc[tp, 'fepD']
+        text = ax.get_xticklabels()[i]
+        assert text.get_text() == str(tp)
+        p_text = sig_asterix([p])[0]
+        ax.text(i, 1.03, p_text, fontsize=35, ha='center', va='center', transform=trans)
+            
+    #plt.subplots_adjust(left=0.01, right=0.9)
+    boxplot_path = Path(SAVE_DIR) / 'Plots' / 'speed_50th_vs_BW.svg'
+    boxplot_path.parent.mkdir(exist_ok=True, parents=True)
+    #plt.subplots_adjust(left=0.125,right=0.9,bottom=0.1,top=0.9)
+    plt.savefig(boxplot_path, bbox_inches='tight', transparent=True)
  
-    # stats and boxplots
-    for window in tqdm(window_list):
-        meta_window = metadata[metadata['window']==window]
-        feat_window = features.reindex(meta_window.index)
-
-        stats_dir = Path(SAVE_DIR) / 'Stats' / WINDOW_NAME_DICT[window]
-        plot_dir = Path(SAVE_DIR) / 'Plots' / WINDOW_NAME_DICT[window]
-        
-        fast_effect_stats(meta_window, 
-                          feat_window, 
-                          group_by='gene_name',
-                          control=control,
-                          save_dir=stats_dir,
-                          feature_set=feature_list,
-                          pvalue_threshold=0.05,
-                          fdr_method='fdr_bh')
-
-        order = ['BW'] + [s for s in meta_window['gene_name'].unique() if s != 'BW']
-        colour_dict = dict(zip(order, sns.color_palette('tab10', len(order))))
-        all_in_one_boxplots(meta_window,
-                            feat_window,
-                            group_by='gene_name',
-                            control=control,
-                            save_dir=plot_dir / 'all-in-one',
-                            ttest_path=stats_dir / 't-test' / 't-test_results.csv',
-                            feature_set=feature_list,
-                            pvalue_threshold=0.05,
-                            order=order,
-                            colour_dict=colour_dict,
-                            figsize=(10,8),
-                            ylim_minmax=(-20,350),
-                            vline_boxpos=None,
-                            fontsize=20,
-                            subplots_adjust={'bottom':0.15,'top':0.9,'left':0.15,'right':0.95})        
-        
-    pvalues_dict = {}
-    for window in window_list:
-        stats_dir = Path(SAVE_DIR) / 'Stats' / WINDOW_NAME_DICT[window]
-
-        # read p-values for each strain and correct for multiple comparisons (fdr_bh)
-        pvals_df = pd.read_csv(stats_dir / 't-test' / 't-test_results.csv', index_col=0)
-        pvalues_dict[window] = pvals_df.loc['speed_50th','pvals_fepD']
     
-    reject, corrected_pvals = _multitest_correct(pd.Series(list(pvalues_dict.values())), 
-                                                 multitest_method='fdr_bh', fdr=0.05)
-    pvalues_dict = dict(zip(window_list, corrected_pvals))
-    pvals = pd.DataFrame.from_dict(pvalues_dict, orient='index', columns=['pvals'])
-    ttest_corrected_savepath = Path(SAVE_DIR) / 'Stats' / 't-test_corrected' / 't-test_window_results.csv'
-    ttest_corrected_savepath.parent.mkdir(exist_ok=True, parents=True)
-    pvals.to_csv(ttest_corrected_savepath)
+    # boxplots for blue light timepoint 30 minutes
+    meta_window = metadata[metadata['window']==1]
+    feat_window = features.reindex(meta_window.index)
+    plot_df = meta_window.join(feat_window)
+    strain_list = ['BW'] + [s for s in sorted(metadata['gene_name'].unique()) if s != 'BW']
+    strain_lut = dict(zip(strain_list, sns.color_palette('tab10', len(strain_list))))
 
-    colour_dict = dict(zip(['BW','fepD'], sns.color_palette('tab10', len(order))))
-    all_in_one_boxplots(metadata,
-                        features,
-                        group_by='window',
-                        hue='gene_name',
-                        order=window_list,
-                        hue_order=['BW','fepD'],
-                        control='BW',
-                        save_dir=Path(SAVE_DIR) / 'Plots',
-                        ttest_path=None,
-                        feature_set=feature_list,
-                        pvalue_threshold=0.05,
-                        colour_dict=colour_dict,
-                        figsize=(15,8),
-                        ylim_minmax=(-70,370),
-                        vline_boxpos=None,
-                        fontsize=20,
-                        legend=False,
-                        subplots_adjust={'bottom':0.15,'top':0.9,'left':0.15,'right':0.95})        
+    plt.close('all')
+    sns.set_style('ticks')
+    fig = plt.figure(figsize=[12,6])
+    ax = fig.add_subplot(1,1,1)
+    sns.boxplot(x='gene_name',
+                y='speed_50th',
+                data=plot_df, 
+                order=strain_list,
+                palette=strain_lut,
+                showfliers=False, 
+                showmeans=False,
+                meanprops={"marker":"x", 
+                           "markersize":5,
+                           "markeredgecolor":"k"},
+                flierprops={"marker":"x", 
+                            "markersize":15, 
+                            "markeredgecolor":"r"})
+    dates = sorted(plot_df['date_yyyymmdd'].unique())
+    date_lut = dict(zip(dates, sns.color_palette(palette="Greys", n_colors=len(dates))))
+    for date in dates:
+        date_df = plot_df[plot_df['date_yyyymmdd']==date]
+        sns.stripplot(x='gene_name',
+                      y='speed_50th',
+                      data=date_df,
+                      s=8,
+                      order=strain_list,
+                      palette=[date_lut[date]] * len(strain_list),
+                      color=None,
+                      marker=".",
+                      edgecolor='k',
+                      linewidth=0.3) #facecolors="none"
+
+    ax.axes.get_xaxis().get_label().set_visible(False) # remove x axis label
+    # ax.axes.set_xticklabels(BLUELIGHT_TIMEPOINTS_MINUTES, fontsize=20)
+    # ax.axes.set_xlabel('Time (minutes)', fontsize=25, labelpad=20)   
+    ax.tick_params(axis='x', which='major', pad=15)
+    plt.xticks(fontsize=20)                        
+    ax.tick_params(axis='y', which='major', pad=15)
+    plt.yticks(fontsize=20)
+    ax.axes.set_ylabel('Speed (µm s$^{-1}$)', fontsize=25, labelpad=20)  
+    plt.ylim(0, 320)
+    
+    # add p-values to plot (stats for all strains, first BL window = 30 minutes)
+    _, ttest_results = stats(meta_window,
+                             feat_window,
+                             group_by='gene_name',
+                             control='BW',
+                             feat='speed_50th',
+                             pvalue_threshold=0.05,
+                             fdr_method='fdr_bh')
+    ttest_results.to_csv(Path(SAVE_DIR) / 'Stats' / 't-test_all_strains_window_1_results.csv', 
+                         header=True, index=False)
+        
+    # add pvalues to plot
+    trans = transforms.blended_transform_factory(ax.transData, ax.transAxes) #y=scaled
+    pvals = ttest_results[[c for c in ttest_results.columns if 'pval' in c]]
+    for i, strain in enumerate(strain_list[1:], start=1):
+        p = pvals.loc['speed_50th', 'pvals_' + strain]
+        text = ax.get_xticklabels()[i]
+        assert text.get_text() == strain
+        p_text = sig_asterix([p])[0]
+        ax.text(i, 1.03, p_text, fontsize=25, ha='center', va='center', transform=trans)
+            
+    #plt.subplots_adjust(left=0.01, right=0.9)
+    boxplot_path = Path(SAVE_DIR) / 'Plots' / 'all_strains_speed_50th_vs_BW_window_1.svg'
+    boxplot_path.parent.mkdir(exist_ok=True, parents=True)
+    #plt.subplots_adjust(left=0.125,right=0.9,bottom=0.1,top=0.9)
+    plt.savefig(boxplot_path, bbox_inches='tight', transparent=True)
+
     
     # timeseries plots of speed for fepD vs BW control
     

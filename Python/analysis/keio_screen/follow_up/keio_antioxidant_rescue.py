@@ -244,7 +244,7 @@ def main():
 #%% MAIN
 if __name__ == "__main__":
     tic = time()
-    parser = argparse.ArgumentParser(description="Read clean features and etadata and find 'hit' \
+    parser = argparse.ArgumentParser(description="Read clean features and metadata and find 'hit' \
                                                   Keio knockout strains that alter worm behaviour")
     parser.add_argument('-j', '--json', help="Path to JSON parameters file", 
                         default=JSON_PARAMETERS_PATH, type=str)

@@ -1,15 +1,23 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Confirmation screen speed window summaries
+Confirmation screen speed window summaries - boxplots, timeseries, and cluster analysis of hit 
+strains for each feature
+
+Performs a cluster analysis to identify the strains with the biggest differences in terms 
+of each feature
+Andre: It might make more sense to just do this for a reduced set of features 
+(e.g. one feature from each of the obvious clusters in the hits heatmap)
+
 
 @author: sm5911
-@date: 19/10/2022
+@date: 19/10/2022 (updated: 21/10/2024)
 
 """
 
 #%% Imports
 
+import numpy as np
 import pandas as pd
 from tqdm import tqdm
 from pathlib import Path
@@ -21,10 +29,15 @@ from tierpsytools.analysis.statistical_tests import univariate_tests, get_effect
 from visualisation.plotting_helper import sig_asterix, boxplots_sigfeats
 from time_series.plot_timeseries import plot_timeseries_feature
 
+from tierpsytools.preprocessing.filter_data import select_feat_set
+
 #%% Globals
 
-PROJECT_DIR = "/Volumes/hermes$/KeioScreen2_96WP"
-SAVE_DIR = "/Users/sm5911/Documents/Keio_Conf_Screen"
+PROJECT_DIR = "/Volumes/hermes$/Saul/Keio_Screen/Data/Keio_Screen_Confirmation"
+SAVE_DIR = "/Users/sm5911/Documents/PhD_DLBG/4_Keio_Screen_Confirmation/feature_hits_for_Filipe"
+
+# PROJECT_DIR = "/Volumes/hermes$/KeioScreen2_96WP"
+# SAVE_DIR = "/Users/sm5911/Documents/Keio_Conf_Screen"
 
 N_WELLS = 96
 MAX_VALUE_CAP = 1e15
@@ -179,6 +192,46 @@ def confirmation_window_boxplots(metadata,
     
     return
 
+def hit_strains_by_feature(metadata, features, feature_list=None):
+    """ 
+    Performs a cluster analysis to identify the strains with the biggest differences in terms 
+    of each feature
+    
+    Andre: It might make more sense to just do this for a reduced set of features 
+    (e.g. one feature from each of the obvious clusters in the hits heatmap)
+    
+    Inputs
+    -------------------    
+    metadata, features - type: pd.DataFrame - The number of features in the features dataframe
+    provided will be used for the cluster analysis
+    
+    feature_list - type: list - All features in the features dataframe will be used for the cluster 
+    analysis. However, a subset list of features may be provided to return hit strains for those 
+    features only
+    -------------------
+    
+    Outputs
+    -------------------
+    hits_by_feature_dict - type: dict - A dictionary of hit strains (values) for each feature (keys)
+    -------------------   
+    """
+    
+    assert np.array_equal(metadata.index, features.index)
+    
+    # perform cluster analysis
+    
+    # average data for each strain
+    from clustering.nearest_neighbours import average_strain_data, dropNaN
+    feat, meta = average_strain_data(features, metadata, groups_column='gene_name')
+    
+    # z-normalise features
+    
+    
+    
+    
+    
+    return #hits_by_feature_dict
+
 #%% Main
 
 if __name__ == '__main__':
@@ -186,14 +239,14 @@ if __name__ == '__main__':
     aux_dir = Path(PROJECT_DIR) / 'AuxiliaryFiles'
     res_dir = Path(PROJECT_DIR) / 'Results'
     
-    metadata_path_local = Path(SAVE_DIR) / 'window_metadata.csv'
-    features_path_local = Path(SAVE_DIR) / 'window_features.csv'
+    metadata_path_local = Path(SAVE_DIR) / 'metadata_clean.csv' #'window_metadata.csv'
+    features_path_local = Path(SAVE_DIR) / 'features_clean.csv' #'window_features.csv'
     
     if not metadata_path_local.exists() and not features_path_local.exists():
         metadata, metadata_path = compile_metadata(aux_dir, 
                                                    n_wells=N_WELLS, 
                                                    add_well_annotations=True,
-                                                   from_source_plate=True)
+                                                   from_source_plate=False)
         
         features, metadata = process_feature_summaries(metadata_path, 
                                                        results_dir=res_dir, 
@@ -228,21 +281,27 @@ if __name__ == '__main__':
     assert not (features.std(axis=1) == 0).any()
     
     # remove entries foor results with missing gene name metadata
+    n_rows = metadata.shape[0]
     metadata = metadata[~metadata['gene_name'].isna()]
+    if metadata.shape[0] < n_rows:
+        print("Removed %d row entries with missing gene name (or empty wells)" % (
+            n_rows - metadata.shape[0]))
     
     # subset metadata results for bluelight videos only 
     if not 'bluelight' in metadata.columns:
         metadata['bluelight'] = [i.split('_run')[-1].split('_')[1] for i in metadata['imgstore_name']]
     metadata = metadata[metadata['bluelight']=='bluelight']
-
-    metadata['window'] = metadata['window'].astype(int)
-    strain_list = sorted(list(metadata['gene_name'].unique()))
     
+    features = features.reindex(metadata.index)
+
+    metadata['window'] = metadata['window'].astype(int)    
     meta_window = metadata[metadata['window']==0]
     feat_window = features.reindex(meta_window.index)
-    
-    stats_dir = Path(SAVE_DIR) / 'Stats' / WINDOW_NAME_DICT[0]
-    plot_dir = Path(SAVE_DIR) / 'Plots' / WINDOW_NAME_DICT[0]
+ 
+    strain_list = sorted(list(metadata['gene_name'].unique()))
+
+    stats_dir = Path(SAVE_DIR) / 'Stats'
+    plot_dir = Path(SAVE_DIR) / 'Plots'
 
     # all gene_names
     confirmation_window_stats(meta_window,
@@ -253,6 +312,7 @@ if __name__ == '__main__':
                               feature_set=feature_list,
                               pvalue_threshold=pval_threshold,
                               fdr_method=fdr_method)
+    
     confirmation_window_boxplots(meta_window,
                                  feat_window,
                                  group_by='gene_name',
@@ -263,6 +323,10 @@ if __name__ == '__main__':
                                  pvalue_threshold=pval_threshold,
                                  scale_outliers=False,
                                  ylim_minmax=None) # ylim_minmax for speed feature only 
+    
+    # perform cluster analysis to find hit strains for each feature
+    top16 = select_feat_set(features, tierpsy_set_name='tierpsy_16')
+    hit_strains_by_feature(metadata, top16)
     
     strain_list = ['fepD']
     for strain in tqdm(strain_list):

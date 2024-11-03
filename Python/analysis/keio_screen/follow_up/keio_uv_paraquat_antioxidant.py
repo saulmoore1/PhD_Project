@@ -19,6 +19,7 @@ import seaborn as sns
 from tqdm import tqdm
 from pathlib import Path
 from matplotlib import pyplot as plt
+from matplotlib import transforms
 
 from preprocessing.compile_hydra_data import compile_metadata, process_feature_summaries
 from filter_data.clean_feature_summaries import clean_summary_results
@@ -34,7 +35,7 @@ from tierpsytools.preprocessing.filter_data import select_feat_set
 #%% Globals
 
 PROJECT_DIR = "/Volumes/hermes$/Saul/Keio_Screen/Data/Keio_UV_Paraquat_Antioxidant"
-SAVE_DIR = "/Users/sm5911/Documents/Keio_UV_Paraquat_Antioxidant"
+SAVE_DIR = "/Users/sm5911/Documents/PhD_DLBG/17_Keio_UV_Paraquat_Antioxidant"
 
 N_WELLS = 6
 FPS = 25
@@ -60,14 +61,14 @@ WINDOW_NAME_DICT = {0:"blue light 1", 1: "20-30 seconds after blue light 1",
 
 #%% Functions
 
-def uv_paraquat_antioxidant_stats(metadata,
-                                  features,
-                                  group_by='treatment',
-                                  control='BW',
-                                  save_dir=None,
-                                  feature_set=None,
-                                  pvalue_threshold=0.05,
-                                  fdr_method='fdr_bh'):
+def stats(metadata,
+          features,
+          group_by='treatment',
+          control='BW',
+          save_dir=None,
+          feature_set=None,
+          pvalue_threshold=0.05,
+          fdr_method='fdr_bh'):
     
     # check case-sensitivity
     assert len(metadata[group_by].unique()) == len(metadata[group_by].str.upper().unique())
@@ -90,10 +91,6 @@ def uv_paraquat_antioxidant_stats(metadata,
     fset = []
     if n > 2:
    
-        # Perform ANOVA - is there variation among strains at each window?
-        anova_path = Path(save_dir) / 'ANOVA' / 'ANOVA_results.csv'
-        anova_path.parent.mkdir(parents=True, exist_ok=True)
-
         stats, pvals, reject = univariate_tests(X=features, 
                                                 y=metadata[group_by], 
                                                 control=control, 
@@ -115,7 +112,12 @@ def uv_paraquat_antioxidant_stats(metadata,
         test_results.columns = ['stats','effect_size','pvals','reject']     
         test_results['significance'] = sig_asterix(test_results['pvals'])
         test_results = test_results.sort_values(by=['pvals'], ascending=True) # rank by p-value
-        test_results.to_csv(anova_path, header=True, index=True)
+        
+        # Perform ANOVA - is there variation among strains at each window?
+        if save_dir is not None:
+            anova_path = Path(save_dir) / 'ANOVA_results.csv'
+            anova_path.parent.mkdir(parents=True, exist_ok=True)
+            test_results.to_csv(anova_path, header=True, index=True)
 
         # use reject mask to find significant feature set
         fset = pvals.loc[reject['ANOVA']].sort_values(by='ANOVA', ascending=True).index.to_list()
@@ -123,8 +125,9 @@ def uv_paraquat_antioxidant_stats(metadata,
         if len(fset) > 0:
             print("%d significant features found by ANOVA by '%s' (P<%.2f, %s)" %\
                   (len(fset), group_by, pvalue_threshold, fdr_method))
-            anova_sigfeats_path = anova_path.parent / 'ANOVA_sigfeats.txt'
-            write_list_to_file(fset, anova_sigfeats_path)
+            if save_dir is not None:
+                anova_sigfeats_path = anova_path.parent / 'ANOVA_sigfeats.txt'
+                write_list_to_file(fset, anova_sigfeats_path)
              
     # Perform t-tests
     stats_t, pvals_t, reject_t = univariate_tests(X=features,
@@ -147,15 +150,16 @@ def uv_paraquat_antioxidant_stats(metadata,
     ttest_results = pd.concat([stats_t, pvals_t, reject_t, effect_sizes_t], axis=1)
     
     # save results
-    ttest_path = Path(save_dir) / 't-test' / 't-test_results.csv'
-    ttest_path.parent.mkdir(exist_ok=True, parents=True)
-    ttest_results.to_csv(ttest_path, header=True, index=True)
+    if save_dir is not None:
+        ttest_path = Path(save_dir) / 't-test_results.csv'
+        ttest_path.parent.mkdir(exist_ok=True, parents=True)
+        ttest_results.to_csv(ttest_path, header=True, index=True)
     
     nsig = sum(reject_t.sum(axis=1) > 0)
     print("%d significant features between any %s vs %s (t-test, P<%.2f, %s)" %\
           (nsig, group_by, control, pvalue_threshold, fdr_method))
 
-    return
+    return ttest_results
 
 def uv_paraquat_antioxidant_boxplots(metadata,
                                      features,
@@ -286,6 +290,134 @@ def main():
     # subset metadata results for bluelight videos only 
     bluelight_videos = [i for i in metadata['imgstore_name'] if 'bluelight' in i]
     metadata = metadata[metadata['imgstore_name'].isin(bluelight_videos)]
+
+
+    # Antioxidants
+
+    metadata = metadata[metadata['window']==5] # subset for window after final BL pulse
+    metadata = metadata[metadata['is_dead']=='N'] # subset for live bacteria only
+    metadata['drug_type'] = metadata['drug_type'].fillna('None') # fill NaN values with 'None'
+    metadata['drug_imaging_plate_conc'] = metadata['drug_imaging_plate_conc'].fillna('None')
+    antioxidant_list = ['None','NAC','Vitamin C']
+    meta_antiox = metadata[metadata['drug_type'].isin(antioxidant_list)]
+    feat_antiox = features.reindex(meta_antiox.index)
+    
+    antioxidant_cols = ['drug_type','drug_imaging_plate_conc']
+    meta_antiox['antioxidant'] = meta_antiox[antioxidant_cols].astype(str).agg('-'.join, axis=1)
+    meta_antiox['antioxidant'] = [i.split('-None')[0] for i in meta_antiox['antioxidant']]
+    antioxidant_list = ['None'] + [i for i in sorted(meta_antiox['antioxidant'].unique()) if i != 'None']
+    strain_list = sorted(meta_antiox['food_type'].unique())
+    
+    stats_dir = Path(PROJECT_DIR) / 'Stats'
+    plot_dir = Path(PROJECT_DIR) / 'Plots'
+    
+    # boxplots
+    plot_df = meta_antiox.join(feat_antiox)
+    strain_lut = dict(zip(strain_list, sns.color_palette('tab10',len(strain_list))))
+    
+    plt.close('all')
+    sns.set_style('ticks')
+    fig = plt.figure(figsize=[12,6])
+    ax = fig.add_subplot(1,1,1)
+    sns.boxplot(x='antioxidant',
+                y='speed_50th',
+                data=plot_df, 
+                order=antioxidant_list,
+                hue='food_type',
+                hue_order=strain_list,
+                palette=strain_lut,
+                dodge=True,
+                showfliers=False, 
+                showmeans=False,
+                meanprops={"marker":"x", 
+                           "markersize":5,
+                           "markeredgecolor":"k"},
+                flierprops={"marker":"x", 
+                            "markersize":15, 
+                            "markeredgecolor":"r"})
+    dates = sorted(plot_df['date_yyyymmdd'].unique())
+    date_lut = dict(zip(dates, sns.color_palette(palette="Greys", n_colors=len(dates))))
+    for date in dates:
+        date_df = plot_df[plot_df['date_yyyymmdd']==date]
+        sns.stripplot(x='antioxidant',
+                      y='speed_50th',
+                      data=date_df,
+                      s=8,
+                      order=antioxidant_list,
+                      hue='food_type',
+                      hue_order=strain_list,
+                      dodge=True,
+                      palette=[date_lut[date]] * len(antioxidant_list),
+                      color=None,
+                      marker=".",
+                      edgecolor='k',
+                      linewidth=0.3) #facecolors="none"
+    
+    # scale y axis for annotations    
+    trans = transforms.blended_transform_factory(ax.transData, ax.transAxes) #y=scaled
+
+    ax.axes.get_xaxis().get_label().set_visible(False) # remove x axis label
+    ax.tick_params(axis='x', which='major', pad=15)
+    plt.xticks(fontsize=15)
+    ax.tick_params(axis='y', which='major', pad=15)
+    plt.yticks(fontsize=20)
+    ax.axes.set_ylabel('Speed (µm s$^{-1}$)', fontsize=25, labelpad=20)  
+    plt.ylim(-20, 280)
+    handles, labels = ax.get_legend_handles_labels()
+    ax.legend(handles[:2], labels[:2], loc='upper right', frameon=False, fontsize=15)
+    #plt.axhline(y=0, c='grey')
+
+    # stats
+    treatment_cols = ['food_type','drug_type','drug_imaging_plate_conc']
+    meta_antiox['treatment'] = meta_antiox[treatment_cols].astype(str).agg('-'.join, axis=1)
+    meta_antiox['treatment'] = [i.split('-None')[0] for i in meta_antiox['treatment']]
+
+    ttest_results = stats(meta_antiox,
+                          feat_antiox,
+                          group_by='treatment',
+                          control='BW',
+                          save_dir=stats_dir,
+                          feature_set=None,
+                          pvalue_threshold=0.05,
+                          fdr_method='fdr_bh')
+    pvals = ttest_results[[c for c in ttest_results.columns if 'pvals' in c]]
+    pvals.columns = [c.split('pvals_')[-1] for c in pvals.columns]
+
+    # add pvalues to plot - all treatments vs BW-live
+    for i, text in enumerate(ax.axes.get_xticklabels()):
+        treatment = text.get_text()
+        if treatment == 'None':
+            p = pvals.loc['speed_50th','fepD']
+            p_text = sig_asterix([p])[0]
+            ax.text(i+0.2, 1.03, p_text, fontsize=20, ha='center', va='center', transform=trans)
+        else:
+            p1 = pvals.loc['speed_50th','BW-'+treatment]
+            p2 = pvals.loc['speed_50th','fepD-'+treatment]
+            p1_text = sig_asterix([p1])[0]
+            p2_text = sig_asterix([p2])[0]
+            ax.text(i-0.2, 1.03, p1_text, fontsize=20, ha='center', va='center', transform=trans)
+            ax.text(i+0.2, 1.03, p2_text, fontsize=20, ha='center', va='center', transform=trans)
+            
+    # # add pvalues to plot - live vs dead for each strain
+    # pvals = pd.read_csv(stats_dir / 'live_vs_dead_for_each_strain/t-test_corrected/t-test_results.csv',
+    #                     index_col=0, header=0)
+    # for i, text in enumerate(ax.axes.get_xticklabels()):
+    #     strain = text.get_text()
+    #     p = pvals.loc[strain, 'pvals']
+    #     p_text = sig_asterix([p])[0]
+    #     ax.text(i, 0.95, p_text, fontsize=20, ha='center', va='center', transform=trans)
+    
+    #     # Plot the bar: [x1,x1,x2,x2],[bar_tips,bar_height,bar_height,bar_tips]
+    #     plt.plot([i-0.2, i-0.2, i+0.2, i+0.2],[0.90, 0.92, 0.92, 0.90], lw=1, c='k', transform=trans)
+    
+    #plt.subplots_adjust(left=0.01, right=0.9)
+    boxplot_path = plot_dir / 'speed_50th_vs_BW-No_antioxidant.svg'
+    boxplot_path.parent.mkdir(exist_ok=True, parents=True)
+    #plt.subplots_adjust(left=0.125,right=0.9,bottom=0.1,top=0.9)
+    plt.savefig(boxplot_path, bbox_inches='tight', transparent=True)    
+
+
+#%% Paraquat
     
     treatment_cols = ['food_type','drug_type','drug_imaging_plate_conc','is_dead']
     metadata['treatment'] = metadata[treatment_cols].astype(str).agg('-'.join, axis=1)
