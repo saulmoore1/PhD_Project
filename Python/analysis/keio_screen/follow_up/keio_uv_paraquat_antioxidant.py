@@ -24,7 +24,7 @@ from matplotlib import transforms
 from preprocessing.compile_hydra_data import compile_metadata, process_feature_summaries
 from filter_data.clean_feature_summaries import clean_summary_results
 from write_data.write import write_list_to_file
-from visualisation.plotting_helper import sig_asterix, boxplots_sigfeats, all_in_one_boxplots
+from visualisation.plotting_helper import sig_asterix, boxplots_sigfeats#, all_in_one_boxplots
 from time_series.plot_timeseries import plot_timeseries_feature, plot_timeseries #selected_strains_timeseries
 from time_series.time_series_helper import get_strain_timeseries
 from analysis.keio_screen.follow_up.lawn_leaving_rate import fraction_on_food, timeseries_on_food
@@ -291,13 +291,17 @@ def main():
     bluelight_videos = [i for i in metadata['imgstore_name'] if 'bluelight' in i]
     metadata = metadata[metadata['imgstore_name'].isin(bluelight_videos)]
 
-
-    # Antioxidants
-
     metadata = metadata[metadata['window']==5] # subset for window after final BL pulse
     metadata = metadata[metadata['is_dead']=='N'] # subset for live bacteria only
     metadata['drug_type'] = metadata['drug_type'].fillna('None') # fill NaN values with 'None'
     metadata['drug_imaging_plate_conc'] = metadata['drug_imaging_plate_conc'].fillna('None')
+    features = features[feature_list].reindex(metadata.index)
+
+    stats_dir = Path(SAVE_DIR) / 'Stats'
+    plot_dir = Path(SAVE_DIR) / 'Plots'
+
+    # Antioxidants
+
     antioxidant_list = ['None','NAC','Vitamin C']
     meta_antiox = metadata[metadata['drug_type'].isin(antioxidant_list)]
     feat_antiox = features.reindex(meta_antiox.index)
@@ -307,10 +311,7 @@ def main():
     meta_antiox['antioxidant'] = [i.split('-None')[0] for i in meta_antiox['antioxidant']]
     antioxidant_list = ['None'] + [i for i in sorted(meta_antiox['antioxidant'].unique()) if i != 'None']
     strain_list = sorted(meta_antiox['food_type'].unique())
-    
-    stats_dir = Path(PROJECT_DIR) / 'Stats'
-    plot_dir = Path(PROJECT_DIR) / 'Plots'
-    
+        
     # boxplots
     plot_df = meta_antiox.join(feat_antiox)
     strain_lut = dict(zip(strain_list, sns.color_palette('tab10',len(strain_list))))
@@ -376,7 +377,7 @@ def main():
                           feat_antiox,
                           group_by='treatment',
                           control='BW',
-                          save_dir=stats_dir,
+                          save_dir=stats_dir / 'antioxidant',
                           feature_set=None,
                           pvalue_threshold=0.05,
                           fdr_method='fdr_bh')
@@ -411,158 +412,267 @@ def main():
     #     plt.plot([i-0.2, i-0.2, i+0.2, i+0.2],[0.90, 0.92, 0.92, 0.90], lw=1, c='k', transform=trans)
     
     #plt.subplots_adjust(left=0.01, right=0.9)
-    boxplot_path = plot_dir / 'speed_50th_vs_BW-No_antioxidant.svg'
+    boxplot_path = plot_dir / 'Antioxidant' / 'speed_50th_vs_BW-No_antioxidant.svg'
     boxplot_path.parent.mkdir(exist_ok=True, parents=True)
     #plt.subplots_adjust(left=0.125,right=0.9,bottom=0.1,top=0.9)
     plt.savefig(boxplot_path, bbox_inches='tight', transparent=True)    
 
 
-#%% Paraquat
+    # Paraquat
     
+    paraquat_list = ['None','Paraquat']
+    meta_paraq = metadata[metadata['drug_type'].isin(paraquat_list)]
+    feat_paraq = features.reindex(meta_paraq.index)
+    
+    paraquat_cols = ['drug_type','drug_imaging_plate_conc']
+   
+    meta_paraq['paraquat'] = meta_paraq[paraquat_cols].astype(str).agg('-'.join, axis=1)
+    meta_paraq['paraquat'] = [i.split('-None')[0] for i in meta_paraq['paraquat']]
+    paraquat_list = ['None'] + [i for i in sorted(meta_paraq['paraquat'].unique()) if i != 'None']
+    strain_list = sorted(meta_paraq['food_type'].unique())
+    
+    # boxplots
+    plot_df = meta_paraq.join(feat_paraq)
+    strain_lut = dict(zip(strain_list, sns.color_palette('tab10',len(strain_list))))
+    
+    plt.close('all')
+    sns.set_style('ticks')
+    fig = plt.figure(figsize=[12,6])
+    ax = fig.add_subplot(1,1,1)
+    sns.boxplot(x='paraquat',
+                y='speed_50th',
+                data=plot_df, 
+                order=paraquat_list,
+                hue='food_type',
+                hue_order=strain_list,
+                palette=strain_lut,
+                dodge=True,
+                showfliers=False, 
+                showmeans=False,
+                meanprops={"marker":"x", 
+                           "markersize":5,
+                           "markeredgecolor":"k"},
+                flierprops={"marker":"x", 
+                            "markersize":15, 
+                            "markeredgecolor":"r"})
+    dates = sorted(plot_df['date_yyyymmdd'].unique())
+    date_lut = dict(zip(dates, sns.color_palette(palette="Greys", n_colors=len(dates))))
+    for date in dates:
+        date_df = plot_df[plot_df['date_yyyymmdd']==date]
+        sns.stripplot(x='paraquat',
+                      y='speed_50th',
+                      data=date_df,
+                      s=8,
+                      order=paraquat_list,
+                      hue='food_type',
+                      hue_order=strain_list,
+                      dodge=True,
+                      palette=[date_lut[date]] * len(antioxidant_list),
+                      color=None,
+                      marker=".",
+                      edgecolor='k',
+                      linewidth=0.3) #facecolors="none"
+    
+    # scale y axis for annotations    
+    trans = transforms.blended_transform_factory(ax.transData, ax.transAxes) #y=scaled
+
+    ax.axes.get_xaxis().get_label().set_visible(False) # remove x axis label
+    ax.tick_params(axis='x', which='major', pad=15)
+    plt.xticks(fontsize=15)
+    ax.tick_params(axis='y', which='major', pad=15)
+    plt.yticks(fontsize=20)
+    ax.axes.set_ylabel('Speed (µm s$^{-1}$)', fontsize=25, labelpad=20)  
+    plt.ylim(-20, 280)
+    handles, labels = ax.get_legend_handles_labels()
+    ax.legend(handles[:2], labels[:2], loc='lower right', frameon=False, fontsize=15)
+    #plt.axhline(y=0, c='grey')
+
+    # stats
+    treatment_cols = ['food_type','drug_type','drug_imaging_plate_conc']
+    meta_paraq['treatment'] = meta_paraq[treatment_cols].astype(str).agg('-'.join, axis=1)
+    meta_paraq['treatment'] = [i.split('-None')[0] for i in meta_paraq['treatment']]
+
+    ttest_results = stats(meta_paraq,
+                          feat_paraq,
+                          group_by='treatment',
+                          control='BW',
+                          save_dir=stats_dir / 'paraquat',
+                          feature_set=None,
+                          pvalue_threshold=0.05,
+                          fdr_method='fdr_bh')
+    pvals = ttest_results[[c for c in ttest_results.columns if 'pvals' in c]]
+    pvals.columns = [c.split('pvals_')[-1] for c in pvals.columns]
+
+    # add pvalues to plot - all treatments vs BW-live
+    for i, text in enumerate(ax.axes.get_xticklabels()):
+        treatment = text.get_text()
+        if treatment == 'None':
+            p = pvals.loc['speed_50th','fepD']
+            p_text = sig_asterix([p])[0]
+            ax.text(i+0.2, 1.03, p_text, fontsize=20, ha='center', va='center', transform=trans)
+        else:
+            p1 = pvals.loc['speed_50th','BW-'+treatment]
+            p2 = pvals.loc['speed_50th','fepD-'+treatment]
+            p1_text = sig_asterix([p1])[0]
+            p2_text = sig_asterix([p2])[0]
+            ax.text(i-0.2, 1.03, p1_text, fontsize=20, ha='center', va='center', transform=trans)
+            ax.text(i+0.2, 1.03, p2_text, fontsize=20, ha='center', va='center', transform=trans)
+            
+    boxplot_path = plot_dir / 'Paraquat' /'speed_50th_vs_BW-No_paraquat.svg'
+    boxplot_path.parent.mkdir(exist_ok=True, parents=True)
+    plt.savefig(boxplot_path, bbox_inches='tight', transparent=True)    
+
+
+# =============================================================================
+#     treatment_cols = ['food_type','drug_type','drug_imaging_plate_conc','is_dead']
+#     metadata['treatment'] = metadata[treatment_cols].astype(str).agg('-'.join, axis=1)
+#     control = 'BW-nan-nan-N'
+# 
+#     metadata['window'] = metadata['window'].astype(int)
+#     window_list = list(metadata['window'].unique())
+# 
+#     # save video file list for treatments (for manual inspection)
+#     video_dict = masked_video_list_from_metadata(metadata, 
+#                                                  group_by='treatment', 
+#                                                  groups_list=[control,'fepD-nan-nan-N'],
+#                                                  project_dir=Path(PROJECT_DIR),
+#                                                  save_dir=Path(SAVE_DIR) / 'video_filenames')
+#     print("Found file information for %d treatment groups" % len(video_dict.keys()))
+# 
+#     for window in tqdm(window_list):
+#         meta_window = metadata[metadata['window']==window]
+#         feat_window = features.reindex(meta_window.index)
+# 
+#         stats_dir = Path(SAVE_DIR) / 'Stats' / WINDOW_NAME_DICT[window]
+#         plot_dir = Path(SAVE_DIR) / 'Plots' / WINDOW_NAME_DICT[window]
+#     
+#         # perform anova and t-tests comparing each treatment to BW control
+#         uv_paraquat_antioxidant_stats(meta_window,
+#                                       feat_window,
+#                                       group_by='treatment',
+#                                       control=control,
+#                                       save_dir=Path(SAVE_DIR) / 'Stats' / WINDOW_NAME_DICT[window],
+#                                       feature_set=feature_list,
+#                                       pvalue_threshold=0.05,
+#                                       fdr_method='fdr_bh')
+#         
+#         # boxplots comparing each treatment to BW control for each feature
+#         uv_paraquat_antioxidant_boxplots(meta_window,
+#                                          feat_window,
+#                                          group_by='treatment',
+#                                          control=control,
+#                                          save_dir=Path(SAVE_DIR) / 'Plots' / WINDOW_NAME_DICT[window],
+#                                          stats_dir=Path(SAVE_DIR) / 'Stats' / WINDOW_NAME_DICT[window],
+#                                          feature_set=feature_list,
+#                                          pvalue_threshold=0.05)
+#         
+#         # antioxidants
+#         antiox_meta = meta_window[np.logical_and(meta_window['drug_type']!='Paraquat',
+#                                                  meta_window['is_dead']=='N')]
+#         antiox_feat = feat_window.reindex(antiox_meta.index)
+#         uv_paraquat_antioxidant_stats(antiox_meta,
+#                                       antiox_feat,
+#                                       group_by='treatment',
+#                                       control=control,
+#                                       save_dir=stats_dir / 'antioxidants',
+#                                       feature_set=feature_list,
+#                                       pvalue_threshold=0.05,
+#                                       fdr_method='fdr_bh')
+#         order = ['BW-nan-nan-N','fepD-nan-nan-N',
+#                  'BW-Vitamin C-0.5-N','BW-Vitamin C-1.0-N','fepD-Vitamin C-0.5-N','fepD-Vitamin C-1.0-N',
+#                  'BW-NAC-0.5-N','BW-NAC-1.0-N','fepD-NAC-0.5-N','fepD-NAC-1.0-N']
+#         colour_labels = sns.color_palette('tab10', 2)
+#         colours = [colour_labels[0] if 'BW' in s else colour_labels[1] for s in order]
+#         colour_dict = {key:col for (key,col) in zip(order, colours)}
+#         all_in_one_boxplots(antiox_meta,
+#                             antiox_feat,
+#                             group_by='treatment',
+#                             control=control,
+#                             save_dir=plot_dir / 'all-in-one' / 'antioxidants',
+#                             ttest_path=stats_dir / 'antioxidants' / 't-test' / 't-test_results.csv',
+#                             feature_set=feature_list,
+#                             pvalue_threshold=0.05,
+#                             order=order,
+#                             colour_dict=colour_dict,
+#                             figsize=(30,10),
+#                             ylim_minmax=(-20,380),
+#                             vline_boxpos=[1,5],
+#                             fontsize=20,
+#                             subplots_adjust={'bottom':0.32,'top':0.95,'left':0.05,'right':0.98})
+#         
+#         # paraquat (live)
+#         paraquat_meta = meta_window[np.logical_and(np.logical_or(meta_window['drug_type']=='Paraquat',
+#                                                                  meta_window['drug_type'].astype(str)=='nan'),
+#                                                    meta_window['is_dead']=='N')]
+#         paraquat_feat = feat_window.reindex(paraquat_meta.index)
+#         uv_paraquat_antioxidant_stats(paraquat_meta,
+#                                       paraquat_feat,
+#                                       group_by='treatment',
+#                                       control=control,
+#                                       save_dir=stats_dir / 'paraquat-live',
+#                                       feature_set=feature_list,
+#                                       pvalue_threshold=0.05,
+#                                       fdr_method='fdr_bh')
+#         order = ['BW-nan-nan-N','BW-Paraquat-0.5-N','BW-Paraquat-1.0-N',
+#                  'fepD-nan-nan-N','fepD-Paraquat-0.5-N','fepD-Paraquat-1.0-N']
+#         colour_labels = sns.color_palette('tab10', 2)
+#         colours = [colour_labels[0] if 'BW' in s else colour_labels[1] for s in order]
+#         colour_dict = {key:col for (key,col) in zip(order, colours)}
+#         all_in_one_boxplots(paraquat_meta,
+#                             paraquat_feat,
+#                             group_by='treatment',
+#                             control=control,
+#                             save_dir=plot_dir / 'all-in-one' / 'paraquat-live',
+#                             ttest_path=stats_dir / 'paraquat-live' / 't-test' / 't-test_results.csv',
+#                             feature_set=feature_list,
+#                             pvalue_threshold=0.05,
+#                             order=order,
+#                             colour_dict=colour_dict,
+#                             figsize=(20,10),
+#                             ylim_minmax=(-20,380),
+#                             vline_boxpos=[2],
+#                             fontsize=20,
+#                             subplots_adjust={'bottom':0.32,'top':0.95,'left':0.05,'right':0.98})
+#         
+#         # paraquat (dead)
+#         paraquat_meta = meta_window[np.logical_and(np.logical_or(meta_window['drug_type']=='Paraquat',
+#                                                                  meta_window['drug_type'].astype(str)=='nan'),
+#                                                    meta_window['is_dead']=='Y')]
+#         paraquat_feat = feat_window.reindex(paraquat_meta.index)
+#         uv_paraquat_antioxidant_stats(paraquat_meta,
+#                                       paraquat_feat,
+#                                       group_by='treatment',
+#                                       control='BW-nan-nan-Y',
+#                                       save_dir=stats_dir / 'paraquat-dead',
+#                                       feature_set=feature_list,
+#                                       pvalue_threshold=0.05,
+#                                       fdr_method='fdr_bh')
+#         order = ['BW-nan-nan-Y','BW-Paraquat-0.5-Y','BW-Paraquat-1.0-Y',
+#                  'fepD-nan-nan-Y','fepD-Paraquat-0.5-Y','fepD-Paraquat-1.0-Y']
+#         colour_labels = sns.color_palette('tab10', 2)
+#         colours = [colour_labels[0] if 'BW' in s else colour_labels[1] for s in order]
+#         colour_dict = {key:col for (key,col) in zip(order, colours)}
+#         all_in_one_boxplots(paraquat_meta,
+#                             paraquat_feat,
+#                             group_by='treatment',
+#                             control='BW-nan-nan-Y',
+#                             save_dir=plot_dir / 'all-in-one' / 'paraquat-dead',
+#                             ttest_path=stats_dir / 'paraquat-dead' / 't-test' / 't-test_results.csv',
+#                             feature_set=feature_list,
+#                             pvalue_threshold=0.05,
+#                             order=order,
+#                             colour_dict=colour_dict,
+#                             figsize=(20,10),
+#                             ylim_minmax=(-20,380),
+#                             vline_boxpos=[2],
+#                             fontsize=20,
+#                             subplots_adjust={'bottom':0.32,'top':0.95,'left':0.05,'right':0.98})        
+# =============================================================================
+
     treatment_cols = ['food_type','drug_type','drug_imaging_plate_conc','is_dead']
     metadata['treatment'] = metadata[treatment_cols].astype(str).agg('-'.join, axis=1)
     control = 'BW-nan-nan-N'
-
-    metadata['window'] = metadata['window'].astype(int)
-    window_list = list(metadata['window'].unique())
-
-    # save video file list for treatments (for manual inspection)
-    video_dict = masked_video_list_from_metadata(metadata, 
-                                                 group_by='treatment', 
-                                                 groups_list=[control,'fepD-nan-nan-N'],
-                                                 project_dir=Path(PROJECT_DIR),
-                                                 save_dir=Path(SAVE_DIR) / 'video_filenames')
-    print("Found file information for %d treatment groups" % len(video_dict.keys()))
-
-    for window in tqdm(window_list):
-        meta_window = metadata[metadata['window']==window]
-        feat_window = features.reindex(meta_window.index)
-
-        stats_dir = Path(SAVE_DIR) / 'Stats' / WINDOW_NAME_DICT[window]
-        plot_dir = Path(SAVE_DIR) / 'Plots' / WINDOW_NAME_DICT[window]
     
-        # perform anova and t-tests comparing each treatment to BW control
-        uv_paraquat_antioxidant_stats(meta_window,
-                                      feat_window,
-                                      group_by='treatment',
-                                      control=control,
-                                      save_dir=Path(SAVE_DIR) / 'Stats' / WINDOW_NAME_DICT[window],
-                                      feature_set=feature_list,
-                                      pvalue_threshold=0.05,
-                                      fdr_method='fdr_bh')
-        
-        # boxplots comparing each treatment to BW control for each feature
-        uv_paraquat_antioxidant_boxplots(meta_window,
-                                         feat_window,
-                                         group_by='treatment',
-                                         control=control,
-                                         save_dir=Path(SAVE_DIR) / 'Plots' / WINDOW_NAME_DICT[window],
-                                         stats_dir=Path(SAVE_DIR) / 'Stats' / WINDOW_NAME_DICT[window],
-                                         feature_set=feature_list,
-                                         pvalue_threshold=0.05)
-        
-        # antioxidants
-        antiox_meta = meta_window[np.logical_and(meta_window['drug_type']!='Paraquat',
-                                                 meta_window['is_dead']=='N')]
-        antiox_feat = feat_window.reindex(antiox_meta.index)
-        uv_paraquat_antioxidant_stats(antiox_meta,
-                                      antiox_feat,
-                                      group_by='treatment',
-                                      control=control,
-                                      save_dir=stats_dir / 'antioxidants',
-                                      feature_set=feature_list,
-                                      pvalue_threshold=0.05,
-                                      fdr_method='fdr_bh')
-        order = ['BW-nan-nan-N','fepD-nan-nan-N',
-                 'BW-Vitamin C-0.5-N','BW-Vitamin C-1.0-N','fepD-Vitamin C-0.5-N','fepD-Vitamin C-1.0-N',
-                 'BW-NAC-0.5-N','BW-NAC-1.0-N','fepD-NAC-0.5-N','fepD-NAC-1.0-N']
-        colour_labels = sns.color_palette('tab10', 2)
-        colours = [colour_labels[0] if 'BW' in s else colour_labels[1] for s in order]
-        colour_dict = {key:col for (key,col) in zip(order, colours)}
-        all_in_one_boxplots(antiox_meta,
-                            antiox_feat,
-                            group_by='treatment',
-                            control=control,
-                            save_dir=plot_dir / 'all-in-one' / 'antioxidants',
-                            ttest_path=stats_dir / 'antioxidants' / 't-test' / 't-test_results.csv',
-                            feature_set=feature_list,
-                            pvalue_threshold=0.05,
-                            order=order,
-                            colour_dict=colour_dict,
-                            figsize=(30,10),
-                            ylim_minmax=(-20,380),
-                            vline_boxpos=[1,5],
-                            fontsize=20,
-                            subplots_adjust={'bottom':0.32,'top':0.95,'left':0.05,'right':0.98})
-        
-        # paraquat (live)
-        paraquat_meta = meta_window[np.logical_and(np.logical_or(meta_window['drug_type']=='Paraquat',
-                                                                 meta_window['drug_type'].astype(str)=='nan'),
-                                                   meta_window['is_dead']=='N')]
-        paraquat_feat = feat_window.reindex(paraquat_meta.index)
-        uv_paraquat_antioxidant_stats(paraquat_meta,
-                                      paraquat_feat,
-                                      group_by='treatment',
-                                      control=control,
-                                      save_dir=stats_dir / 'paraquat-live',
-                                      feature_set=feature_list,
-                                      pvalue_threshold=0.05,
-                                      fdr_method='fdr_bh')
-        order = ['BW-nan-nan-N','BW-Paraquat-0.5-N','BW-Paraquat-1.0-N',
-                 'fepD-nan-nan-N','fepD-Paraquat-0.5-N','fepD-Paraquat-1.0-N']
-        colour_labels = sns.color_palette('tab10', 2)
-        colours = [colour_labels[0] if 'BW' in s else colour_labels[1] for s in order]
-        colour_dict = {key:col for (key,col) in zip(order, colours)}
-        all_in_one_boxplots(paraquat_meta,
-                            paraquat_feat,
-                            group_by='treatment',
-                            control=control,
-                            save_dir=plot_dir / 'all-in-one' / 'paraquat-live',
-                            ttest_path=stats_dir / 'paraquat-live' / 't-test' / 't-test_results.csv',
-                            feature_set=feature_list,
-                            pvalue_threshold=0.05,
-                            order=order,
-                            colour_dict=colour_dict,
-                            figsize=(20,10),
-                            ylim_minmax=(-20,380),
-                            vline_boxpos=[2],
-                            fontsize=20,
-                            subplots_adjust={'bottom':0.32,'top':0.95,'left':0.05,'right':0.98})
-        
-        # paraquat (dead)
-        paraquat_meta = meta_window[np.logical_and(np.logical_or(meta_window['drug_type']=='Paraquat',
-                                                                 meta_window['drug_type'].astype(str)=='nan'),
-                                                   meta_window['is_dead']=='Y')]
-        paraquat_feat = feat_window.reindex(paraquat_meta.index)
-        uv_paraquat_antioxidant_stats(paraquat_meta,
-                                      paraquat_feat,
-                                      group_by='treatment',
-                                      control='BW-nan-nan-Y',
-                                      save_dir=stats_dir / 'paraquat-dead',
-                                      feature_set=feature_list,
-                                      pvalue_threshold=0.05,
-                                      fdr_method='fdr_bh')
-        order = ['BW-nan-nan-Y','BW-Paraquat-0.5-Y','BW-Paraquat-1.0-Y',
-                 'fepD-nan-nan-Y','fepD-Paraquat-0.5-Y','fepD-Paraquat-1.0-Y']
-        colour_labels = sns.color_palette('tab10', 2)
-        colours = [colour_labels[0] if 'BW' in s else colour_labels[1] for s in order]
-        colour_dict = {key:col for (key,col) in zip(order, colours)}
-        all_in_one_boxplots(paraquat_meta,
-                            paraquat_feat,
-                            group_by='treatment',
-                            control='BW-nan-nan-Y',
-                            save_dir=plot_dir / 'all-in-one' / 'paraquat-dead',
-                            ttest_path=stats_dir / 'paraquat-dead' / 't-test' / 't-test_results.csv',
-                            feature_set=feature_list,
-                            pvalue_threshold=0.05,
-                            order=order,
-                            colour_dict=colour_dict,
-                            figsize=(20,10),
-                            ylim_minmax=(-20,380),
-                            vline_boxpos=[2],
-                            fontsize=20,
-                            subplots_adjust={'bottom':0.32,'top':0.95,'left':0.05,'right':0.98})        
-        
     metadata = metadata[metadata['window']==0]
     strain_list = list(metadata['treatment'].unique())
 

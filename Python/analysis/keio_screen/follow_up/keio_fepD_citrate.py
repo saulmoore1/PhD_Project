@@ -4,7 +4,7 @@
 Analysis of N2 worms on fepD supplemented with citrate, uric acid or NaOH
 
 @author: sm5911
-@date: 13/12/2022
+@date: 13/12/2022 (updated: 19/11/2024)
 
 """
 
@@ -29,7 +29,7 @@ from tierpsytools.preprocessing.filter_data import select_feat_set
 #%% Globals
 
 PROJECT_DIR = "/Volumes/hermes$/Saul/Keio_Screen/Data/Keio_FepD_Citrate"
-SAVE_DIR = "/Users/sm5911/Documents/Keio_FepD_Citrate"
+SAVE_DIR = "/Users/sm5911/Documents/PhD_DLBG/24_Keio_FepD_Citrate"
 
 N_WELLS = 6
 FPS = 25

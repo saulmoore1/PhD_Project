@@ -15,12 +15,15 @@ Iron + Enterobactin
 
 import pandas as pd
 import seaborn as sns
-from tqdm import tqdm
+#from tqdm import tqdm
 from pathlib import Path
 from preprocessing.compile_hydra_data import compile_metadata, process_feature_summaries
 from filter_data.clean_feature_summaries import clean_summary_results
 from write_data.write import write_list_to_file
-from visualisation.plotting_helper import sig_asterix, boxplots_sigfeats, all_in_one_boxplots
+from visualisation.plotting_helper import sig_asterix, boxplots_sigfeats#, all_in_one_boxplots
+from matplotlib import pyplot as plt
+from matplotlib import transforms
+
 # from analysis.keio_screen.follow_up.uv_paraquat_antioxidant import masked_video_list_from_metadata
 from time_series.plot_timeseries import plot_timeseries_feature#, selected_strains_timeseries
 from tierpsytools.analysis.statistical_tests import univariate_tests, get_effect_sizes
@@ -29,7 +32,8 @@ from tierpsytools.preprocessing.filter_data import select_feat_set
 #%% Globals
 
 PROJECT_DIR = "/Volumes/hermes$/Saul/Keio_Screen/Data/Keio_Iron_Enterobactin"
-SAVE_DIR = "/Users/sm5911/Documents/Keio_Iron_Enterobactin"
+CONTROL_DATA_DIR = '/Users/sm5911/Documents/PhD_DLBG/18_Keio_Worm_Stress_Mutants'
+SAVE_DIR = "/Users/sm5911/Documents/PhD_DLBG/20_Keio_Iron_Enterobactin"
 
 N_WELLS = 6
 FPS = 25
@@ -52,18 +56,16 @@ WINDOW_NAME_DICT = {0:"blue light 1", 1: "20-30 seconds after blue light 1",
                     2:"blue light 2", 3: "20-30 seconds after blue light 2",
                     4:"blue light 3", 5: "20-30 seconds after blue light 3"}
 
-treatment_cols = ['worm_strain','bacteria_strain','drug_type','drug2_type','drug2_solvent']
-
 #%% Functions
 
-def do_stats(metadata,
-             features,
-             group_by='treatment',
-             control='BW',
-             save_dir=None,
-             feature_set=None,
-             pvalue_threshold=0.05,
-             fdr_method='fdr_bh'):
+def stats(metadata,
+          features,
+          group_by='treatment',
+          control='BW',
+          save_dir=None,
+          feature_set=None,
+          pvalue_threshold=0.05,
+          fdr_method='fdr_bh'):
     
     # check case-sensitivity
     assert len(metadata[group_by].unique()) == len(metadata[group_by].str.upper().unique())
@@ -87,9 +89,6 @@ def do_stats(metadata,
     if n > 2:
    
         # Perform ANOVA - is there variation among strains at each window?
-        anova_path = Path(save_dir) / 'ANOVA' / 'ANOVA_results.csv'
-        anova_path.parent.mkdir(parents=True, exist_ok=True)
-
         stats, pvals, reject = univariate_tests(X=features, 
                                                 y=metadata[group_by], 
                                                 control=control, 
@@ -111,7 +110,11 @@ def do_stats(metadata,
         test_results.columns = ['stats','effect_size','pvals','reject']     
         test_results['significance'] = sig_asterix(test_results['pvals'])
         test_results = test_results.sort_values(by=['pvals'], ascending=True) # rank by p-value
-        test_results.to_csv(anova_path, header=True, index=True)
+        
+        if save_dir is not None:
+            anova_path = Path(save_dir) / 'ANOVA_results.csv'
+            anova_path.parent.mkdir(parents=True, exist_ok=True)
+            test_results.to_csv(anova_path, header=True, index=True)
 
         # use reject mask to find significant feature set
         fset = pvals.loc[reject['ANOVA']].sort_values(by='ANOVA', ascending=True).index.to_list()
@@ -119,8 +122,9 @@ def do_stats(metadata,
         if len(fset) > 0:
             print("%d significant features found by ANOVA by '%s' (P<%.2f, %s)" %\
                   (len(fset), group_by, pvalue_threshold, fdr_method))
-            anova_sigfeats_path = anova_path.parent / 'ANOVA_sigfeats.txt'
-            write_list_to_file(fset, anova_sigfeats_path)
+            if save_dir is not None:
+                anova_sigfeats_path = anova_path.parent / 'ANOVA_sigfeats.txt'
+                write_list_to_file(fset, anova_sigfeats_path)
              
     # Perform t-tests
     stats_t, pvals_t, reject_t = univariate_tests(X=features,
@@ -143,15 +147,16 @@ def do_stats(metadata,
     ttest_results = pd.concat([stats_t, pvals_t, reject_t, effect_sizes_t], axis=1)
     
     # save results
-    ttest_path = Path(save_dir) / 't-test' / 't-test_results.csv'
-    ttest_path.parent.mkdir(exist_ok=True, parents=True)
-    ttest_results.to_csv(ttest_path, header=True, index=True)
-    
+    if save_dir is not None:
+        ttest_path = Path(save_dir) / 't-test_results.csv'
+        ttest_path.parent.mkdir(exist_ok=True, parents=True)
+        ttest_results.to_csv(ttest_path, header=True, index=True)
+        
     nsig = sum(reject_t.sum(axis=1) > 0)
     print("%d significant features between any %s vs %s (t-test, P<%.2f, %s)" %\
           (nsig, group_by, control, pvalue_threshold, fdr_method))
 
-    return
+    return ttest_results
 
 def make_boxplots(metadata,
                   features,
@@ -212,7 +217,9 @@ def main():
                                                        align_bluelight=False, 
                                                        window_summaries=True,
                                                        n_wells=N_WELLS)
-
+        
+        assert not metadata['worm_strain'].isna().any()
+        
         # Clean results - Remove bad well data + features with too many NaNs/zero std + impute NaNs
         features, metadata = clean_summary_results(features, 
                                                    metadata,
@@ -226,8 +233,17 @@ def main():
                                                    drop_size_related_feats=False,
                                                    norm_feats_only=False)
         
-        assert not metadata['worm_strain'].isna().any()
+        # load control data for N2 on BW with no DMSO from + append
+        control_metadata = pd.read_csv(Path(CONTROL_DATA_DIR) / 'metadata.csv', dtype={'comments':str})  
+        control_features = pd.read_csv(Path(CONTROL_DATA_DIR) / 'features.csv')
+        control_metadata = control_metadata.query("worm_strain=='N2' and drug_type!='Paraquat'")
+        control_features = control_features.reindex(control_metadata.index)
         
+        _ = set(metadata.columns) - set(control_metadata.columns) # missing_cols - no drug2 columns
+        
+        metadata = pd.concat([metadata, control_metadata], axis=0, ignore_index=True)
+        features = pd.concat([features, control_features], axis=0, ignore_index=True)
+                
         # save clean metadata and features
         metadata.to_csv(metadata_path_local, index=False)
         features.to_csv(features_path_local, index=False)
@@ -238,21 +254,7 @@ def main():
 
     assert not features.isna().sum(axis=1).any()
     assert not (features.std(axis=1) == 0).any()
-                            
-    # load control data for N2 on BW with no DMSO from + append
-    control_data_dir = '/Users/sm5911/Documents/Keio_Worm_Stress_Mutants'
-    control_metadata = pd.read_csv(Path(control_data_dir) / 'metadata.csv', dtype={'comments':str})    
-    control_metadata = control_metadata.query("worm_strain=='N2' and " +
-                                              "drug_type!='Paraquat'")
-    
-    control_features = pd.read_csv(Path(control_data_dir) / 'features.csv')
-    control_features = control_features.reindex(control_metadata.index)
-    
-    _ = set(metadata.columns) - set(control_metadata.columns) # missing_cols - no drug2 columns
-    
-    metadata = pd.concat([metadata, control_metadata], axis=0, ignore_index=True)
-    features = pd.concat([features, control_features], axis=0, ignore_index=True)
- 
+                             
     # load feature set
     if FEATURE_SET is not None:
         # subset for selected feature set (and remove path curvature features)
@@ -275,134 +277,324 @@ def main():
     
     # reindex features
     features = features.reindex(metadata.index)    
-    
+
+    treatment_cols = ['bacteria_strain','drug_type','drug2_type','drug2_solvent']    
     metadata['treatment'] = metadata.loc[:,treatment_cols].astype(str).agg('-'.join, axis=1)
-    # strain_list = sorted(list(metadata['treatment'].unique()))
- 
-    metadata['window'] = metadata['window'].astype(int)
-    window_list = list(metadata['window'].unique())
-
-    for window in tqdm(window_list):
-        
-        meta_window = metadata[metadata['window']==window]
-        feat_window = features.reindex(meta_window.index)
-
-        stats_dir = Path(SAVE_DIR) / 'Stats' / WINDOW_NAME_DICT[window]
-        plot_dir = Path(SAVE_DIR) / 'Plots' / WINDOW_NAME_DICT[window]
-        
-        # DMSO control
-        DMSO_window_meta = meta_window.query("worm_strain=='N2' and bacteria_strain=='BW' and " + 
-                                             "drug_type!='Paraquat' and drug_type!='Fe2O12S3' and " +
-                                             "drug2_type!='Enterobactin'")
-        mapping_dict = {'N2-BW-None-None-None':'BW',
-                        'N2-BW-None-None-DMSO':'BW-DMSO'}
-        DMSO_window_meta['treatment'] = DMSO_window_meta['treatment'].map(mapping_dict)
-
-        DMSO_window_feat = features.reindex(DMSO_window_meta.index)
-
-        do_stats(DMSO_window_meta,
-                 DMSO_window_feat,
-                 group_by='treatment',
-                 control='BW',
-                 save_dir=stats_dir / 'DMSO_control',
-                 feature_set=feature_list,
-                 pvalue_threshold=0.05,
-                 fdr_method='fdr_bh')
-        
-        make_boxplots(DMSO_window_meta,
-                      DMSO_window_feat,
-                      group_by='treatment',
-                      control='BW',
-                      save_dir=plot_dir / 'DMSO_control',
-                      stats_dir=stats_dir / 'DMSO_control',
-                      feature_set=feature_list,
-                      pvalue_threshold=0.05,
-                      scale_outliers=False,
-                      ylim_minmax=(-20,330)) # ylim_minmax for speed feature only 
-                
-        # Enterobactin
-        meta_ent = meta_window.query("drug_type!='Fe2O12S3'")
-        feat_ent = feat_window.reindex(meta_ent.index)
-        
-        mapping_dict = {'N2-BW-None-None-None':'BW-None',
-                        'N2-fepD-None-None-None':'fepD-None',
-                        'N2-BW-None-None-DMSO':'BW-DMSO',
-                        'N2-fepD-None-None-DMSO':'fepD-DMSO',
-                        'N2-BW-None-Enterobactin-DMSO':'BW-Enterobactin', 
-                        'N2-fepD-None-Enterobactin-DMSO':'fepD-Enterobactin'}
-        meta_ent['treatment'] = meta_ent['treatment'].map(mapping_dict)
-        meta_ent['drug'] = [t.split('-')[-1] for t in meta_ent['treatment']]
-        
-        do_stats(meta_ent,
-                 feat_ent,
-                 group_by='treatment',
-                 control='BW-DMSO',
-                 save_dir=stats_dir / 'Enterobactin',
-                 feature_set=feature_list,
-                 pvalue_threshold=0.05,
-                 fdr_method='fdr_bh')
-        
-        colour_dict = dict(zip(['BW','fepD'], sns.color_palette('tab10',2)))
-        all_in_one_boxplots(meta_ent,
-                            feat_ent,
-                            group_by='drug',
-                            hue='bacteria_strain',
-                            hue_order=['BW','fepD'],
-                            order=['None','DMSO','Enterobactin'],
-                            save_dir=plot_dir / 'Enterobactin',
-                            ttest_path=None,
-                            feature_set=feature_list,
-                            pvalue_threshold=0.05,
-                            sigasterix=True,
-                            colour_dict=colour_dict,
-                            fontsize=25,
-                            figsize=(12,8),
-                            vline_boxpos=None,
-                            legend=False,
-                            ylim_minmax=(-20,300),
-                            subplots_adjust={'bottom':0.3,'top':0.95,'left':0.15,'right':0.95})
-        
-        # iron
-        meta_iron = meta_window.query("drug2_type!='Enterobactin' and drug2_solvent!='DMSO'")
-        feat_iron = feat_window.reindex(meta_iron.index)
-
-        mapping_dict = {'N2-BW-None-None-None':'BW-None',
-                        'N2-fepD-None-None-None':'fepD-None',
-                        'N2-BW-Fe2O12S3-None-None':'BW-Iron', 
-                        'N2-fepD-Fe2O12S3-None-None':'fepD-Iron'}
-        meta_iron['treatment'] = meta_iron['treatment'].map(mapping_dict)
-        meta_iron['drug'] = [t.split('-')[-1] for t in meta_iron['treatment']]
-
-        do_stats(meta_iron,
-                 feat_iron,
-                 group_by='treatment',
-                 control='BW-None',
-                 save_dir=stats_dir / 'Iron(III)suplhate',
-                 feature_set=feature_list,
-                 pvalue_threshold=0.05,
-                 fdr_method='fdr_bh')
-        
-        colour_dict = dict(zip(['BW','fepD'], sns.color_palette('tab10',2)))
-        all_in_one_boxplots(meta_iron,
-                            feat_iron,
-                            group_by='drug',
-                            hue='bacteria_strain',
-                            hue_order=['BW','fepD'],
-                            order=['None','Iron'],
-                            save_dir=plot_dir / 'Iron(III)suplhate',
-                            ttest_path=None, #stats_dir / 'Iron(III)suplhate' / 't-test' / 't-test_results.csv'
-                            feature_set=feature_list,
-                            pvalue_threshold=0.05,
-                            sigasterix=True,
-                            colour_dict=colour_dict,
-                            override_palette_dict={2:'lightskyblue',3:'sandybrown'},
-                            fontsize=25,
-                            figsize=(12,8),
-                            vline_boxpos=None,
-                            legend=False,
-                            ylim_minmax=(-20,300),
-                            subplots_adjust={'bottom':0.2,'top':0.95,'left':0.15,'right':0.95})
     
+    strain_list = sorted(list(metadata['bacteria_strain'].unique()))
+ 
+    # subset for window 5 - 20-30 seconds after final blue light pulse
+    metadata = metadata[metadata['window']==5]
+
+    stats_dir = Path(SAVE_DIR) / 'Stats'
+    plot_dir = Path(SAVE_DIR) / 'Plots'
+    
+    
+    # Enterobactin
+    
+    meta_ent = metadata[metadata['drug_type']=='None']
+    feat_ent = features.reindex(meta_ent.index)
+    rename_dict = {'BW-None-None-None':'BW',
+                   'fepD-None-None-None':'fepD',
+                   'BW-None-None-DMSO':'BW-DMSO',
+                   'fepD-None-None-DMSO':'fepD-DMSO',
+                   'BW-None-Enterobactin-DMSO':'BW-DMSO-Ent',
+                   'fepD-None-Enterobactin-DMSO':'fepD-DMSO-Ent'}
+    meta_ent['treatment'] = [rename_dict[i] for i in meta_ent['treatment']]
+    treatment_list = sorted(meta_ent['treatment'].unique())
+
+    # stats - compare each treatment vs BW-live
+    ttest_results = stats(meta_ent,
+                          feat_ent,
+                          group_by='treatment',
+                          control='BW',
+                          save_dir=stats_dir / 'Enterobactin',
+                          feature_set=feature_list,
+                          pvalue_threshold=0.05,
+                          fdr_method='fdr_bh')
+    pvals = ttest_results[[i for i in ttest_results.columns if 'pval' in i]]
+    pvals.columns = [i.split('pvals_')[-1] for i in pvals.columns]
+    
+    # boxplots
+    plot_df = meta_ent.join(feat_ent)
+    strain_lut = dict(zip(strain_list, sns.color_palette('tab10',len(strain_list))))
+    treatment_lut = dict(zip(treatment_list, [strain_lut[i.split('-')[0]] for i in treatment_list]))
+    
+    plt.close('all')
+    sns.set_style('ticks')
+    fig = plt.figure(figsize=[12,6])
+    ax = fig.add_subplot(1,1,1)
+    sns.boxplot(x='treatment',
+                y='speed_50th',
+                data=plot_df, 
+                order=treatment_list,
+                palette=treatment_lut,
+                showfliers=False, 
+                showmeans=False,
+                meanprops={"marker":"x", 
+                           "markersize":5,
+                           "markeredgecolor":"k"},
+                flierprops={"marker":"x", 
+                            "markersize":15, 
+                            "markeredgecolor":"r"})
+    dates = sorted(plot_df['date_yyyymmdd'].unique())
+    date_lut = dict(zip(dates, sns.color_palette(palette="Greys", n_colors=len(dates))))
+    for date in dates:
+        date_df = plot_df[plot_df['date_yyyymmdd']==date]
+        sns.stripplot(x='treatment',
+                      y='speed_50th',
+                      data=date_df,
+                      s=8,
+                      order=treatment_list,
+                      palette=[date_lut[date]] * len(treatment_list),
+                      color=None,
+                      marker=".",
+                      edgecolor='k',
+                      linewidth=0.3)
+
+    # scale y axis for annotations    
+    trans = transforms.blended_transform_factory(ax.transData, ax.transAxes) #y=scaled
+
+    ax.axes.get_xaxis().get_label().set_visible(False) # remove x axis label
+    ax.axes.set_xticklabels(treatment_list, fontsize=14)
+    # ax.axes.set_xlabel('Time (minutes)', fontsize=25, labelpad=20)                           
+    ax.tick_params(axis='y', which='major', pad=15)
+    plt.yticks(fontsize=20)
+    ax.axes.set_ylabel('Speed (µm s$^{-1}$)', fontsize=25, labelpad=20)  
+    plt.ylim(-20, 270)
+    handles, labels = ax.get_legend_handles_labels()
+    ax.legend(handles[:2], labels[:2], loc='lower right', frameon=False)
+    #plt.axhline(y=0, c='grey')
+    
+    # add pvalues to plot - all treatments vs BW
+    for i, text in enumerate(ax.axes.get_xticklabels()):
+        treatment = text.get_text()
+        if treatment == 'BW':
+            continue
+        p = pvals.loc['speed_50th', treatment]
+        p_text = sig_asterix([p])[0]
+        ax.text(i, 1.03, p_text, fontsize=20, ha='center', va='center', transform=trans)
+                
+    #plt.subplots_adjust(left=0.01, right=0.9)
+    boxplot_path = plot_dir / 'Enterobactin' / 'speed_50th_vs_BW.svg'
+    boxplot_path.parent.mkdir(exist_ok=True, parents=True)
+    #plt.subplots_adjust(left=0.125,right=0.9,bottom=0.1,top=0.9)
+    plt.savefig(boxplot_path, bbox_inches='tight', transparent=True)
+
+
+    # Iron(III)sulphate
+    
+    meta_iron = metadata.query("drug2_type=='None' and drug2_solvent=='None'")
+    feat_iron = features.reindex(meta_iron.index)
+    rename_dict = {'BW-None-None-None':'BW',
+                   'fepD-None-None-None':'fepD',
+                   'BW-Fe2O12S3-None-None':'BW-Fe2O12S3',
+                   'fepD-Fe2O12S3-None-None':'fepD-Fe2O12S3'}
+    meta_iron['treatment'] = [rename_dict[i] for i in meta_iron['treatment']]
+    treatment_list = sorted(meta_iron['treatment'].unique())
+
+    # stats - compare each treatment vs BW-live
+    ttest_results = stats(meta_iron,
+                          feat_iron,
+                          group_by='treatment',
+                          control='BW',
+                          save_dir=stats_dir / 'Iron(III)sulphate',
+                          feature_set=feature_list,
+                          pvalue_threshold=0.05,
+                          fdr_method='fdr_bh')
+    pvals = ttest_results[[i for i in ttest_results.columns if 'pval' in i]]
+    pvals.columns = [i.split('pvals_')[-1] for i in pvals.columns]
+    
+    # boxplots
+    plot_df = meta_iron.join(feat_iron)
+    strain_lut = dict(zip(strain_list, sns.color_palette('tab10',len(strain_list))))
+    treatment_lut = dict(zip(treatment_list, [strain_lut[i.split('-')[0]] for i in treatment_list]))
+    
+    plt.close('all')
+    sns.set_style('ticks')
+    fig = plt.figure(figsize=[12,8])
+    ax = fig.add_subplot(1,1,1)
+    sns.boxplot(x='treatment',
+                y='speed_50th',
+                data=plot_df, 
+                order=treatment_list,
+                palette=treatment_lut,
+                showfliers=False, 
+                showmeans=False,
+                meanprops={"marker":"x", 
+                           "markersize":5,
+                           "markeredgecolor":"k"},
+                flierprops={"marker":"x", 
+                            "markersize":15, 
+                            "markeredgecolor":"r"})
+    dates = sorted(plot_df['date_yyyymmdd'].unique())
+    date_lut = dict(zip(dates, sns.color_palette(palette="Greys", n_colors=len(dates))))
+    for date in dates:
+        date_df = plot_df[plot_df['date_yyyymmdd']==date]
+        sns.stripplot(x='treatment',
+                      y='speed_50th',
+                      data=date_df,
+                      s=8,
+                      order=treatment_list,
+                      palette=[date_lut[date]] * len(treatment_list),
+                      color=None,
+                      marker=".",
+                      edgecolor='k',
+                      linewidth=0.3)
+
+    # scale y axis for annotations    
+    trans = transforms.blended_transform_factory(ax.transData, ax.transAxes) #y=scaled
+
+    ax.axes.get_xaxis().get_label().set_visible(False) # remove x axis label
+    ax.axes.set_xticklabels(treatment_list, fontsize=16)
+    # ax.axes.set_xlabel('Time (minutes)', fontsize=25, labelpad=20)                           
+    ax.tick_params(axis='y', which='major', pad=15)
+    plt.yticks(fontsize=20)
+    ax.axes.set_ylabel('Speed (µm s$^{-1}$)', fontsize=25, labelpad=20)  
+    plt.ylim(-20, 270)
+    handles, labels = ax.get_legend_handles_labels()
+    ax.legend(handles[:2], labels[:2], loc='lower right', frameon=False)
+    #plt.axhline(y=0, c='grey')
+    
+    # add pvalues to plot - all treatments vs BW
+    for i, text in enumerate(ax.axes.get_xticklabels()):
+        treatment = text.get_text()
+        if treatment == 'BW':
+            continue
+        p = pvals.loc['speed_50th', treatment]
+        p_text = sig_asterix([p])[0]
+        ax.text(i, 1.03, p_text, fontsize=25, ha='center', va='center', transform=trans)
+                
+    #plt.subplots_adjust(left=0.01, right=0.9)
+    boxplot_path = plot_dir / 'Iron(III)sulphate' / 'speed_50th_vs_BW.svg'
+    boxplot_path.parent.mkdir(exist_ok=True, parents=True)
+    #plt.subplots_adjust(left=0.125,right=0.9,bottom=0.1,top=0.9)
+    plt.savefig(boxplot_path, bbox_inches='tight', transparent=True)   
+    
+# =============================================================================
+#     window_list = list(metadata['window'].unique())
+#     for window in tqdm(window_list):
+#         
+#         meta_window = metadata[metadata['window']==window]
+#         feat_window = features.reindex(meta_window.index)
+# 
+#         stats_dir = Path(SAVE_DIR) / 'Stats' / WINDOW_NAME_DICT[window]
+#         plot_dir = Path(SAVE_DIR) / 'Plots' / WINDOW_NAME_DICT[window]
+#         
+#         # DMSO control
+#         DMSO_window_meta = meta_window.query("worm_strain=='N2' and bacteria_strain=='BW' and " + 
+#                                              "drug_type!='Paraquat' and drug_type!='Fe2O12S3' and " +
+#                                              "drug2_type!='Enterobactin'")
+#         mapping_dict = {'N2-BW-None-None-None':'BW',
+#                         'N2-BW-None-None-DMSO':'BW-DMSO'}
+#         DMSO_window_meta['treatment'] = DMSO_window_meta['treatment'].map(mapping_dict)
+# 
+#         DMSO_window_feat = features.reindex(DMSO_window_meta.index)
+# 
+#         stats(DMSO_window_meta,
+#               DMSO_window_feat,
+#               group_by='treatment',
+#               control='BW',
+#               save_dir=stats_dir / 'DMSO_control',
+#               feature_set=feature_list,
+#               pvalue_threshold=0.05,
+#               fdr_method='fdr_bh')
+#         
+#         make_boxplots(DMSO_window_meta,
+#                       DMSO_window_feat,
+#                       group_by='treatment',
+#                       control='BW',
+#                       save_dir=plot_dir / 'DMSO_control',
+#                       stats_dir=stats_dir / 'DMSO_control',
+#                       feature_set=feature_list,
+#                       pvalue_threshold=0.05,
+#                       scale_outliers=False,
+#                       ylim_minmax=(-20,330)) # ylim_minmax for speed feature only 
+#                 
+#         # Enterobactin
+#         meta_ent = meta_window.query("drug_type!='Fe2O12S3'")
+#         feat_ent = feat_window.reindex(meta_ent.index)
+#         
+#         mapping_dict = {'N2-BW-None-None-None':'BW-None',
+#                         'N2-fepD-None-None-None':'fepD-None',
+#                         'N2-BW-None-None-DMSO':'BW-DMSO',
+#                         'N2-fepD-None-None-DMSO':'fepD-DMSO',
+#                         'N2-BW-None-Enterobactin-DMSO':'BW-Enterobactin', 
+#                         'N2-fepD-None-Enterobactin-DMSO':'fepD-Enterobactin'}
+#         meta_ent['treatment'] = meta_ent['treatment'].map(mapping_dict)
+#         meta_ent['drug'] = [t.split('-')[-1] for t in meta_ent['treatment']]
+#         
+#         stats(meta_ent,
+#               feat_ent,
+#               group_by='treatment',
+#               control='BW-DMSO',
+#               save_dir=stats_dir / 'Enterobactin',
+#               feature_set=feature_list,
+#               pvalue_threshold=0.05,
+#               fdr_method='fdr_bh')
+#         
+#         colour_dict = dict(zip(['BW','fepD'], sns.color_palette('tab10',2)))
+#         all_in_one_boxplots(meta_ent,
+#                             feat_ent,
+#                             group_by='drug',
+#                             hue='bacteria_strain',
+#                             hue_order=['BW','fepD'],
+#                             order=['None','DMSO','Enterobactin'],
+#                             save_dir=plot_dir / 'Enterobactin',
+#                             ttest_path=None,
+#                             feature_set=feature_list,
+#                             pvalue_threshold=0.05,
+#                             sigasterix=True,
+#                             colour_dict=colour_dict,
+#                             fontsize=25,
+#                             figsize=(12,8),
+#                             vline_boxpos=None,
+#                             legend=False,
+#                             ylim_minmax=(-20,300),
+#                             subplots_adjust={'bottom':0.3,'top':0.95,'left':0.15,'right':0.95})
+#         
+#         # iron
+#         meta_iron = meta_window.query("drug2_type!='Enterobactin' and drug2_solvent!='DMSO'")
+#         feat_iron = feat_window.reindex(meta_iron.index)
+# 
+#         mapping_dict = {'N2-BW-None-None-None':'BW-None',
+#                         'N2-fepD-None-None-None':'fepD-None',
+#                         'N2-BW-Fe2O12S3-None-None':'BW-Iron', 
+#                         'N2-fepD-Fe2O12S3-None-None':'fepD-Iron'}
+#         meta_iron['treatment'] = meta_iron['treatment'].map(mapping_dict)
+#         meta_iron['drug'] = [t.split('-')[-1] for t in meta_iron['treatment']]
+# 
+#         stats(meta_iron,
+#               feat_iron,
+#               group_by='treatment',
+#               control='BW-None',
+#               save_dir=stats_dir / 'Iron(III)suplhate',
+#               feature_set=feature_list,
+#               pvalue_threshold=0.05,
+#               fdr_method='fdr_bh')
+#         
+#         colour_dict = dict(zip(['BW','fepD'], sns.color_palette('tab10',2)))
+#         all_in_one_boxplots(meta_iron,
+#                             feat_iron,
+#                             group_by='drug',
+#                             hue='bacteria_strain',
+#                             hue_order=['BW','fepD'],
+#                             order=['None','Iron'],
+#                             save_dir=plot_dir / 'Iron(III)suplhate',
+#                             ttest_path=None, #stats_dir / 'Iron(III)suplhate' / 't-test' / 't-test_results.csv'
+#                             feature_set=feature_list,
+#                             pvalue_threshold=0.05,
+#                             sigasterix=True,
+#                             colour_dict=colour_dict,
+#                             override_palette_dict={2:'lightskyblue',3:'sandybrown'},
+#                             fontsize=25,
+#                             figsize=(12,8),
+#                             vline_boxpos=None,
+#                             legend=False,
+#                             ylim_minmax=(-20,300),
+#                             subplots_adjust={'bottom':0.2,'top':0.95,'left':0.15,'right':0.95})
+# =============================================================================
+
     metadata = metadata[metadata['window']==0]
     
     mapping_dict = {'N2-BW-None-None-None':'BW',
@@ -416,6 +608,8 @@ def main():
                     'N2-BW-Fe2O12S3-Enterobactin-DMSO':'BW + iron + Ent',
                     'N2-fepD-Fe2O12S3-Enterobactin-DMSO':'fepD + iron + Ent'}
     metadata['treatment'] = metadata['treatment'].map(mapping_dict)
+    
+    colour_dict = dict(zip(['BW','fepD'], sns.color_palette('tab10',2)))
 
     # timeseries plots of speed for BW + iron vs BW control
     groups_list = ['BW', 'BW + iron']
