@@ -34,7 +34,7 @@ from visualisation.plotting_helper import sig_asterix
 from clustering.hierarchical_clustering import plot_clustermap
 from time_series.plot_timeseries import plot_timeseries, get_strain_timeseries
 from tierpsytools.analysis.statistical_tests import univariate_tests, get_effect_sizes
-from tierpsytools.plot.plot_plate_from_raw_video import plot_plates_from_metadata
+# from tierpsytools.plot.plot_plate_from_raw_video import plot_plates_from_metadata
 from tierpsytools.preprocessing.filter_data import select_feat_set
 
 #%% Globals

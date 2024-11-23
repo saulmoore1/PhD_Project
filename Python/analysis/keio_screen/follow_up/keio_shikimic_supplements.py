@@ -12,7 +12,7 @@ This script:
     - plots box plots of speed_50th (all treatments together)
     - plots time-series of speed throughout bluelight video (each treatment overlayed with BW and fepD)
 
-NB: Day 20240416 failed and has been omitteed from the analysis. This experiment has been repeated.
+NB: Day 20240416 failed and has been omitted from the analysis. This experiment has been repeated.
     See Keio_Shikimic_Supplements_2
 
 @author: Saul Moore (sm5911)

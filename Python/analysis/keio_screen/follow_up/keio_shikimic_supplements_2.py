@@ -13,7 +13,7 @@ This script:
     - plots time-series of speed throughout bluelight video (each treatment overlayed with BW and fepD)
 
 @author: Saul Moore (sm5911)
-@date: 03/07/2024
+@date: 03/07/2024 (updated: 21/11/2024)
     
 """
 
@@ -41,7 +41,7 @@ from tierpsytools.preprocessing.filter_data import select_feat_set
 #%% Globals
 
 PROJECT_DIR = "/Volumes/hermes$/Saul/Keio_Screen/Data/Keio_Shikimic_Supplements_2"
-SAVE_DIR = "/Users/sm5911/Documents/PhD_DLBG/Keio_Shikimic_Supplements_2"
+SAVE_DIR = "/Users/sm5911/Documents/PhD_DLBG/39_Keio_Shikimic_Supplements_2"
 
 NAN_THRESHOLD_ROW = 0.8  # Drop samples with too many NaN/Inf values across features
 NAN_THRESHOLD_COL = 0.05 # Drop features with too many NaN/Inf values across samples
@@ -65,31 +65,29 @@ def stats(metadata,
           features,
           group_by='treatment',
           control='BW',
-          feat='speed_50th',
-          pvalue_threshold=0.05,
+          save_dir=None,
+          feature_list=['speed_50th'],
+          p_value_threshold=0.05,
           fdr_method='fdr_bh'):
-    
-    """ Perform ANOVA and t-tests to compare worm speed on each treatment vs control """
         
     assert all(metadata.index == features.index)
-    features = features[[feat]]
+    features = features[feature_list]
 
     # print mean sample size
     sample_size = metadata.groupby(group_by).count()
-    print("Mean sample size of %s/window: %d" % (group_by, 
-                                                 int(sample_size[sample_size.columns[-1]].mean())))
-
+    print("Mean sample size of treatment group: %d" % int(sample_size[sample_size.columns[-1]].mean()))
     n = len(metadata[group_by].unique())
+    
     if n > 2:
-   
-        # perform ANOVA - is there variation among strains?
+        
+        # Perform ANOVA - is there variation among strains?
         stats, pvals, reject = univariate_tests(X=features, 
                                                 y=metadata[group_by], 
                                                 control=control, 
                                                 test='ANOVA',
                                                 comparison_type='multiclass',
                                                 multitest_correction=fdr_method,
-                                                alpha=pvalue_threshold,
+                                                alpha=p_value_threshold,
                                                 n_permutation_test=None)
 
         # get effect sizes
@@ -104,6 +102,11 @@ def stats(metadata,
         anova_results.columns = ['stats','effect_size','pvals','reject']     
         anova_results['significance'] = sig_asterix(anova_results['pvals'])
         anova_results = anova_results.sort_values(by=['pvals'], ascending=True) # rank by p-value
+
+        if save_dir is not None:
+            anova_path = Path(save_dir) / 'ANOVA_results.csv'
+            anova_path.parent.mkdir(parents=True, exist_ok=True)
+            anova_results.to_csv(anova_path, header=True, index=True)
              
     # Perform t-tests
     stats_t, pvals_t, reject_t = univariate_tests(X=features,
@@ -112,7 +115,7 @@ def stats(metadata,
                                                   test='t-test',
                                                   comparison_type='binary_each_group',
                                                   multitest_correction=fdr_method,
-                                                  alpha=pvalue_threshold)
+                                                  alpha=p_value_threshold)
     
     effect_sizes_t = get_effect_sizes(X=features,
                                       y=metadata[group_by],
@@ -124,29 +127,31 @@ def stats(metadata,
     reject_t.columns = ['reject_' + str(c) for c in reject_t.columns]
     effect_sizes_t.columns = ['effect_size_' + str(c) for c in effect_sizes_t.columns]
     ttest_results = pd.concat([stats_t, pvals_t, reject_t, effect_sizes_t], axis=1)
-        
+       
+    if save_dir is not None:
+        ttest_path = Path(save_dir) / 't-test_results.csv'
+        ttest_path.parent.mkdir(exist_ok=True, parents=True)
+        ttest_results.to_csv(ttest_path, header=True, index=True)
+    
     nsig = sum(reject_t.sum(axis=1) > 0)
     print("%d significant features between any %s vs %s (t-test, P<%.2f, %s)" %\
-          (nsig, group_by, control, pvalue_threshold, fdr_method))
+          (nsig, group_by, control, p_value_threshold, fdr_method))
 
-    return anova_results, ttest_results
+    if n > 2:
+        return anova_results, ttest_results
+    else:
+        return ttest_results  
 
 
 def main():
     
+    aux_dir = Path(PROJECT_DIR) / 'AuxiliaryFiles'
+    res_dir = Path(PROJECT_DIR) / 'Results'
+    
     metadata_path_local = Path(SAVE_DIR) / 'metadata.csv'
     features_path_local = Path(SAVE_DIR) / 'features.csv'
     
-    aux_dir = Path(PROJECT_DIR) / 'AuxiliaryFiles'
-    res_dir = Path(PROJECT_DIR) / 'Results'
-    assert aux_dir.exists()
-    assert res_dir.exists()
-    
     if not metadata_path_local.exists() or not features_path_local.exists():
-
-        if not Path(SAVE_DIR).exists():
-            Path(SAVE_DIR).mkdir(parents=True, exist_ok=True)
-
         # compile metadata
         metadata, metadata_path = compile_metadata(aux_dir, 
                                                    n_wells=N_WELLS, 
@@ -189,21 +194,24 @@ def main():
     assert not metadata['bacteria_strain'].isna().any()
 
     # plot full plate view by tiling first raw video frame from each camera
-    plot_plates_from_metadata(metadata, save_dir=Path(SAVE_DIR), dpi=600)
+    #plot_plates_from_metadata(metadata, save_dir=Path(SAVE_DIR), dpi=600)
 
     # subset metadata results for bluelight videos only 
     bluelight_videos = [i for i in metadata['imgstore_name'] if 'bluelight' in i]
     metadata = metadata[metadata['imgstore_name'].isin(bluelight_videos)]
         
-    # subset features for new metadata
+    # subset features for metadata subset
     features = features.reindex(metadata.index)
             
     treatment_cols = ['bacteria_strain','supplement']
     metadata['treatment'] = metadata[treatment_cols].astype(str).agg('-'.join, axis=1)
     metadata['treatment'] = [i.replace('-none','') for i in metadata['treatment']]
 
-    treatment_list = ['BW','fepD'] + [i for i in sorted(metadata['treatment'].unique()) 
-                                   if i not in ['BW','fepD']]
+    treatment_list = ['BW','fepD'] + [i for i in sorted(metadata['treatment'].unique()) if i not in 
+                                      ['BW','fepD']]
+    
+    stats_dir = Path(SAVE_DIR) / 'Stats'
+    plots_dir = Path(SAVE_DIR) / 'Plots'
 
     
     # HCA heatmaps for Tierpsy Top256 features
@@ -216,7 +224,7 @@ def main():
     # z-normalise
     featZ = features256.apply(zscore, axis=0)
     
-    heatmap_path = Path(SAVE_DIR) / 'Plots' / 'heatmap_256.pdf'
+    heatmap_path = plots_dir / 'heatmap_256.pdf'
     heatmap_path.parent.mkdir(exist_ok=True, parents=True)
     
     fig = plot_clustermap(featZ, metadata, 
@@ -231,21 +239,29 @@ def main():
                           show_xlabels=True,
                           bluelight_col_colours=False)
 
+    # stats vs BW
+    _, ttest_results = stats(metadata,
+                             features,
+                             group_by='treatment',
+                             control='BW',
+                             save_dir=stats_dir / 'supplements_vs_BW',
+                             feature_list=[FEATURE],
+                             p_value_threshold=P_VALUE_THRESHOLD,
+                             fdr_method=FDR_METHOD)
 
-    # boxplots vs BW (with experiment day replicate highlighted)
-    
+    # t-test pvals
+    pvals = ttest_results[[c for c in ttest_results.columns if 'pval' in c]]
+    pvals.columns = [c.replace('pvals_','') for c in pvals.columns]
+
+    # boxplot - supplement treatments vs BW
     plot_df = metadata.join(features)
-    colour_dict = dict(zip(treatment_list, 
-                           sns.color_palette(palette='tab10', n_colors=len(treatment_list))))
-    day_colour_dict = dict(zip(list(plot_df['date_yyyymmdd'].unique()), 
-                               sns.color_palette(palette='Set2', 
-                                                 n_colors=plot_df['date_yyyymmdd'].nunique())))
+    lut = dict(zip(['BW','fepD'], sns.color_palette(palette='tab10', n_colors=2)))
+    colour_dict = {i:(lut['fepD'] if 'fepD' in i else lut['BW']) for i in treatment_list}
 
     plt.close('all')
     sns.set_style('ticks')
-    fig = plt.figure(figsize=[12,18])
+    fig = plt.figure(figsize=[15,18])
     ax = fig.add_subplot(1,1,1)
-
     sns.boxplot(x='speed_50th',
                 y='treatment',
                 data=plot_df, 
@@ -259,74 +275,67 @@ def main():
                 flierprops={"marker":"x", 
                             "markersize":15, 
                             "markeredgecolor":"r"})
-        
-    patch_list = []
-    for day in list(plot_df['date_yyyymmdd'].unique()):
-        day_df = plot_df[plot_df['date_yyyymmdd']==day]
+    dates = sorted(plot_df['date_yyyymmdd'].unique())
+    date_lut = dict(zip(dates, sns.color_palette(palette="Greys", n_colors=len(dates))))
+    for date in dates:
+        date_df = plot_df[plot_df['date_yyyymmdd']==date]
         sns.stripplot(x='speed_50th',
                       y='treatment',
-                      data=day_df,
-                      s=12,
+                      data=date_df,
                       order=treatment_list,
-                      hue=None,
-                      palette=None,
-                      color=day_colour_dict[day],
+                      palette=[date_lut[date]] * len(treatment_list),
+                      color='dimgray',
                       marker=".",
                       edgecolor='k',
-                      linewidth=0.3) #facecolors="none"
-        patch_list.append(patches.Patch(color=day_colour_dict[day], label=str(day)))
-    
+                      linewidth=0.3,
+                      s=12) #facecolors="none"
+# =============================================================================
+#         
+#     patch_list = []
+#     for day in list(plot_df['date_yyyymmdd'].unique()):
+#         day_df = plot_df[plot_df['date_yyyymmdd']==day]
+#         sns.stripplot(x='speed_50th',
+#                       y='treatment',
+#                       data=day_df,
+#                       s=12,
+#                       order=treatment_list,
+#                       hue=None,
+#                       palette=None,
+#                       color=day_colour_dict[day],
+#                       marker=".",
+#                       edgecolor='k',
+#                       linewidth=0.3) #facecolors="none"
+#         patch_list.append(patches.Patch(color=day_colour_dict[day], label=str(day)))
+# =============================================================================
     ax.axes.get_yaxis().get_label().set_visible(False) # remove y axis label
     ax.axes.set_yticklabels([l.get_text() for l in ax.axes.get_yticklabels()], fontsize=25)
     ax.tick_params(axis='y', which='major', pad=15)
     ax.axes.set_xlabel('Speed (µm s$^{-1}$)', fontsize=30, labelpad=25)                             
     plt.xticks(fontsize=20)
     plt.xlim(-20, 320)
-        
-    # do stats vs BW
-    control = 'BW'
-    anova_results, ttest_results = stats(metadata,
-                                         features,
-                                         group_by='treatment',
-                                         control=control,
-                                         feat='speed_50th',
-                                         pvalue_threshold=P_VALUE_THRESHOLD,
-                                         fdr_method=FDR_METHOD)
-
-    anova_path = Path(SAVE_DIR) / 'Stats' / 'ANOVA' / 'anova_results_vs_{}.csv'.format(control)
-    anova_path.parent.mkdir(exist_ok=True, parents=True)
-    anova_results.to_csv(anova_path, header=True, index=True)
-    
-    ttest_path = Path(SAVE_DIR) / 'Stats' / 't-test' / 't-test_results_vs_{}.csv'.format(control)
-    ttest_path.parent.mkdir(exist_ok=True, parents=True)
-    ttest_results.to_csv(ttest_path, header=True, index=True)
-    
-    # t-test pvals
-    pvals = ttest_results[[c for c in ttest_results.columns if 'pval' in c]]
-    pvals.columns = [c.replace('pvals_','') for c in pvals.columns]
     
     # scale x axis for annotations    
     trans = transforms.blended_transform_factory(ax.transAxes, ax.transData) #x=scaled
     
     # add pvalues to plot
     for i, strain in enumerate(treatment_list, start=0):
-        if strain == control:
+        if strain == 'BW':
             continue
         else:
             p = pvals.loc['speed_50th', strain]
             text = ax.get_yticklabels()[i]
             assert text.get_text() == strain
             p_text = sig_asterix([p])[0]
-            ax.text(1.03, i, p_text, fontsize=35, ha='left', va='center', transform=trans)
+            ax.text(1.03, i, p_text, fontsize=20, ha='left', va='center', transform=trans)
 
     # add day legend key to plot
-    plt.legend(title="Date (YYYYMMDD)", handles=patch_list)
+    # plt.legend(title="Date (YYYYMMDD)", handles=patch_list)
 
     # save plot            
     plt.subplots_adjust(left=0.5, right=0.9)
-    boxplot_path = Path(SAVE_DIR) / 'Plots' / 'speed_50th_vs_{}.png'.format(control)
+    boxplot_path = plots_dir / 'speed_50th_Shikimic_supplements_vs_BW.svg'
     boxplot_path.parent.mkdir(exist_ok=True, parents=True)
-    plt.savefig(boxplot_path, dpi=DPI)    
+    plt.savefig(boxplot_path, bbox_inches='tight', transparent=True)
 
 
     # time-series plots

@@ -237,8 +237,6 @@ def main():
     treatment_cols = ['bacteria_strain','drug_type','drug_imaging_plate_conc']
     metadata['treatment'] = metadata[treatment_cols].astype(str).agg('-'.join, axis=1)
     metadata['treatment'] = [i.replace('-nan','') for i in metadata['treatment']]
-    # metadata['treatment'] = [i.replace('.0','').replace('-','\n') + ' mM' if i not in ['BW','fepD'] 
-    #                          else i for i in metadata['treatment']]
 
     treatment_list = sorted(metadata['treatment'].unique())
     
