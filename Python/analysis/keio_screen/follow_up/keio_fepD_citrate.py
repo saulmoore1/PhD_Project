@@ -222,7 +222,6 @@ def main():
         elif isinstance(FEATURE_SET, list) or isinstance(FEATURE_SET, set):
             assert all(f in features.columns for f in FEATURE_SET)
             features = features[FEATURE_SET].copy()
-    feature_list = features.columns.tolist()
 
     # subset metadata results for bluelight videos only 
     bluelight_videos = [i for i in metadata['imgstore_name'] if 'bluelight' in i]
