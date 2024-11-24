@@ -314,7 +314,7 @@ def main():
     ax.tick_params(axis='x', which='major', pad=15)
     ax.axes.set_ylabel('Speed (µm s$^{-1}$)', fontsize=25, labelpad=25)                             
     plt.yticks(fontsize=20)
-    # plt.ylim(-20, 270)
+    plt.ylim(-20, 270)
 
     # handles, labels = ax.get_legend_handles_labels()
     # ax.legend(handles[:2], labels[:2], loc='best', frameon=False, fontsize=15)

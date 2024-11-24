@@ -2,12 +2,12 @@
 # -*- coding: utf-8 -*-
 """
 ASH lite-1 intesity tests - to find a suitable blue light intensity that does not result in a 
-saturated response on BW and fepD with ChR2 expressing worms (+ retinal)
+saturated response on BW and fepD with ChR2-expressing ASH lite-1 worms (+ retinal)
 
 Hydra rig blue light intensity settings: 1,2,3,5,8
 
 @author: sm5911
-@date: 09/01/2023
+@date: 09/01/2023 (updated: 24/11/2024)
 
 """
 
@@ -18,6 +18,7 @@ import pandas as pd
 import seaborn as sns
 from tqdm import tqdm
 from pathlib import Path
+from matplotlib import transforms
 from matplotlib import pyplot as plt
 
 from preprocessing.compile_hydra_data import compile_metadata, process_feature_summaries
@@ -28,18 +29,21 @@ from time_series.plot_timeseries import plot_timeseries, get_strain_timeseries
 # from time_series.plot_timeseries import plot_timeseries_feature
 
 from tierpsytools.analysis.statistical_tests import univariate_tests, get_effect_sizes
+from tierpsytools.analysis.statistical_tests import _multitest_correct
 from tierpsytools.preprocessing.filter_data import select_feat_set
 
 #%% Globals
 
 PROJECT_DIR = "/Volumes/hermes$/Saul/Keio_Screen/Data/Keio_ASH_Intensity_Tests"
-SAVE_DIR = "/Users/sm5911/Documents/Keio_ASH_Intensity_Tests"
+SAVE_DIR = "/Users/sm5911/Documents/PhD_DLBG/26_Keio_ASH_Intensity_Tests"
 
 N_WELLS = 6
 FPS = 25
 
-nan_threshold_row = 0.8
-nan_threshold_col = 0.05
+NAN_THRESHOLD_ROW = 0.8
+NAN_THRESHOLD_COL = 0.05
+P_VALUE_THRESHOLD = 0.05
+FDR_METHOD = 'fdr_bh'
 
 FEATURE_SET = ['speed_50th']
 
@@ -53,41 +57,28 @@ def stats(metadata,
           group_by='treatment',
           control='BW',
           save_dir=None,
-          feature_set=None,
-          pvalue_threshold=0.05,
+          feature_list=['speed_50th'],
+          p_value_threshold=0.05,
           fdr_method='fdr_bh'):
-    
-    # check case-sensitivity
-    assert len(metadata[group_by].unique()) == len(metadata[group_by].str.upper().unique())
-    
-    if feature_set is not None:
-        feature_set = [feature_set] if isinstance(feature_set, str) else feature_set
-        assert isinstance(feature_set, list)
-        assert(all(f in features.columns for f in feature_set))
-    else:
-        feature_set = features.columns.tolist()
-    features = features[feature_set]
+        
+    assert all(metadata.index == features.index)
+    features = features[feature_list]
 
     # print mean sample size
     sample_size = metadata.groupby(group_by).count()
-    print("Mean sample size of %s/window: %d" % (group_by, 
-                                                 int(sample_size[sample_size.columns[-1]].mean())))
-
-    fset = []
+    print("Mean sample size of treatment group: %d" % int(sample_size[sample_size.columns[-1]].mean()))
     n = len(metadata[group_by].unique())
+    
     if n > 2:
-   
-        # Perform ANOVA - is there variation among strains at each window?
-        anova_path = Path(save_dir) / 'ANOVA' / 'ANOVA_results.csv'
-        anova_path.parent.mkdir(parents=True, exist_ok=True)
-
+        
+        # Perform ANOVA - is there variation among strains?
         stats, pvals, reject = univariate_tests(X=features, 
                                                 y=metadata[group_by], 
                                                 control=control, 
                                                 test='ANOVA',
                                                 comparison_type='multiclass',
                                                 multitest_correction=fdr_method,
-                                                alpha=pvalue_threshold,
+                                                alpha=p_value_threshold,
                                                 n_permutation_test=None)
 
         # get effect sizes
@@ -97,21 +88,16 @@ def stats(metadata,
                                         effect_type=None,
                                         linked_test='ANOVA')
 
-        # compile + save results
+        # compile results
         anova_results = pd.concat([stats, effect_sizes, pvals, reject], axis=1)
         anova_results.columns = ['stats','effect_size','pvals','reject']     
         anova_results['significance'] = sig_asterix(anova_results['pvals'])
         anova_results = anova_results.sort_values(by=['pvals'], ascending=True) # rank by p-value
-        anova_results.to_csv(anova_path, header=True, index=True)
 
-        # use reject mask to find significant feature set
-        fset = pvals.loc[reject['ANOVA']].sort_values(by='ANOVA', ascending=True).index.to_list()
-
-        if len(fset) > 0:
-            print("%d significant features found by ANOVA by '%s' (P<%.2f, %s)" %\
-                  (len(fset), group_by, pvalue_threshold, fdr_method))
-            anova_sigfeats_path = anova_path.parent / 'ANOVA_sigfeats.txt'
-            write_list_to_file(fset, anova_sigfeats_path)
+        if save_dir is not None:
+            anova_path = Path(save_dir) / 'ANOVA_results.csv'
+            anova_path.parent.mkdir(parents=True, exist_ok=True)
+            anova_results.to_csv(anova_path, header=True, index=True)
              
     # Perform t-tests
     stats_t, pvals_t, reject_t = univariate_tests(X=features,
@@ -120,7 +106,7 @@ def stats(metadata,
                                                   test='t-test',
                                                   comparison_type='binary_each_group',
                                                   multitest_correction=fdr_method,
-                                                  alpha=pvalue_threshold)
+                                                  alpha=p_value_threshold)
     
     effect_sizes_t = get_effect_sizes(X=features,
                                       y=metadata[group_by],
@@ -132,51 +118,56 @@ def stats(metadata,
     reject_t.columns = ['reject_' + str(c) for c in reject_t.columns]
     effect_sizes_t.columns = ['effect_size_' + str(c) for c in effect_sizes_t.columns]
     ttest_results = pd.concat([stats_t, pvals_t, reject_t, effect_sizes_t], axis=1)
-    
-    # save results
-    ttest_path = Path(save_dir) / 't-test' / 't-test_results.csv'
-    ttest_path.parent.mkdir(exist_ok=True, parents=True)
-    ttest_results.to_csv(ttest_path, header=True, index=True)
+       
+    if save_dir is not None:
+        ttest_path = Path(save_dir) / 't-test_results.csv'
+        ttest_path.parent.mkdir(exist_ok=True, parents=True)
+        ttest_results.to_csv(ttest_path, header=True, index=True)
     
     nsig = sum(reject_t.sum(axis=1) > 0)
     print("%d significant features between any %s vs %s (t-test, P<%.2f, %s)" %\
-          (nsig, group_by, control, pvalue_threshold, fdr_method))
+          (nsig, group_by, control, p_value_threshold, fdr_method))
 
-    return anova_results, ttest_results
+    if n > 2:
+        return anova_results, ttest_results
+    else:
+        return ttest_results  
 
-def boxplots(metadata,
-             features,
-             group_by='treatment',
-             control='BW',
-             save_dir=None,
-             stats_dir=None,
-             feature_set=None,
-             pvalue_threshold=0.05):
-        
-    feature_set = features.columns.tolist() if feature_set is None else feature_set
-    assert isinstance(feature_set, list) and all(f in features.columns for f in feature_set)
-                    
-    # load t-test results for window
-    if stats_dir is not None:
-        ttest_path = Path(stats_dir) / 't-test' / 't-test_results.csv'
-        ttest_df = pd.read_csv(ttest_path, header=0, index_col=0)
-        pvals = ttest_df[[c for c in ttest_df.columns if 'pval' in c]]
-        pvals.columns = [c.replace('pvals_','') for c in pvals.columns]
-    
-    boxplots_sigfeats(features,
-                      y_class=metadata[group_by],
-                      control=control,
-                      pvals=pvals if stats_dir is not None else None,
-                      z_class=None,
-                      feature_set=feature_set,
-                      saveDir=Path(save_dir),
-                      drop_insignificant=True if feature_set is None else False,
-                      p_value_threshold=pvalue_threshold,
-                      scale_outliers=True,
-                      append_ranking_fname=False)
 
-    return
-
+# =============================================================================
+# def boxplots(metadata,
+#              features,
+#              group_by='treatment',
+#              control='BW',
+#              save_dir=None,
+#              stats_dir=None,
+#              feature_set=None,
+#              pvalue_threshold=0.05):
+#         
+#     feature_set = features.columns.tolist() if feature_set is None else feature_set
+#     assert isinstance(feature_set, list) and all(f in features.columns for f in feature_set)
+#                     
+#     # load t-test results for window
+#     if stats_dir is not None:
+#         ttest_path = Path(stats_dir) / 't-test' / 't-test_results.csv'
+#         ttest_df = pd.read_csv(ttest_path, header=0, index_col=0)
+#         pvals = ttest_df[[c for c in ttest_df.columns if 'pval' in c]]
+#         pvals.columns = [c.replace('pvals_','') for c in pvals.columns]
+#     
+#     boxplots_sigfeats(features,
+#                       y_class=metadata[group_by],
+#                       control=control,
+#                       pvals=pvals if stats_dir is not None else None,
+#                       z_class=None,
+#                       feature_set=feature_set,
+#                       saveDir=Path(save_dir),
+#                       drop_insignificant=True if feature_set is None else False,
+#                       p_value_threshold=pvalue_threshold,
+#                       scale_outliers=True,
+#                       append_ranking_fname=False)
+# 
+#     return
+# =============================================================================
 
 def main():
     
@@ -204,8 +195,8 @@ def main():
         features, metadata = clean_summary_results(features, 
                                                    metadata,
                                                    feature_columns=None,
-                                                   nan_threshold_row=nan_threshold_row,
-                                                   nan_threshold_col=nan_threshold_col,
+                                                   nan_threshold_row=NAN_THRESHOLD_ROW,
+                                                   nan_threshold_col=NAN_THRESHOLD_COL,
                                                    max_value_cap=1e15,
                                                    imputeNaN=True,
                                                    min_nskel_per_video=None,
@@ -243,18 +234,93 @@ def main():
     metadata['treatment'] = metadata.loc[:,treatment_cols].astype(str).agg('-'.join, axis=1)
     intensity_list = sorted(metadata['rig_intensity'].unique())
     
-    # stats comparing speed on fepD vs BW during arousal window 
+    treatment_list = sorted(metadata['treatment'].unique())
     
     stats_dir = Path(SAVE_DIR) / 'Stats'
-    anova_results, ttest_results = stats(metadata, features, group_by='treatment', control='BW-1',
-                                         save_dir=stats_dir, feature_set=feature_list, 
-                                         pvalue_threshold=0.05, fdr_method='fdr_bh')
+    plots_dir = Path(SAVE_DIR) / 'Plots'
     
-    # boxplots of speed on fepD vs BW during arousal window
+    # stats - pairwise t-tests comparing speed on fepD vs BW during arousal window at each light 
+    # intensity (p-values corrected for multiple testing afterwards)
+    pvalues_dict = {}
+    for light_intensity in intensity_list:
+        meta = metadata[metadata['rig_intensity']==light_intensity]
+        feat = features.reindex(meta.index)
+        
+        ttest_results = stats(meta, 
+                              feat,
+                              group_by='treatment',
+                              control='BW-'+str(light_intensity),
+                              save_dir=stats_dir / 'intensity_{}'.format(light_intensity),
+                              feature_list=feature_list,
+                              p_value_threshold=P_VALUE_THRESHOLD,
+                              fdr_method=None)
+        pvalues_dict[light_intensity] = ttest_results.loc['speed_50th',
+                                                          'pvals_fepD-' + str(light_intensity)]
+    # correct p-values for multiple comparisons - pairwise BW vs fepD across 5 light intensities
+    reject, corrected_pvals = _multitest_correct(pd.Series(list(pvalues_dict.values())), 
+                                                 multitest_method='fdr_bh', fdr=0.05)
+    pvals = pd.DataFrame.from_dict(pvalues_dict, orient='index', columns=['pvals'])
+    save_path = stats_dir / 't-test_results_corrected.csv'
+    save_path.parent.mkdir(exist_ok=True, parents=True)
+    pvals.to_csv(save_path)
     
-    plot_dir = Path(SAVE_DIR) / 'Plots'
-    boxplots(metadata, features, group_by='treatment', control='BW-1', save_dir=plot_dir, 
-             stats_dir=stats_dir, feature_set=feature_list, pvalue_threshold=0.05)
+    # boxplot
+    plot_df = metadata.join(features)
+    uv_lut = dict(zip(['live','dead'], sns.color_palette('Set2',2)))
+    
+    plt.close('all')
+    sns.set_style('ticks')
+    fig = plt.figure(figsize=[12,6])
+    ax = fig.add_subplot(1,1,1)
+    sns.boxplot(x='gene_name',
+                y='speed_50th',
+                data=plot_df, 
+                order=strain_list,
+                hue='is_dead',
+                hue_order=['live','dead'],
+                palette=uv_lut,
+                dodge=True,
+                showfliers=False, 
+                showmeans=False,
+                meanprops={"marker":"x", 
+                           "markersize":5,
+                           "markeredgecolor":"k"},
+                flierprops={"marker":"x", 
+                            "markersize":15, 
+                            "markeredgecolor":"r"})
+    dates = sorted(plot_df['date_yyyymmdd'].unique())
+    date_lut = dict(zip(dates, sns.color_palette(palette="Greys", n_colors=len(dates))))
+    for date in dates:
+        date_df = plot_df[plot_df['date_yyyymmdd']==date]
+        sns.stripplot(x='gene_name',
+                      y='speed_50th',
+                      data=date_df,
+                      s=8,
+                      order=strain_list,
+                      hue='is_dead',
+                      hue_order=['live','dead'],
+                      dodge=True,
+                      palette=[date_lut[date]] * len(strain_list),
+                      color=None,
+                      marker=".",
+                      edgecolor='k',
+                      linewidth=0.3) #facecolors="none"
+
+    # scale y axis for annotations    
+    trans = transforms.blended_transform_factory(ax.transData, ax.transAxes) #y=scaled
+
+    ax.axes.get_xaxis().get_label().set_visible(False) # remove x axis label
+    ax.axes.set_xticklabels(strain_list, fontsize=20)
+    # ax.axes.set_xlabel('Time (minutes)', fontsize=25, labelpad=20)                           
+    ax.tick_params(axis='y', which='major', pad=15)
+    plt.yticks(fontsize=20)
+    ax.axes.set_ylabel('Speed (µm s$^{-1}$)', fontsize=25, labelpad=20)  
+    plt.ylim(-290, 390)
+    handles, labels = ax.get_legend_handles_labels()
+    ax.legend(handles[:2], labels[:2], loc='lower right', frameon=False)
+    #plt.axhline(y=0, c='grey')
+
+
     
     # timeseries - speed
     
