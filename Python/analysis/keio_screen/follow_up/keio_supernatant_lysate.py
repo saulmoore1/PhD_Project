@@ -9,7 +9,7 @@ Adding fepD culture to BW lawns
 - live vs dead bacteria
 
 @author: sm5911
-@date: 13/04/2022
+@date: 13/04/2022 (updated: 25/11/2024)
 
 """
 
@@ -32,13 +32,17 @@ from tierpsytools.preprocessing.filter_data import select_feat_set
 #%% Globals
 
 PROJECT_DIR = "/Volumes/hermes$/Saul/Keio_Screen/Data/Keio_Supernatant_Lysate"
-SAVE_DIR = "/Users/sm5911/Documents/Keio_Supernatant_Lysate"
+SAVE_DIR = "/Users/sm5911/Documents/PhD_DLBG/11_Keio_Supernatant_Lysate"
+
+FPS = 25
 N_WELLS = 6
 
 NAN_THRESHOLD_ROW = 0.8
 NAN_THRESHOLD_COL = 0.05
 MIN_NSKEL_PER_VIDEO = None
 MIN_NSKEL_SUM = 500
+P_VALUE_THRESHOLD = 0.05
+FDR_METHOD = 'fdr_bh'
 
 FEATURE_SET = ['speed_50th'] #'motion_mode_forward_fraction'
 
@@ -51,21 +55,20 @@ WINDOW_NAME_DICT = {0:"blue light 1", 1: "20-30 seconds after blue light 1",
                     4:"blue light 3", 5: "20-30 seconds after blue light 3"}
 
 BLUELIGHT_TIMEPOINTS_MINUTES = [30,31,32]
-FPS = 25
 VIDEO_LENGTH_SECONDS = 38*60
 SMOOTH_WINDOW_SECONDS = 5
 BLUELIGHT_WINDOWS_ONLY_TS = True
 
 #%% Functions
 
-def supernatants_stats(metadata,
-                       features,
-                       group_by='treatment',
-                       control='BW',
-                       save_dir=None,
-                       feature_set=None,
-                       pvalue_threshold=0.05,
-                       fdr_method='fdr_bh'):
+def stats(metadata,
+          features,
+          group_by='treatment',
+          control='BW',
+          save_dir=None,
+          feature_set=None,
+          pvalue_threshold=0.05,
+          fdr_method='fdr_bh'):
     
     # check case-sensitivity
     assert len(metadata[group_by].unique()) == len(metadata[group_by].str.upper().unique())
@@ -153,7 +156,7 @@ def supernatants_stats(metadata,
     print("%d significant features between any %s vs %s (t-test, P<%.2f, %s)" %\
           (nsig, group_by, control, pvalue_threshold, fdr_method))
 
-    return
+    return ttest_results
 
 
 def main():
@@ -256,14 +259,14 @@ def main():
         # live BW
         live_meta = meta_window.query("is_dead=='N'")
         live_feat = feat_window.reindex(live_meta.index)
-        supernatants_stats(live_meta,
-                           live_feat,
-                           group_by='treatment',
-                           control='BW',
-                           save_dir=stats_dir / 'live_BW',
-                           feature_set=FEATURE_SET,
-                           pvalue_threshold=0.05,
-                           fdr_method='fdr_bh')
+        _ = stats(live_meta,
+                  live_feat,
+                  group_by='treatment',
+                  control='BW',
+                  save_dir=stats_dir / 'live_BW',
+                  feature_set=FEATURE_SET,
+                  pvalue_threshold=P_VALUE_THRESHOLD,
+                  fdr_method=FDR_METHOD)
         
         colour_labels = sns.color_palette('tab10', 2)
         colours = [colour_labels[1] if 'fepD' in s else colour_labels[0] for s in treatment_dict.values()]
@@ -282,19 +285,20 @@ def main():
                             # ylim_minmax=(-20,130),
                             vline_boxpos=[4],
                             fontsize=20,
-                            subplots_adjust={'bottom':0.5,'top':0.95,'left':0.05,'right':0.98})        
+                            #subplots_adjust={'bottom':0.5,'top':0.95,'left':0.05,'right':0.98}
+                            )        
     
         # dead BW
         dead_meta = meta_window.query("is_dead=='Y'")
         dead_feat = feat_window.reindex(dead_meta.index)
-        supernatants_stats(dead_meta,
-                           dead_feat,
-                           group_by='treatment',
-                           control='BW',
-                           save_dir=stats_dir / 'dead_BW',
-                           feature_set=FEATURE_SET,
-                           pvalue_threshold=0.05,
-                           fdr_method='fdr_bh')
+        _ = stats(dead_meta,
+                  dead_feat,
+                  group_by='treatment',
+                  control='BW',
+                  save_dir=stats_dir / 'dead_BW',
+                  feature_set=FEATURE_SET,
+                  pvalue_threshold=P_VALUE_THRESHOLD,
+                  fdr_method=FDR_METHOD)
         
         colour_labels = sns.color_palette('tab10', 2)
         colours = [colour_labels[1] if 'fepD' in s else colour_labels[0] for s in treatment_dict.values()]
@@ -313,7 +317,8 @@ def main():
                             # ylim_minmax=(-20,130),
                             vline_boxpos=[1],
                             fontsize=20,
-                            subplots_adjust={'bottom':0.5,'top':0.95,'left':0.05,'right':0.98})        
+                            #subplots_adjust={'bottom':0.5,'top':0.95,'left':0.05,'right':0.98}
+                            )        
     
     metadata = metadata[metadata['window']==0]
 
