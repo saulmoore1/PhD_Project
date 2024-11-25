@@ -732,7 +732,7 @@ def all_in_one_boxplots(metadata,
     
     # all-in-one boxplots
     for feat in feature_set:
-        save_path = save_dir / '{0}_{1}.pdf'.format(group_by, feat)
+        save_path = save_dir / '{0}_{1}.svg'.format(group_by, feat)
         save_path.parent.mkdir(exist_ok=True, parents=True)
         
         plt.close('all')
@@ -764,7 +764,7 @@ def all_in_one_boxplots(metadata,
         # plt.title(feat.replace('_',' '), fontsize=15, pad=20)
         plt.xticks(rotation=90, fontsize=fontsize)
         plt.yticks(fontsize=30)
-        plt.ylabel(feat.replace('_50th',' (µm s$^{-1}$)'), labelpad=30, fontsize=fontsize)
+        plt.ylabel('Speed (µm s$^{-1}$)', labelpad=30, fontsize=fontsize)
         ax.axes.get_xaxis().get_label().set_visible(False) # remove x axis label
         # ax.axes.get_yaxis().get_label().set_visible(False) # remove y axis label
         
@@ -814,10 +814,13 @@ def all_in_one_boxplots(metadata,
                 
         if not legend:
             ax.get_legend().remove()
-        
+        else:
+            handles, labels = ax.get_legend_handles_labels()
+            ax.legend(handles[:2], labels[:2], loc='best', frameon=False, fontsize=15)
+                
         plt.subplots_adjust(bottom=subplots_adjust['bottom'], top=subplots_adjust['top'],
                             left=subplots_adjust['left'], right=subplots_adjust['right'])
-        plt.savefig(save_path, dpi=600)
+        plt.savefig(save_path, bbox_inches='tight', transparent=True) #, dpi=600
         
     return
 

@@ -18,13 +18,13 @@ import pandas as pd
 import seaborn as sns
 from tqdm import tqdm
 from pathlib import Path
-from matplotlib import transforms
+#from matplotlib import transforms
 from matplotlib import pyplot as plt
 
 from preprocessing.compile_hydra_data import compile_metadata, process_feature_summaries
 from filter_data.clean_feature_summaries import clean_summary_results
-from visualisation.plotting_helper import sig_asterix, boxplots_sigfeats
-from write_data.write import write_list_to_file
+from visualisation.plotting_helper import sig_asterix#, boxplots_sigfeats
+#from write_data.write import write_list_to_file
 from time_series.plot_timeseries import plot_timeseries, get_strain_timeseries
 # from time_series.plot_timeseries import plot_timeseries_feature
 
@@ -233,7 +233,7 @@ def main():
     treatment_cols = ['bacteria_strain','rig_intensity']
     metadata['treatment'] = metadata.loc[:,treatment_cols].astype(str).agg('-'.join, axis=1)
     intensity_list = sorted(metadata['rig_intensity'].unique())
-    
+    strain_list = sorted(metadata['bacteria_strain'].unique())
     treatment_list = sorted(metadata['treatment'].unique())
     
     stats_dir = Path(SAVE_DIR) / 'Stats'
@@ -257,28 +257,29 @@ def main():
         pvalues_dict[light_intensity] = ttest_results.loc['speed_50th',
                                                           'pvals_fepD-' + str(light_intensity)]
     # correct p-values for multiple comparisons - pairwise BW vs fepD across 5 light intensities
-    reject, corrected_pvals = _multitest_correct(pd.Series(list(pvalues_dict.values())), 
-                                                 multitest_method='fdr_bh', fdr=0.05)
     pvals = pd.DataFrame.from_dict(pvalues_dict, orient='index', columns=['pvals'])
+    reject, corrected_pvals = _multitest_correct(pvals['pvals'], multitest_method='fdr_bh', fdr=0.05)
+    ttest_results_corrected = pd.concat([corrected_pvals, reject], axis=1
+                                        ).rename(columns={0:'fepD',1:'reject'})
     save_path = stats_dir / 't-test_results_corrected.csv'
     save_path.parent.mkdir(exist_ok=True, parents=True)
-    pvals.to_csv(save_path)
+    ttest_results_corrected.to_csv(save_path)
     
     # boxplot
     plot_df = metadata.join(features)
-    uv_lut = dict(zip(['live','dead'], sns.color_palette('Set2',2)))
-    
+    lut = dict(zip(strain_list, sns.color_palette('tab10',2)))
+
     plt.close('all')
     sns.set_style('ticks')
-    fig = plt.figure(figsize=[12,6])
+    fig = plt.figure(figsize=[15,8])
     ax = fig.add_subplot(1,1,1)
-    sns.boxplot(x='gene_name',
+    sns.boxplot(x='rig_intensity',
                 y='speed_50th',
                 data=plot_df, 
-                order=strain_list,
-                hue='is_dead',
-                hue_order=['live','dead'],
-                palette=uv_lut,
+                order=intensity_list,
+                hue='bacteria_strain',
+                hue_order=strain_list,
+                palette=lut,
                 dodge=True,
                 showfliers=False, 
                 showmeans=False,
@@ -292,35 +293,49 @@ def main():
     date_lut = dict(zip(dates, sns.color_palette(palette="Greys", n_colors=len(dates))))
     for date in dates:
         date_df = plot_df[plot_df['date_yyyymmdd']==date]
-        sns.stripplot(x='gene_name',
+        sns.stripplot(x='rig_intensity',
                       y='speed_50th',
                       data=date_df,
                       s=8,
-                      order=strain_list,
-                      hue='is_dead',
-                      hue_order=['live','dead'],
+                      order=intensity_list,
+                      hue='bacteria_strain',
+                      hue_order=strain_list,
                       dodge=True,
-                      palette=[date_lut[date]] * len(strain_list),
+                      palette=[date_lut[date]] * len(intensity_list),
                       color=None,
                       marker=".",
                       edgecolor='k',
                       linewidth=0.3) #facecolors="none"
 
-    # scale y axis for annotations    
-    trans = transforms.blended_transform_factory(ax.transData, ax.transAxes) #y=scaled
+    # # scale y axis for annotations    
+    # trans = transforms.blended_transform_factory(ax.transData, ax.transAxes) #y=scaled
+    ymax = plot_df.groupby('rig_intensity')['speed_50th'].max()
+    
+    # add pvalues to plot - fepD vs BW for each rig intensity
+    for i, text in enumerate(ax.axes.get_xticklabels()):
+        intensity = int(text.get_text())
+        p = ttest_results_corrected.loc[intensity, 'fepD']
+        p_text = sig_asterix([p])[0]
+        y = ymax[intensity]
+        ax.text(i, y+20, p_text, fontsize=20, ha='center', va='center')#, transform=trans)
+    
+        # Plot the bar: [x1,x1,x2,x2],[bar_tips,bar_height,bar_height,bar_tips]
+        plt.plot([i-0.2, i-0.2, i+0.2, i+0.2],[y+10, y+15, y+15, y+10], lw=1, c='k')#, transform=trans)
 
-    ax.axes.get_xaxis().get_label().set_visible(False) # remove x axis label
-    ax.axes.set_xticklabels(strain_list, fontsize=20)
-    # ax.axes.set_xlabel('Time (minutes)', fontsize=25, labelpad=20)                           
-    ax.tick_params(axis='y', which='major', pad=15)
+    ax.axes.set_xticklabels(intensity_list, fontsize=20)
+    ax.axes.set_xlabel('Rig Intensity (1-Low, 10-High)', fontsize=25, labelpad=20)   
+    ax.tick_params(axis='x', which='major', pad=10)     
+    ax.axes.set_ylabel('Speed (µm s$^{-1}$)', fontsize=25, labelpad=20)                     
+    ax.tick_params(axis='y', which='major', pad=10)
     plt.yticks(fontsize=20)
-    ax.axes.set_ylabel('Speed (µm s$^{-1}$)', fontsize=25, labelpad=20)  
-    plt.ylim(-290, 390)
+    plt.ylim(0, 230)
+    
     handles, labels = ax.get_legend_handles_labels()
-    ax.legend(handles[:2], labels[:2], loc='lower right', frameon=False)
-    #plt.axhline(y=0, c='grey')
+    ax.legend(handles[:2], labels[:2], loc='lower right', frameon=False, fontsize=20)
 
-
+    boxplot_path = plots_dir / 'rig_intensities_fepD_vs_BW.svg'
+    boxplot_path.parent.mkdir(exist_ok=True, parents=True)
+    plt.savefig(boxplot_path, bbox_inches='tight', transparent=True)
     
     # timeseries - speed
     

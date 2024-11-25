@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-ASH lite-1 mutant worms, with and without retinal
+ASH lite-1 mutant worms, with and without retinal, both with and without paraquat
 
 @author: sm5911
-@date: 28/09/2022
+@date: 28/09/2022 (updated: 23/11/2024)
 
 """
 
@@ -20,7 +20,7 @@ from matplotlib import pyplot as plt
 from preprocessing.compile_hydra_data import compile_metadata, process_feature_summaries
 from filter_data.clean_feature_summaries import clean_summary_results
 from write_data.write import write_list_to_file
-from visualisation.plotting_helper import sig_asterix, boxplots_sigfeats, all_in_one_boxplots
+from visualisation.plotting_helper import sig_asterix, all_in_one_boxplots #boxplots_sigfeats, 
 # from analysis.keio_screen.follow_up.uv_paraquat_antioxidant import masked_video_list_from_metadata
 from time_series.plot_timeseries import plot_timeseries_feature, plot_timeseries, get_strain_timeseries # selected_strains_timeseries
 
@@ -30,20 +30,21 @@ from tierpsytools.preprocessing.filter_data import select_feat_set
 #%% Globals
 
 PROJECT_DIR = "/Volumes/hermes$/Saul/Keio_Screen/Data/Keio_ASH_Retinal"
-SAVE_DIR = "/Users/sm5911/Documents/Keio_ASH_Retinal"
+SAVE_DIR = "/Users/sm5911/Documents/PhD_DLBG/21_Keio_ASH_Retinal"
 
 N_WELLS = 6
-
 FPS = 25
 
 FEATURE_SET = ['speed_50th']
 
-nan_threshold_row = 0.8
-nan_threshold_col = 0.05
-
+NAN_THRESHOLD_ROW = 0.8
+NAN_THRESHOLD_COL = 0.05
 THRESHOLD_FILTER_DURATION = 25 # threshold trajectory length (n frames) / 25 fps => 1 second
 THRESHOLD_FILTER_MOVEMENT = 10 # threshold movement (n pixels) * 12.4 microns per pixel => 124 microns
 THRESHOLD_LEAVING_DURATION = 50 # n frames a worm has to leave food for => a true leaving event
+
+P_VALUE_THRESHOLD = 0.05
+FDR_METHOD = 'fdr_bh'
 
 BLUELIGHT_TIMEPOINTS_SECONDS = [(60, 70),(160, 170),(260, 270)]
 
@@ -57,14 +58,14 @@ WINDOW_NAME_DICT = {0:"blue light 1", 1: "20-30 seconds after blue light 1",
 
 #%% Functions
 
-def do_stats(metadata,
-             features,
-             group_by='treatment',
-             control='BW',
-             save_dir=None,
-             feature_set=None,
-             pvalue_threshold=0.05,
-             fdr_method='fdr_bh'):
+def stats(metadata,
+          features,
+          group_by='treatment',
+          control='BW',
+          save_dir=None,
+          feature_set=None,
+          pvalue_threshold=0.05,
+          fdr_method='fdr_bh'):
     
     # check case-sensitivity
     assert len(metadata[group_by].unique()) == len(metadata[group_by].str.upper().unique())
@@ -154,42 +155,42 @@ def do_stats(metadata,
 
     return
 
-def make_boxplots(metadata,
-                  features,
-                  group_by='treatment',
-                  control='BW',
-                  save_dir=None,
-                  stats_dir=None,
-                  feature_set=None,
-                  pvalue_threshold=0.05,
-                  drop_insignificant=False,
-                  scale_outliers=False,
-                  ylim_minmax=None):
+# def make_boxplots(metadata,
+#                   features,
+#                   group_by='treatment',
+#                   control='BW',
+#                   save_dir=None,
+#                   stats_dir=None,
+#                   feature_set=None,
+#                   pvalue_threshold=0.05,
+#                   drop_insignificant=False,
+#                   scale_outliers=False,
+#                   ylim_minmax=None):
     
-    feature_set = features.columns.tolist() if feature_set is None else feature_set
-    assert isinstance(feature_set, list) and all(f in features.columns for f in feature_set)
+#     feature_set = features.columns.tolist() if feature_set is None else feature_set
+#     assert isinstance(feature_set, list) and all(f in features.columns for f in feature_set)
                     
-    # load t-test results for window
-    if stats_dir is not None:
-        ttest_path = Path(stats_dir) / 't-test' / 't-test_results.csv'
-        ttest_df = pd.read_csv(ttest_path, header=0, index_col=0)
-        pvals = ttest_df[[c for c in ttest_df.columns if 'pval' in c]]
-        pvals.columns = [c.replace('pvals_','') for c in pvals.columns]
+#     # load t-test results for window
+#     if stats_dir is not None:
+#         ttest_path = Path(stats_dir) / 't-test' / 't-test_results.csv'
+#         ttest_df = pd.read_csv(ttest_path, header=0, index_col=0)
+#         pvals = ttest_df[[c for c in ttest_df.columns if 'pval' in c]]
+#         pvals.columns = [c.replace('pvals_','') for c in pvals.columns]
     
-    boxplots_sigfeats(features,
-                      y_class=metadata[group_by],
-                      control=control,
-                      pvals=pvals,
-                      z_class=None,
-                      feature_set=feature_set,
-                      saveDir=Path(save_dir),
-                      drop_insignificant=drop_insignificant,
-                      p_value_threshold=pvalue_threshold,
-                      scale_outliers=scale_outliers,
-                      ylim_minmax=ylim_minmax,
-                      append_ranking_fname=False)
+#     boxplots_sigfeats(features,
+#                       y_class=metadata[group_by],
+#                       control=control,
+#                       pvals=pvals,
+#                       z_class=None,
+#                       feature_set=feature_set,
+#                       saveDir=Path(save_dir)    ,
+#                       drop_insignificant=drop_insignificant,
+#                       p_value_threshold=pvalue_threshold,
+#                       scale_outliers=scale_outliers,
+#                       ylim_minmax=ylim_minmax,
+#                       append_ranking_fname=False)
     
-    return
+#     return
 
 
 def main():
@@ -218,8 +219,8 @@ def main():
         features, metadata = clean_summary_results(features, 
                                                    metadata,
                                                    feature_columns=None,
-                                                   nan_threshold_row=nan_threshold_row,
-                                                   nan_threshold_col=nan_threshold_col,
+                                                   nan_threshold_row=NAN_THRESHOLD_ROW,
+                                                   nan_threshold_col=NAN_THRESHOLD_COL,
                                                    max_value_cap=1e15,
                                                    imputeNaN=True,
                                                    min_nskel_per_video=None,
@@ -298,30 +299,31 @@ def main():
         stats_dir = Path(SAVE_DIR) / 'Stats' / WINDOW_NAME_DICT[window]
         plot_dir = Path(SAVE_DIR) / 'Plots' / WINDOW_NAME_DICT[window]
  
-        N2_BW_retinal_control_meta = meta_window.query("worm_strain=='N2' and bacteria_strain=='BW' and " +
-                                                       "drug_type!='Paraquat'")
-        N2_BW_retinal_control_feat = feat_window.reindex(N2_BW_retinal_control_meta.index)
+        # N2_BW_retinal_control_meta = meta_window.query("worm_strain=='N2' and " +
+        #                                                "bacteria_strain=='BW' and " +
+        #                                                "drug_type!='Paraquat'")
+        # N2_BW_retinal_control_feat = feat_window.reindex(N2_BW_retinal_control_meta.index)
         
-        # perform stats
-        do_stats(N2_BW_retinal_control_meta,
-                 N2_BW_retinal_control_feat,
-                 group_by='retinal',
-                 control='No',
-                 save_dir=stats_dir / 'N2_BW_retinal_control',
-                 feature_set=feature_list,
-                 pvalue_threshold=0.05,
-                 fdr_method='fdr_bh')
+        # # perform stats
+        # stats(N2_BW_retinal_control_meta,
+        #       N2_BW_retinal_control_feat,
+        #       group_by='retinal',
+        #       control='No',
+        #       save_dir=stats_dir / 'N2_BW_retinal_control',
+        #       feature_set=feature_list,
+        #       pvalue_threshold=P_VALUE_THRESHOLD,
+        #       fdr_method=FDR_METHOD)
         
-        make_boxplots(N2_BW_retinal_control_meta,
-                      N2_BW_retinal_control_feat,
-                      group_by='retinal',
-                      control='No',
-                      save_dir=plot_dir / 'N2_BW_retinal_control',
-                      stats_dir=stats_dir / 'N2_BW_retinal_control',
-                      feature_set=feature_list,
-                      pvalue_threshold=0.05,
-                      scale_outliers=False,
-                      ylim_minmax=None)
+        # make_boxplots(N2_BW_retinal_control_meta,
+        #               N2_BW_retinal_control_feat,
+        #               group_by='retinal',
+        #               control='No',
+        #               save_dir=plot_dir / 'N2_BW_retinal_control',
+        #               stats_dir=stats_dir / 'N2_BW_retinal_control',
+        #               feature_set=feature_list,
+        #               pvalue_threshold=0.05,
+        #               scale_outliers=False,
+        #               ylim_minmax=None)
                 
         # ASH vs N2 (no paraquat)
         meta_nopara = meta_window.query("drug_type!='Paraquat'")
@@ -329,25 +331,25 @@ def main():
         
         meta_nopara['treatment2'] = ['-'.join(t.split('-')[:-1]) for t in meta_nopara['treatment']]
         
-        do_stats(meta_nopara, 
-                 feat_nopara,
-                 group_by='treatment',
-                 control='N2-BW',
-                 save_dir=stats_dir / 'all_treatment' / 'no_paraquat',
-                 feature_set=feature_list,
-                 pvalue_threshold=0.05,
-                 fdr_method='fdr_bh')
+        stats(meta_nopara, 
+              feat_nopara,
+              group_by='treatment',
+              control='N2-BW',
+              save_dir=stats_dir / 'all_treatment' / 'no_paraquat',
+              feature_set=feature_list,
+              pvalue_threshold=P_VALUE_THRESHOLD,
+              fdr_method=FDR_METHOD)
         
-        make_boxplots(meta_nopara, 
-                      feat_nopara,
-                      group_by='treatment',
-                      control='N2-BW',
-                      save_dir=plot_dir / 'all_treatment' / 'no_paraquat',
-                      stats_dir=stats_dir / 'all_treatment' / 'no_paraquat',
-                      feature_set=feature_list,
-                      pvalue_threshold=0.05,
-                      scale_outliers=False,
-                      ylim_minmax=None) #(-100,330)
+        # make_boxplots(meta_nopara, 
+        #               feat_nopara,
+        #               group_by='treatment',
+        #               control='N2-BW',
+        #               save_dir=plot_dir / 'all_treatment' / 'no_paraquat',
+        #               stats_dir=stats_dir / 'all_treatment' / 'no_paraquat',
+        #               feature_set=feature_list,
+        #               pvalue_threshold=0.05,
+        #               scale_outliers=False,
+        #               ylim_minmax=None) #(-100,330)
         
         colour_dict = dict(zip(['BW','fepD'], sns.color_palette('tab10',2)))
         all_in_one_boxplots(meta_nopara, 
@@ -364,12 +366,13 @@ def main():
                             pvalue_threshold=0.05,
                             sigasterix=True,
                             fontsize=40,
-                            legend=False,
+                            legend=True,
                             colour_dict=colour_dict,
                             figsize=(14,10),
                             vline_boxpos=None,
                             ylim_minmax=(-20,300),
-                            subplots_adjust={'bottom':0.3,'top':0.95,'left':0.15,'right':0.95})
+                            #subplots_adjust={'bottom':0.3,'top':0.95,'left':0.15,'right':0.95}
+                            )
         
         # ASH vs N2 (paraquat)
         meta_para = meta_window.query("drug_type=='Paraquat'")
@@ -377,25 +380,25 @@ def main():
         
         meta_para['treatment2'] = ['-'.join(t.split('-')[:-1]) for t in meta_para['treatment']]
 
-        do_stats(meta_para, 
-                 feat_para,
-                 group_by='treatment',
-                 control='N2-paraquat-BW',
-                 save_dir=stats_dir / 'all_treatment' / 'paraquat',
-                 feature_set=feature_list,
-                 pvalue_threshold=0.05,
-                 fdr_method='fdr_bh')
+        stats(meta_para, 
+              feat_para,
+              group_by='treatment',
+              control='N2-paraquat-BW',
+              save_dir=stats_dir / 'all_treatment' / 'paraquat',
+              feature_set=feature_list,
+              pvalue_threshold=P_VALUE_THRESHOLD,
+              fdr_method=FDR_METHOD)
         
-        make_boxplots(meta_para,
-                      feat_para,
-                      group_by='treatment',
-                      control='N2-paraquat-BW',
-                      save_dir=plot_dir / 'all_treatment' / 'paraquat',
-                      stats_dir=stats_dir / 'all_treatment' / 'paraquat',
-                      feature_set=feature_list,
-                      pvalue_threshold=0.05,
-                      scale_outliers=False,
-                      ylim_minmax=None) #(-100,330)
+        # make_boxplots(meta_para,
+        #               feat_para,
+        #               group_by='treatment',
+        #               control='N2-paraquat-BW',
+        #               save_dir=plot_dir / 'all_treatment' / 'paraquat',
+        #               stats_dir=stats_dir / 'all_treatment' / 'paraquat',
+        #               feature_set=feature_list,
+        #               pvalue_threshold=0.05,
+        #               scale_outliers=False,
+        #               ylim_minmax=None) #(-100,330)
         
         all_in_one_boxplots(meta_para,
                             feat_para,
@@ -412,16 +415,17 @@ def main():
                             pvalue_threshold=0.05,
                             sigasterix=True,
                             fontsize=40,
-                            legend=False,
+                            legend=True,
                             colour_dict=colour_dict,
                             figsize=(14,10),
                             vline_boxpos=None,
                             ylim_minmax=(-20,300),
-                            subplots_adjust={'bottom':0.3,'top':0.95,'left':0.15,'right':0.95})
+                            #subplots_adjust={'bottom':0.3,'top':0.95,'left':0.15,'right':0.95}
+                            )
 
 
     # subset for single metadata window for full bluelight video timeseries plots
-    metadata = metadata[metadata['window']==0]
+    metadata = metadata[metadata['window']==5]
         
     BW_worms = [s for s in strain_list if 'BW' in s and not 'paraquat' in s.lower()]
     BW_Paraquat_worms = [s for s in strain_list if 'BW' in s and 'paraquat' in s.lower()]
