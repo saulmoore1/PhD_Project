@@ -134,7 +134,7 @@ def compile_metadata(aux_dir,
         ----------
         aux_dir : str
             Path to "AuxiliaryFiles" directory containing project metadata files
-        dates : list of str, None
+        imaging_dates : list of str, None
             List of imaging dates to compile metadata from
         add_well_annotations : bool
             Add annotations from WellAnnotator GUI
@@ -233,25 +233,38 @@ def compile_metadata(aux_dir,
             metadata = update_metadata_with_wells_annotations(aux_dir=aux_dir, 
                                                               saveto=metadata_annotated_path, 
                                                               del_if_exists=False)
+            assert metadata_annotated_path.exists()
 
             if imaging_dates is not None:
-                metadata = metadata.loc[metadata['date_yyyymmdd'].astype(str).isin(imaging_dates)]
+                # remove rows with no imaging date after adding annotations (bug fix)
+                metadata = metadata[~metadata['date_yyyymmdd'].isna()]
+                # subset for imaging dates only
+                metadata = metadata.loc[metadata['date_yyyymmdd'].astype(int).astype(str).isin(imaging_dates)]
+                # overwrite annotated metadata with new annotated metadata (subset of imaging dates)
                 metadata.to_csv(metadata_annotated_path, index=None)
-    
-            assert metadata_annotated_path.exists()
-   
+       
         # Load annotated metadata
         metadata = pd.read_csv(metadata_annotated_path, header=0,
                                dtype={"comments":str, "source_plate_id":str})
+        
         if imaging_dates is not None:
-            metadata = metadata.loc[metadata['date_yyyymmdd'].astype(str).isin(imaging_dates)]
+            metadata = metadata.loc[metadata['date_yyyymmdd'].astype(int).astype(str).isin(imaging_dates)]
                                   
         if not 'is_bad_well' in metadata.columns:
             raise Warning("Bad well annotations not found in metadata!")
         else:
-            prop_bad = metadata['is_bad_well'].sum() / len(metadata['is_bad_well'])
-            print("%.1f%% of data are labelled as 'bad well' data" % (prop_bad * 100))
-            
+            if any(metadata['is_bad_well'].isna()):
+                print("WARNING: There are missing bad well annotations in metadata!")
+            else:
+                n_bad = metadata['is_bad_well'].sum()
+                prop_bad = metadata['is_bad_well'].sum() / len(metadata['is_bad_well'])
+                if n_bad > 0:
+                    print("WARNING: %d bad wells found (%.1f%% of data)" % (n_bad, prop_bad * 100))
+                    print("These samples should be omitted.")
+        
+        # overwrite metadata_path with metadata_annotated_path to return path to annotated metadata
+        metadata_path = metadata_annotated_path
+        
     return metadata, metadata_path
 
 def process_feature_summaries(metadata_path, 
@@ -314,6 +327,7 @@ def process_feature_summaries(metadata_path,
                                                                              window_list=None,
                                                                              n_wells=n_wells)
         else:
+            # recursive search to find features summary files within day folders
             if compile_day_summaries:
                 if imaging_dates is not None:
                     assert type(imaging_dates) == list
@@ -327,6 +341,7 @@ def process_feature_summaries(metadata_path,
                     feat_files = list(Path(results_dir).rglob('features_summary*.csv'))
                     fname_files = [Path(str(f).replace("/features_", "/filenames_")) for f in feat_files]
             else:
+                # find features summary files within results directory (non-recursive)
                 feat_files = list(Path(results_dir).glob('features_summary*.csv'))
                 fname_files = list(Path(results_dir).glob('filenames_summary*.csv'))
 
@@ -334,6 +349,7 @@ def process_feature_summaries(metadata_path,
             feat_files = [ft for ft, fn in zip(np.unique(feat_files), np.unique(fname_files)) if fn is not None]
             fname_files = [fn for fn in np.unique(fname_files) if fn is not None]           
                 
+            # Ignore any window summaries files, as user input "window_summaries = False"
             feat_files = [ft for ft in feat_files if not 'window' in str(ft)]
             fname_files = [fn for fn in fname_files if not 'window' in str(fn)]
                     
@@ -352,7 +368,7 @@ def process_feature_summaries(metadata_path,
 
     # if there are no well annotations in metadata, omit 'is_good_well' from feat_id_cols
     bad_well_annotations = True
-    if not 'is_good_well' in meta_col_order:
+    if not 'is_good_well' in meta_col_order and not 'is_bad_well' in meta_col_order:
         feat_id_cols = [f for f in feat_id_cols if f != 'is_good_well']
         bad_well_annotations = False
         
@@ -367,12 +383,12 @@ def process_feature_summaries(metadata_path,
                                              metadata_path, 
                                              feat_id_cols=feat_id_cols,
                                              add_bluelight=align_bluelight)
+    
     if not bad_well_annotations and 'is_good_well' in features.columns:
         features = features.drop(columns='is_good_well')
 
     merge_on_cols = ['date_yyyymmdd','imaging_run_number','imaging_plate_id','well_name']
     
-    # meta_col_order.append('window')
     if window_summaries:
         if align_bluelight:
             print("WARNING: Not aligning bluelight as feature summaries have been calculated for defined windows\n" +
@@ -397,7 +413,7 @@ def process_feature_summaries(metadata_path,
     meta_col_order.extend(new_cols)
     
     if imaging_dates is not None:
-        metadata = metadata[metadata['date_yyyymmdd'].astype(str).isin(imaging_dates)]
+        metadata = metadata[metadata['date_yyyymmdd'].astype(int).astype(str).isin(imaging_dates)]
         features = features.reindex(metadata.index)
     
     return features, metadata[meta_col_order]

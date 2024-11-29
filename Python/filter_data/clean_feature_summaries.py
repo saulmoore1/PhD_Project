@@ -26,10 +26,12 @@ def clean_summary_results(features,
                           min_nskel_sum=None,
                           drop_size_related_feats=False,
                           norm_feats_only=False,
-                          percentile_to_use=None):
+                          percentile_to_use=None,
+                          no_nan_cols=['worm_strain','bacteria_strain','gene_name']):
     """ Clean features summary results
         - Drop bad wells from WellAnnotator annotations file
         - Drop samples with >nan_threshold_row proportion of NaN features
+        - Drop samples with NaNs in any of no_nan_cols, e.g. missing gene or strain name
         - Drop features with >nan_threshold_col proportion of NaNs
         - Drop features with zero standard deviation
         - Drop features that are ventrally signed
@@ -82,13 +84,14 @@ def clean_summary_results(features,
                                             metadata, 
                                             bad_well_cols=['is_bad_well'], 
                                             verbose=False)
-        
-    col_list = ['worm_strain','bacteria_strain']
-    for col in col_list:
+     
+    # Drop rows with no strain name or gene name info
+    for col in no_nan_cols:
         if col in metadata.columns:
             n_missing, idxs = sum(metadata[col].isna()), list(np.where(metadata[col].isna())[0])
             if n_missing > 0:
-                print("\n\tWARNING: There are %d missing entries for %s in metadata!" % (n_missing, col))
+                prop_missing = n_missing / metadata.shape[0] * 100
+                print("\n\tWARNING: There are %d missing entries for %s in metadata (%.1f%% of data)!" % (n_missing, col, prop_missing))
                 print("\n\tThese samples will be dropped from the analysis\n")
                 metadata = metadata[~metadata.index.isin(idxs)]
                 features = features.reindex(metadata.index)
@@ -106,6 +109,7 @@ def clean_summary_results(features,
     # Drop rows based on percentage of NaN values across features for each row
     # NB: axis=1 will sum the NaNs across all the columns for each row
     if nan_threshold_row is not None:
+        print("Dropping samples with >%d%% NaN values across features" % (nan_threshold_row*100))
         features = filter_nan_inf(features, threshold=nan_threshold_row, axis=1, verbose=True)
         metadata = metadata.reindex(features.index)
     
@@ -115,7 +119,7 @@ def clean_summary_results(features,
         features = filter_nan_inf(features, threshold=nan_threshold_col, axis=0, verbose=False)
         nan_cols = [col for col in feature_columns if col not in features.columns]
         if len(nan_cols) > 0:
-            print("Dropped %d features with >%.1f%% NaNs" % (len(nan_cols), nan_threshold_col*100))
+            print("Dropped %d features with >%d%% NaNs" % (len(nan_cols), nan_threshold_col*100))
     
     # Drop feature columns with zero standard deviation
     feature_columns = features.columns

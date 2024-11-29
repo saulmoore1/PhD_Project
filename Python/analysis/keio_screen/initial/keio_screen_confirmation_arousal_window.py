@@ -82,45 +82,44 @@ def confirmation_window_stats(metadata,
     # print mean sample size
     sample_size = metadata.groupby(group_by).count()
     print("Mean sample size of %s: %d" % (group_by, int(sample_size[sample_size.columns[-1]].mean())))
-
-    n = len(metadata[group_by].unique())
         
     fset = []
-    if n > 2:
    
-        # Perform ANOVA - is there variation among strains at each window?
+    # Perform ANOVA - is there variation among strains at each window?
+    stats, pvals, reject = univariate_tests(X=features, 
+                                            y=metadata[group_by], 
+                                            control=control, 
+                                            test='ANOVA',
+                                            comparison_type='multiclass',
+                                            multitest_correction=fdr_method,
+                                            alpha=pvalue_threshold,
+                                            n_permutation_test=None)
+
+    # get effect sizes
+    effect_sizes = get_effect_sizes(X=features,
+                                    y=metadata[group_by],
+                                    control=control,
+                                    effect_type=None,
+                                    linked_test='ANOVA')
+
+    # compile + save results
+    test_results = pd.concat([stats, effect_sizes, pvals, reject], axis=1)
+    test_results.columns = ['stats','effect_size','pvals','reject']     
+    test_results['significance'] = sig_asterix(test_results['pvals'])
+    anova_test_results = test_results.sort_values(by=['pvals'], ascending=True) # rank by p-value
+    
+    if save_dir is not None:
         anova_path = Path(save_dir) / 'ANOVA' / 'ANOVA_results.csv'
         anova_path.parent.mkdir(parents=True, exist_ok=True)
+        anova_test_results.to_csv(anova_path, header=True, index=True)
 
-        stats, pvals, reject = univariate_tests(X=features, 
-                                                y=metadata[group_by], 
-                                                control=control, 
-                                                test='ANOVA',
-                                                comparison_type='multiclass',
-                                                multitest_correction=fdr_method,
-                                                alpha=pvalue_threshold,
-                                                n_permutation_test=None)
+    # use reject mask to find significant feature set
+    fset = pvals.loc[reject['ANOVA']].sort_values(by='ANOVA', ascending=True).index.to_list()
 
-        # get effect sizes
-        effect_sizes = get_effect_sizes(X=features,
-                                        y=metadata[group_by],
-                                        control=control,
-                                        effect_type=None,
-                                        linked_test='ANOVA')
-
-        # compile + save results
-        test_results = pd.concat([stats, effect_sizes, pvals, reject], axis=1)
-        test_results.columns = ['stats','effect_size','pvals','reject']     
-        test_results['significance'] = sig_asterix(test_results['pvals'])
-        test_results = test_results.sort_values(by=['pvals'], ascending=True) # rank by p-value
-        test_results.to_csv(anova_path, header=True, index=True)
-
-        # use reject mask to find significant feature set
-        fset = pvals.loc[reject['ANOVA']].sort_values(by='ANOVA', ascending=True).index.to_list()
-
-        if len(fset) > 0:
-            print("%d significant features found by ANOVA by '%s' (P<%.2f, %s)" %\
-                  (len(fset), group_by, pvalue_threshold, fdr_method))
+    if len(fset) > 0:
+        print("%d significant features found by ANOVA by '%s' (P<%.2f, %s)" %\
+              (len(fset), group_by, pvalue_threshold, fdr_method))
+        if save_dir is not None:
             anova_sigfeats_path = anova_path.parent / 'ANOVA_sigfeats.txt'
             write_list_to_file(fset, anova_sigfeats_path)
              
@@ -145,15 +144,16 @@ def confirmation_window_stats(metadata,
     ttest_results = pd.concat([stats_t, pvals_t, reject_t, effect_sizes_t], axis=1)
     
     # save results
-    ttest_path = Path(save_dir) / 't-test' / 't-test_results.csv'
-    ttest_path.parent.mkdir(exist_ok=True, parents=True)
-    ttest_results.to_csv(ttest_path, header=True, index=True)
+    if save_dir is not None:
+        ttest_path = Path(save_dir) / 't-test' / 't-test_results.csv'
+        ttest_path.parent.mkdir(exist_ok=True, parents=True)
+        ttest_results.to_csv(ttest_path, header=True, index=True)
     
     nsig = sum(reject_t.sum(axis=1) > 0)
     print("%d significant features between any %s vs %s (t-test, P<%.2f, %s)" %\
           (nsig, group_by, control, pvalue_threshold, fdr_method))
 
-    return
+    return anova_test_results, ttest_results
 
 def confirmation_window_boxplots(metadata,
                                  features,

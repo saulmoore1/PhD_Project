@@ -4,9 +4,9 @@
 Keio E. coli fepD cell supernatant and lysate experiments:
     
 Adding fepD culture to BW lawns
-- supernatant vs lysate
-- solid vs liquid culture
-- live vs dead bacteria
+- fepD supernatant or lysate
+- fepD solid or liquid culture
+- added to live vs dead BW
 
 @author: sm5911
 @date: 13/04/2022 (updated: 25/11/2024)
@@ -17,11 +17,14 @@ Adding fepD culture to BW lawns
 
 import pandas as pd
 import seaborn as sns
-from tqdm import tqdm
+#from tqdm import tqdm
 from pathlib import Path
+from matplotlib import pyplot as plt
+from matplotlib import transforms
+
 from preprocessing.compile_hydra_data import compile_metadata, process_feature_summaries
 from filter_data.clean_feature_summaries import clean_summary_results
-from visualisation.plotting_helper import sig_asterix, all_in_one_boxplots
+from visualisation.plotting_helper import sig_asterix#, all_in_one_boxplots
 from write_data.write import write_list_to_file
 from time_series.plot_timeseries import plot_window_timeseries_feature #plot_timeseries_motion_mode
 # from analysis.keio_screen.check_keio_screen_worm_trajectories import check_tracked_objects
@@ -92,7 +95,7 @@ def stats(metadata,
     if n > 2:
    
         # Perform ANOVA - is there variation among strains at each window?
-        anova_path = Path(save_dir) / 'ANOVA' / 'ANOVA_results.csv'
+        anova_path = Path(save_dir) / 'ANOVA_results.csv'
         anova_path.parent.mkdir(parents=True, exist_ok=True)
 
         stats, pvals, reject = univariate_tests(X=features, 
@@ -148,7 +151,7 @@ def stats(metadata,
     ttest_results = pd.concat([stats_t, pvals_t, reject_t, effect_sizes_t], axis=1)
     
     # save results
-    ttest_path = Path(save_dir) / 't-test' / 't-test_results.csv'
+    ttest_path = Path(save_dir) / 't-test_results.csv'
     ttest_path.parent.mkdir(exist_ok=True, parents=True)
     ttest_results.to_csv(ttest_path, header=True, index=True)
     
@@ -225,9 +228,13 @@ def main():
     # subset metadata results for bluelight videos only 
     bluelight_videos = [i for i in metadata['imgstore_name'] if 'bluelight' in i]
     metadata = metadata[metadata['imgstore_name'].isin(bluelight_videos)]
-
-    metadata['window'] = metadata['window'].astype(int)
-    window_list = list(metadata['window'].unique())
+    
+    # subset for final blue light window only
+    metadata = metadata[metadata['window']==5]
+    # metadata['window'] = metadata['window'].astype(int)
+    # window_list = list(metadata['window'].unique())
+    
+    features = features.reindex(metadata.index)
     
     treatment_cols = ['drug_type','cell_extract_type','culture_type','solvent']
     metadata['treatment'] = metadata[treatment_cols].astype(str).agg('-'.join, axis=1)    
@@ -236,91 +243,260 @@ def main():
                       'none-none-none-PBS':"BW\n(PBS)",
                       'none-none-none-PBS/DMSO':"BW\n(PBS-DMSO)",
                       'none-none-none-NGM/DMSO':"BW\n(NGM-DMSO)",
-                      'fepD-lysate-solid-PBS':"BW + fepD solid lysate\n(PBS)",
-                      'fepD-lysate-solid-DMSO':"BW + fepD solid lysate\n(DMSO)",
-                      'fepD-lysate-liquid-NGM/PBS':"BW + fepD liquid lysate\n(NGM-PBS)",
-                      'fepD-supernatant-solid-PBS/DMSO':"BW + fepD solid supernatant\n(PBS-DMSO)",
-                      'fepD-supernatant-liquid-NGM/DMSO':"BW + fepD liquid supernatant\n(NGM-DMSO)"}    
+                      'fepD-lysate-solid-PBS':"BW + fepD\nsolid lysate\n(PBS)",
+                      'fepD-lysate-solid-DMSO':"BW + fepD\nsolid lysate\n(DMSO)",
+                      'fepD-lysate-liquid-NGM/PBS':"BW + fepD\nliquid lysate\n(NGM-PBS)",
+                      'fepD-supernatant-solid-PBS/DMSO':"BW + fepD\nsolid supernatant\n(PBS-DMSO)",
+                      'fepD-supernatant-liquid-NGM/DMSO':"BW + fepD\nliquid supernatant\n(NGM-DMSO)"}    
     metadata['treatment'] = metadata['treatment'].map(treatment_dict)
+    
+    stats_dir = Path(SAVE_DIR) / 'Stats'
+    plots_dir = Path(SAVE_DIR) / 'Plots'
 
-    # T-tests comparing each of the following for BW vs BW+fepD:
+    # T-tests comparing each of the following for BW+fepD vs BW control:
     # - fepD cell lysate vs supernatant
     # - extracted from solid vs liquid media
     # - added to live vs UV-killed BW25113 control bacteria (BW)
 
-    # live BW + supernatant/lysate
-    for window in tqdm(window_list):
-        meta_window = metadata[metadata['window']==window]
-        feat_window = features.reindex(meta_window.index)
-
-        stats_dir = Path(SAVE_DIR) / 'Stats' / WINDOW_NAME_DICT[window]
-        plot_dir = Path(SAVE_DIR) / 'Plots' / WINDOW_NAME_DICT[window]
-
-        # live BW
-        live_meta = meta_window.query("is_dead=='N'")
-        live_feat = feat_window.reindex(live_meta.index)
-        _ = stats(live_meta,
-                  live_feat,
-                  group_by='treatment',
-                  control='BW',
-                  save_dir=stats_dir / 'live_BW',
-                  feature_set=FEATURE_SET,
-                  pvalue_threshold=P_VALUE_THRESHOLD,
-                  fdr_method=FDR_METHOD)
-        
-        colour_labels = sns.color_palette('tab10', 2)
-        colours = [colour_labels[1] if 'fepD' in s else colour_labels[0] for s in treatment_dict.values()]
-        colour_dict = {key:col for (key,col) in zip(treatment_dict.values(), colours)}
-        all_in_one_boxplots(live_meta,
-                            live_feat,
-                            group_by='treatment',
-                            control='BW',
-                            save_dir=plot_dir / 'all-in-one' / 'live_BW',
-                            ttest_path=stats_dir / 'live_BW' / 't-test' / 't-test_results.csv',
-                            feature_set=feature_list,
-                            pvalue_threshold=0.05,
-                            order=list(treatment_dict.values()),
-                            colour_dict=colour_dict,
-                            figsize=(30,10),
-                            # ylim_minmax=(-20,130),
-                            vline_boxpos=[4],
-                            fontsize=20,
-                            #subplots_adjust={'bottom':0.5,'top':0.95,'left':0.05,'right':0.98}
-                            )        
+    # Live BW
+    live_meta = metadata.query("is_dead=='N'")
+    live_feat = features.reindex(live_meta.index)
     
-        # dead BW
-        dead_meta = meta_window.query("is_dead=='Y'")
-        dead_feat = feat_window.reindex(dead_meta.index)
-        _ = stats(dead_meta,
-                  dead_feat,
-                  group_by='treatment',
-                  control='BW',
-                  save_dir=stats_dir / 'dead_BW',
-                  feature_set=FEATURE_SET,
-                  pvalue_threshold=P_VALUE_THRESHOLD,
-                  fdr_method=FDR_METHOD)
-        
-        colour_labels = sns.color_palette('tab10', 2)
-        colours = [colour_labels[1] if 'fepD' in s else colour_labels[0] for s in treatment_dict.values()]
-        colour_dict = {key:col for (key,col) in zip(treatment_dict.values(), colours)}
-        all_in_one_boxplots(dead_meta,
-                            dead_feat,
-                            group_by='treatment',
-                            control='BW',
-                            save_dir=plot_dir / 'all-in-one' / 'dead_BW',
-                            ttest_path=stats_dir / 'dead_BW' / 't-test' / 't-test_results.csv',
-                            feature_set=feature_list,
-                            pvalue_threshold=0.05,
-                            order=[s for s in list(treatment_dict.values()) if s in dead_meta['treatment'].unique()],
-                            colour_dict=colour_dict,
-                            figsize=(30,10),
-                            # ylim_minmax=(-20,130),
-                            vline_boxpos=[1],
-                            fontsize=20,
-                            #subplots_adjust={'bottom':0.5,'top':0.95,'left':0.05,'right':0.98}
-                            )        
+    treatment_list = sorted(live_meta['treatment'].unique())
+
+    ttest_results = stats(live_meta,
+                          live_feat,
+                          group_by='treatment',
+                          control='BW',
+                          save_dir=stats_dir / 'live_BW',
+                          feature_set=feature_list,
+                          pvalue_threshold=P_VALUE_THRESHOLD,
+                          fdr_method=FDR_METHOD)
     
-    metadata = metadata[metadata['window']==0]
+    # extract t-test pvals
+    pvals = ttest_results[[c for c in ttest_results.columns if 'pval' in c]]
+    pvals.columns = [c.replace('pvals_','') for c in pvals.columns]
+    
+    # boxplot - live BW
+    plot_df = live_meta.join(live_feat)
+    lut = dict(zip(['BW','fepD'], sns.color_palette(palette='tab10', n_colors=2)))
+    colour_dict = {i:(lut['fepD'] if 'fepD' in i else lut['BW']) for i in treatment_list}        
+
+    plt.close('all')
+    sns.set_style('ticks')
+    fig = plt.figure(figsize=[15,8])
+    ax = fig.add_subplot(1,1,1)
+    sns.boxplot(x='treatment',
+                y='speed_50th',
+                data=plot_df, 
+                order=treatment_list,
+                palette=colour_dict,
+                showfliers=False, 
+                showmeans=False,
+                meanprops={"marker":"x", 
+                           "markersize":5,
+                           "markeredgecolor":"k"},
+                flierprops={"marker":"x", 
+                            "markersize":15, 
+                            "markeredgecolor":"r"})
+    dates = sorted(plot_df['date_yyyymmdd'].unique())
+    date_lut = dict(zip(dates, sns.color_palette(palette="Greys", n_colors=len(dates))))
+    for date in dates:
+        date_df = plot_df[plot_df['date_yyyymmdd']==date]
+        sns.stripplot(x='treatment',
+                      y='speed_50th',
+                      data=date_df,
+                      order=treatment_list,
+                      palette=[date_lut[date]] * len(treatment_list),
+                      color='dimgray',
+                      marker=".",
+                      edgecolor='k',
+                      linewidth=0.3,
+                      s=12) #facecolors="none"
+                    
+    # scale y axis for annotations    
+    trans = transforms.blended_transform_factory(ax.transData, ax.transAxes) #y=scaled
+    
+    # add pvalues to plot
+    for i, text in enumerate(ax.axes.get_xticklabels()):
+        treatment = text.get_text()
+        if treatment == 'BW':
+            continue
+        else:
+            p = pvals.loc['speed_50th', treatment]
+            p_text = sig_asterix([p])[0]
+            ax.text(i, 1.03, p_text, fontsize=20, ha='center', va='center', transform=trans)
+
+    ax.axes.get_xaxis().get_label().set_visible(False) # remove x axis label
+    ax.axes.set_xticklabels([l.get_text() for l in ax.axes.get_xticklabels()], fontsize=12)
+    ax.tick_params(axis='x', which='major', pad=15)
+    ax.axes.set_ylabel('Speed (µm s$^{-1}$)', fontsize=25, labelpad=25)                             
+    plt.yticks(fontsize=20)
+    plt.ylim(-10, 130)
+
+    # handles, labels = ax.get_legend_handles_labels()
+    # ax.legend(handles[:2], labels[:2], loc='best', frameon=False, fontsize=15)
+    boxplot_path = plots_dir / 'BW-live.svg'
+    boxplot_path.parent.mkdir(exist_ok=True, parents=True)
+    plt.savefig(boxplot_path, bbox_inches='tight', transparent=True)
+
+    
+    # UV-killed BW
+    dead_meta = metadata.query("is_dead=='Y'")
+    dead_feat = features.reindex(dead_meta.index)
+
+    treatment_list = sorted(dead_meta['treatment'].unique())
+    
+    ttest_results = stats(dead_meta,
+                          dead_feat,
+                          group_by='treatment',
+                          control='BW',
+                          save_dir=stats_dir / 'dead_BW',
+                          feature_set=feature_list,
+                          pvalue_threshold=P_VALUE_THRESHOLD,
+                          fdr_method=FDR_METHOD)
+    
+    # extract t-test pvals
+    pvals = ttest_results[[c for c in ttest_results.columns if 'pval' in c]]
+    pvals.columns = [c.replace('pvals_','') for c in pvals.columns]
+    
+    # boxplot - live BW
+    plot_df = dead_meta.join(dead_feat)        
+    lut = dict(zip(['BW','fepD'], sns.color_palette(palette='tab10', n_colors=2)))
+    colour_dict = {i:(lut['fepD'] if 'fepD' in i else lut['BW']) for i in treatment_list}        
+
+    plt.close('all')
+    sns.set_style('ticks')
+    fig = plt.figure(figsize=[15,8])
+    ax = fig.add_subplot(1,1,1)
+    sns.boxplot(x='treatment',
+                y='speed_50th',
+                data=plot_df, 
+                order=treatment_list,
+                palette=colour_dict,
+                showfliers=False, 
+                showmeans=False,
+                meanprops={"marker":"x", 
+                           "markersize":5,
+                           "markeredgecolor":"k"},
+                flierprops={"marker":"x", 
+                            "markersize":15, 
+                            "markeredgecolor":"r"})
+    dates = sorted(plot_df['date_yyyymmdd'].unique())
+    date_lut = dict(zip(dates, sns.color_palette(palette="Greys", n_colors=len(dates))))
+    for date in dates:
+        date_df = plot_df[plot_df['date_yyyymmdd']==date]
+        sns.stripplot(x='treatment',
+                      y='speed_50th',
+                      data=date_df,
+                      order=treatment_list,
+                      palette=[date_lut[date]] * len(treatment_list),
+                      color='dimgray',
+                      marker=".",
+                      edgecolor='k',
+                      linewidth=0.3,
+                      s=12) #facecolors="none"
+                    
+    # scale y axis for annotations    
+    trans = transforms.blended_transform_factory(ax.transData, ax.transAxes) #y=scaled
+    
+    # add pvalues to plot
+    for i, text in enumerate(ax.axes.get_xticklabels()):
+        treatment = text.get_text()
+        if treatment == 'BW':
+            continue
+        else:
+            p = pvals.loc['speed_50th', treatment]
+            p_text = sig_asterix([p])[0]
+            ax.text(i, 1.03, p_text, fontsize=20, ha='center', va='center', transform=trans)
+
+    ax.axes.get_xaxis().get_label().set_visible(False) # remove x axis label
+    ax.axes.set_xticklabels([l.get_text() for l in ax.axes.get_xticklabels()], fontsize=14)
+    ax.tick_params(axis='x', which='major', pad=15)
+    ax.axes.set_ylabel('Speed (µm s$^{-1}$)', fontsize=25, labelpad=25)                             
+    plt.yticks(fontsize=20)
+    plt.ylim(-10, 130)
+
+    # handles, labels = ax.get_legend_handles_labels()
+    # ax.legend(handles[:2], labels[:2], loc='best', frameon=False, fontsize=15)
+    boxplot_path = plots_dir / 'BW-dead.svg'
+    boxplot_path.parent.mkdir(exist_ok=True, parents=True)
+    plt.savefig(boxplot_path, bbox_inches='tight', transparent=True)
+
+
+    # # live BW + supernatant/lysate
+    # for window in tqdm(window_list):
+    #     meta_window = metadata[metadata['window']==window]
+    #     feat_window = features.reindex(meta_window.index)
+
+    #     stats_dir = Path(SAVE_DIR) / 'Stats' / WINDOW_NAME_DICT[window]
+    #     plot_dir = Path(SAVE_DIR) / 'Plots' / WINDOW_NAME_DICT[window]
+
+    #     # live BW
+    #     live_meta = meta_window.query("is_dead=='N'")
+    #     live_feat = feat_window.reindex(live_meta.index)
+    #     _ = stats(live_meta,
+    #               live_feat,
+    #               group_by='treatment',
+    #               control='BW',
+    #               save_dir=stats_dir / 'live_BW',
+    #               feature_set=FEATURE_SET,
+    #               pvalue_threshold=P_VALUE_THRESHOLD,
+    #               fdr_method=FDR_METHOD)
+        
+    #     colour_labels = sns.color_palette('tab10', 2)
+    #     colours = [colour_labels[1] if 'fepD' in s else colour_labels[0] for s in treatment_dict.values()]
+    #     colour_dict = {key:col for (key,col) in zip(treatment_dict.values(), colours)}
+    #     all_in_one_boxplots(live_meta,
+    #                         live_feat,
+    #                         group_by='treatment',
+    #                         control='BW',
+    #                         save_dir=plot_dir / 'all-in-one' / 'live_BW',
+    #                         ttest_path=stats_dir / 'live_BW' / 't-test' / 't-test_results.csv',
+    #                         feature_set=feature_list,
+    #                         pvalue_threshold=0.05,
+    #                         order=list(treatment_dict.values()),
+    #                         colour_dict=colour_dict,
+    #                         figsize=(30,10),
+    #                         # ylim_minmax=(-20,130),
+    #                         vline_boxpos=[4],
+    #                         fontsize=20,
+    #                         #subplots_adjust={'bottom':0.5,'top':0.95,'left':0.05,'right':0.98}
+    #                         )        
+    
+    #     # dead BW
+    #     dead_meta = meta_window.query("is_dead=='Y'")
+    #     dead_feat = feat_window.reindex(dead_meta.index)
+    #     _ = stats(dead_meta,
+    #               dead_feat,
+    #               group_by='treatment',
+    #               control='BW',
+    #               save_dir=stats_dir / 'dead_BW',
+    #               feature_set=FEATURE_SET,
+    #               pvalue_threshold=P_VALUE_THRESHOLD,
+    #               fdr_method=FDR_METHOD)
+        
+    #     colour_labels = sns.color_palette('tab10', 2)
+    #     colours = [colour_labels[1] if 'fepD' in s else colour_labels[0] for s in treatment_dict.values()]
+    #     colour_dict = {key:col for (key,col) in zip(treatment_dict.values(), colours)}
+    #     all_in_one_boxplots(dead_meta,
+    #                         dead_feat,
+    #                         group_by='treatment',
+    #                         control='BW',
+    #                         save_dir=plot_dir / 'all-in-one' / 'dead_BW',
+    #                         ttest_path=stats_dir / 'dead_BW' / 't-test' / 't-test_results.csv',
+    #                         feature_set=feature_list,
+    #                         pvalue_threshold=0.05,
+    #                         order=[s for s in list(treatment_dict.values()) if s in dead_meta['treatment'].unique()],
+    #                         colour_dict=colour_dict,
+    #                         figsize=(30,10),
+    #                         # ylim_minmax=(-20,130),
+    #                         vline_boxpos=[1],
+    #                         fontsize=20,
+    #                         #subplots_adjust={'bottom':0.5,'top':0.95,'left':0.05,'right':0.98}
+    #                         )        
+    
+    # metadata = metadata[metadata['window']==0]
 
     # timeseries plots of speed for fepD vs BW control
     BLUELIGHT_TIMEPOINTS_SECONDS = [(i*60,i*60+10) for i in BLUELIGHT_TIMEPOINTS_MINUTES]

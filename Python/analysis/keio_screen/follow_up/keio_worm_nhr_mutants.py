@@ -13,7 +13,7 @@ This script:
     - plots time-series of speed throughout bluelight video
 
 @author: Saul Moore (sm5911)
-@date: 04/10/2024
+@date: 04/10/2024 (updated: 25/11/2024)
     
 """
 
@@ -55,8 +55,8 @@ DPI = 600
 FPS = 25
 
 BLUELIGHT_TIMEPOINTS_SECONDS = [(60, 70),(160, 170),(260, 270)]
-# WINDOW_DICT = {0:(290,300)}
-# WINDOW_NAME_DICT = {0:"20-30 seconds after blue light 3"}
+WINDOW_DICT = {0:(290,300)}
+WINDOW_NAME_DICT = {0:"20-30 seconds after blue light 3"}
 
 #%% Functions
 
@@ -141,8 +141,7 @@ def main():
     
     if not metadata_path_local.exists() or not features_path_local.exists():
 
-        # compile metadata and feature summaries
-        
+        # compile metadata and feature summaries        
         metadata, metadata_path = compile_metadata(aux_dir, 
                                                    n_wells=N_WELLS, 
                                                    add_well_annotations=False,
@@ -198,13 +197,19 @@ def main():
                                    metadata['bacteria_strain'].copy()]
     metadata['bacteria_strain'] = ['BW' if i.upper().startswith('BW') else i for i in
                                    metadata['bacteria_strain'].copy()]
-        
-    # combine into single list of treatment combinations
-    treatment_cols = ['worm_gene','bacteria_strain']
-    metadata['treatment'] = metadata[treatment_cols].astype(str).agg('_'.join, axis=1)
-    metadata['treatment'] = [i.replace('-none','') for i in metadata['treatment']]
-    treatment_list = ['N2_BW','N2_fepD'] + [i for i in sorted(metadata['treatment'].unique()) 
-                                            if i not in ['N2_BW','N2_fepD']]
+    
+    worm_strains = sorted(metadata['worm_gene'].unique())
+    bacteria_strains = sorted(metadata['bacteria_strain'].unique())    
+
+    # # combine into single list of treatment combinations
+    # treatment_cols = ['worm_gene','bacteria_strain']
+    # metadata['treatment'] = metadata[treatment_cols].astype(str).agg('_'.join, axis=1)
+    # metadata['treatment'] = [i.replace('-none','') for i in metadata['treatment']]
+    # treatment_list = ['N2_BW','N2_fepD'] + [i for i in sorted(metadata['treatment'].unique()) 
+    #                                         if i not in ['N2_BW','N2_fepD']]
+    
+    stats_dir = Path(SAVE_DIR) / 'Stats'
+    plots_dir = Path(SAVE_DIR) / 'Plots'
     
     # HCA heatmaps for Tierpsy Top256 features
     
@@ -216,10 +221,11 @@ def main():
     # z-normalise
     featZ = features256.apply(zscore, axis=0)
     
-    heatmap_path = Path(SAVE_DIR) / 'Plots' / 'heatmap_256.pdf'
+    heatmap_path = plots_dir / 'heatmap_256.pdf'
     heatmap_path.parent.mkdir(exist_ok=True, parents=True)
     
-    fig = plot_clustermap(featZ, metadata, 
+    fig = plot_clustermap(featZ, 
+                          metadata, 
                           group_by='treatment',
                           row_colours=None,
                           method='complete', 
@@ -231,52 +237,7 @@ def main():
                           show_xlabels=True,
                           bluelight_col_colours=False)
 
-    # boxplot
-    plot_df = metadata.join(features)
-    colour_dict = dict(zip(treatment_list, 
-                           sns.color_palette(palette='tab10', n_colors=len(treatment_list))))
-
-    plt.close('all')
-    sns.set_style('ticks')
-    fig = plt.figure(figsize=[12,18])
-    ax = fig.add_subplot(1,1,1)
-    sns.boxplot(x=FEATURE,
-                y='treatment',
-                data=plot_df, 
-                order=treatment_list,
-                palette=colour_dict,
-                showfliers=False, 
-                showmeans=False,
-                meanprops={"marker":"x", 
-                           "markersize":5,
-                           "markeredgecolor":"k"},
-                flierprops={"marker":"x", 
-                            "markersize":15, 
-                            "markeredgecolor":"r"})
-    dates = sorted(plot_df['date_yyyymmdd'].unique())
-    date_lut = dict(zip(dates, sns.color_palette(palette="Set1", n_colors=len(dates))))
-    for date in dates:
-        date_df = plot_df[plot_df['date_yyyymmdd']==date]
-        sns.stripplot(x=FEATURE,
-                      y='treatment',
-                      data=date_df,
-                      s=12,
-                      order=treatment_list,
-                      hue=None,
-                      palette=None,
-                      color=date_lut[date],
-                      marker=".",
-                      edgecolor='k',
-                      linewidth=0.3) #facecolors="none"
-    ax.axes.get_yaxis().get_label().set_visible(False) # remove y axis label
-    ax.axes.set_yticklabels([l.get_text() for l in ax.axes.get_yticklabels()], fontsize=25)
-    ax.tick_params(axis='y', which='major', pad=15)
-    if FEATURE == 'speed_50th':
-        ax.axes.set_xlabel('Speed (µm s$^{-1}$)', fontsize=30, labelpad=25)                             
-    plt.xticks(fontsize=20)
-    plt.xlim(-20, 300)
-        
-    # do stats
+    # stats
     control = 'N2_BW'
     anova_results, ttest_results = stats(metadata,
                                          features,
@@ -286,37 +247,159 @@ def main():
                                          pvalue_threshold=P_VALUE_THRESHOLD,
                                          fdr_method=FDR_METHOD)
 
-    anova_path = Path(SAVE_DIR) / 'Stats' / 'ANOVA' / 'anova_results_vs_{}.csv'.format(control)
+    anova_path = stats_dir / 'anova_results_vs_{}.csv'.format(control)
     anova_path.parent.mkdir(exist_ok=True, parents=True)
     anova_results.to_csv(anova_path, header=True, index=True)
     
-    ttest_path = Path(SAVE_DIR) / 'Stats' / 't-test' / 't-test_results_vs_{}.csv'.format(control)
+    ttest_path = stats_dir / 't-test_results_vs_{}.csv'.format(control)
     ttest_path.parent.mkdir(exist_ok=True, parents=True)
     ttest_results.to_csv(ttest_path, header=True, index=True)
     
-    # t-test pvals
+    # extract t-test pvals
     pvals = ttest_results[[c for c in ttest_results.columns if 'pval' in c]]
     pvals.columns = [c.replace('pvals_','') for c in pvals.columns]
-    
-    # scale x axis for annotations    
-    trans = transforms.blended_transform_factory(ax.transAxes, ax.transData) #x=scaled
-    
-    # add pvalues to plot
-    for i, treatment in enumerate(treatment_list, start=0):
-        if treatment == control:
-            continue
-        else:
-            p = pvals.loc[FEATURE, treatment]
-            text = ax.get_yticklabels()[i]
-            assert text.get_text() == treatment
-            p_text = sig_asterix([p])[0]
-            ax.text(1.03, i, p_text, fontsize=35, ha='left', va='center', transform=trans)
-            
-    plt.subplots_adjust(left=0.3, right=0.9)
-    boxplot_path = Path(SAVE_DIR) / 'Plots' / '{0}_vs_{1}.png'.format(FEATURE, control)
-    boxplot_path.parent.mkdir(exist_ok=True, parents=True)
-    plt.savefig(boxplot_path, dpi=DPI)      
 
+    # boxplot
+    plot_df = metadata.join(features)        
+    lut = dict(zip(['BW','fepD'], sns.color_palette(palette='tab10', n_colors=2)))
+    #colour_dict = {i:(lut['fepD'] if 'fepD' in i else lut['BW']) for i in treatment_list}        
+
+    plt.close('all')
+    sns.set_style('ticks')
+    fig = plt.figure(figsize=[18,8])
+    ax = fig.add_subplot(1,1,1)
+    sns.boxplot(x='worm_gene',
+                y='speed_50th',
+                data=plot_df, 
+                order=worm_strains,
+                hue='bacteria_strain',
+                hue_order=bacteria_strains,
+                palette=lut,
+                dodge=True,
+                showfliers=False, 
+                showmeans=False,
+                meanprops={"marker":"x", 
+                           "markersize":5,
+                           "markeredgecolor":"k"},
+                flierprops={"marker":"x", 
+                            "markersize":15, 
+                            "markeredgecolor":"r"})
+    dates = sorted(plot_df['date_yyyymmdd'].unique())
+    date_lut = dict(zip(dates, sns.color_palette(palette="Greys", n_colors=len(dates))))
+    for date in dates:
+        date_df = plot_df[plot_df['date_yyyymmdd']==date]
+        sns.stripplot(x='worm_gene',
+                      y='speed_50th',
+                      data=date_df,
+                      s=8,
+                      order=worm_strains,
+                      hue='bacteria_strain',
+                      hue_order=bacteria_strains,
+                      dodge=True,
+                      palette=[date_lut[date]] * len(worm_strains),
+                      color=None,
+                      marker=".",
+                      edgecolor='k',
+                      linewidth=0.3) #facecolors="none"
+
+    # scale y axis for annotations    
+    trans = transforms.blended_transform_factory(ax.transData, ax.transAxes) #y=scaled
+
+    ax.axes.get_xaxis().get_label().set_visible(False) # remove x axis label
+    ax.axes.set_xticklabels(worm_strains, fontsize=20)
+    # ax.axes.set_xlabel('Time (minutes)', fontsize=25, labelpad=20)                           
+    ax.tick_params(axis='y', which='major', pad=15)
+    plt.yticks(fontsize=20)
+    ax.axes.set_ylabel('Speed (µm s$^{-1}$)', fontsize=25, labelpad=20)  
+    plt.ylim(-20, 320)
+    handles, labels = ax.get_legend_handles_labels()
+    ax.legend(handles[:2], labels[:2], loc='best', frameon=False, fontsize=15)
+    #plt.axhline(y=0, c='grey')
+    
+    # add pvalues to plot - all treatments vs BW-live
+    for i, text in enumerate(ax.axes.get_xticklabels()):
+        worm = text.get_text()
+        if worm == 'N2':
+            p = pvals.loc['speed_50th','N2_fepD']
+            p_text = sig_asterix([p])[0]
+            ax.text(i+0.2, 1.03, p_text, fontsize=20, ha='center', va='center', transform=trans)
+        else:
+            p1 = pvals.loc['speed_50th',worm+'_BW']
+            p2 = pvals.loc['speed_50th',worm+'_fepD']
+            p1_text = sig_asterix([p1])[0]
+            p2_text = sig_asterix([p2])[0]
+            ax.text(i-0.2, 1.03, p1_text, fontsize=20, ha='center', va='center', transform=trans)
+            ax.text(i+0.2, 1.03, p2_text, fontsize=20, ha='center', va='center', transform=trans)
+    
+    # save plot
+    boxplot_path = plots_dir / 'nhr_mutants_on_BW_or_fepD_vs_N2-BW.svg'
+    boxplot_path.parent.mkdir(exist_ok=True, parents=True)
+    plt.savefig(boxplot_path, bbox_inches='tight', transparent=True)
+            
+# =============================================================================
+#     plot_df = metadata.join(features)
+#     colour_dict = dict(zip(treatment_list, 
+#                            sns.color_palette(palette='tab10', n_colors=len(treatment_list))))
+# 
+#     plt.close('all')
+#     sns.set_style('ticks')
+#     fig = plt.figure(figsize=[12,18])
+#     ax = fig.add_subplot(1,1,1)
+#     sns.boxplot(x=FEATURE,
+#                 y='treatment',
+#                 data=plot_df, 
+#                 order=treatment_list,
+#                 palette=colour_dict,
+#                 showfliers=False, 
+#                 showmeans=False,
+#                 meanprops={"marker":"x", 
+#                            "markersize":5,
+#                            "markeredgecolor":"k"},
+#                 flierprops={"marker":"x", 
+#                             "markersize":15, 
+#                             "markeredgecolor":"r"})
+#     dates = sorted(plot_df['date_yyyymmdd'].unique())
+#     date_lut = dict(zip(dates, sns.color_palette(palette="Set1", n_colors=len(dates))))
+#     for date in dates:
+#         date_df = plot_df[plot_df['date_yyyymmdd']==date]
+#         sns.stripplot(x=FEATURE,
+#                       y='treatment',
+#                       data=date_df,
+#                       s=12,
+#                       order=treatment_list,
+#                       hue=None,
+#                       palette=None,
+#                       color=date_lut[date],
+#                       marker=".",
+#                       edgecolor='k',
+#                       linewidth=0.3) #facecolors="none"
+#     ax.axes.get_yaxis().get_label().set_visible(False) # remove y axis label
+#     ax.axes.set_yticklabels([l.get_text() for l in ax.axes.get_yticklabels()], fontsize=25)
+#     ax.tick_params(axis='y', which='major', pad=15)
+#     if FEATURE == 'speed_50th':
+#         ax.axes.set_xlabel('Speed (µm s$^{-1}$)', fontsize=30, labelpad=25)                             
+#     plt.xticks(fontsize=20)
+#     plt.xlim(-20, 300)
+#             
+#     # scale x axis for annotations    
+#     trans = transforms.blended_transform_factory(ax.transAxes, ax.transData) #x=scaled
+#     
+#     # add pvalues to plot
+#     for i, treatment in enumerate(treatment_list, start=0):
+#         if treatment == control:
+#             continue
+#         else:
+#             p = pvals.loc[FEATURE, treatment]
+#             text = ax.get_yticklabels()[i]
+#             assert text.get_text() == treatment
+#             p_text = sig_asterix([p])[0]
+#             ax.text(1.03, i, p_text, fontsize=35, ha='left', va='center', transform=trans)
+#             
+#     plt.subplots_adjust(left=0.3, right=0.9)
+#     boxplot_path = Path(SAVE_DIR) / 'Plots' / '{0}_vs_{1}.png'.format(FEATURE, control)
+#     boxplot_path.parent.mkdir(exist_ok=True, parents=True)
+#     plt.savefig(boxplot_path, dpi=DPI)      
+# =============================================================================
 
     # time-series speed plots
     feature = 'speed'
