@@ -173,7 +173,7 @@ def levene_f_test(features,
                                        is_sorted=False, 
                                        returnsorted=False)
         
-        # Update pvalues with Benjamini-Yekutieli correction
+        # Update pvalues with multiple test correction
         levene_stats['pval'] = _corrArray[1]
 
                 

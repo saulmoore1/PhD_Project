@@ -175,10 +175,10 @@ def keio_stats(features, metadata, args):
     if args.f_test:
         levene_stats_path = stats_dir / 'levene_results.csv'
         levene_stats = levene_f_test(features, metadata, grouping_var, 
-                                      p_value_threshold=args.pval_threshold, 
-                                      multitest_method=args.fdr_method,
-                                      saveto=levene_stats_path,
-                                      del_if_exists=False)
+                                     p_value_threshold=args.pval_threshold, 
+                                     multitest_method=args.fdr_method,
+                                     saveto=levene_stats_path,
+                                     del_if_exists=False)
         # if p < 0.05 then variances are not equal, and sample size matters
         prop_eqvar = (levene_stats['pval'] > args.pval_threshold).sum() / len(levene_stats['pval'])
         print("Percentage equal variance %.1f%%" % (prop_eqvar * 100))

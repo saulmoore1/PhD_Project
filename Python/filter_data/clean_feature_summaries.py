@@ -85,25 +85,28 @@ def clean_summary_results(features,
                                             bad_well_cols=['is_bad_well'], 
                                             verbose=False)
      
-    # Drop rows with no strain name or gene name info
+    # Drop rows with missing strain name or gene name info
     for col in no_nan_cols:
-        if col in metadata.columns:
-            n_missing, idxs = sum(metadata[col].isna()), list(np.where(metadata[col].isna())[0])
+        if col not in metadata.columns:
+            print("Column '%s' does not exist in metadata" % col)
+        else:
+            n_missing = sum(metadata[col].isna())
             if n_missing > 0:
                 prop_missing = n_missing / metadata.shape[0] * 100
                 print("\n\tWARNING: There are %d missing entries for %s in metadata (%.1f%% of data)!" % (n_missing, col, prop_missing))
                 print("\n\tThese samples will be dropped from the analysis\n")
-                metadata = metadata[~metadata.index.isin(idxs)]
+                metadata = metadata[metadata[col].notna()]
                 features = features.reindex(metadata.index)
     
     # raise warning if missing row data
     if any(features.sum(axis=1) == 0):
-        n_missing, idxs = sum(features.sum(axis=1)==0), list(np.where(features.sum(axis=1)==0)[0])
+        n_missing = sum(features.sum(axis=1)==0)
         print("\n\tWARNING: There are {} rows with missing data in features!".format(n_missing) +
               "\n\tThese samples will be dropped from the analysis\n")
         # NB: if using window summaries, esp for long videos, this could be due to condensation 
         #     build up affecting tracking in later windows
-        features = features[~features.index.isin(idxs)]
+        idxs = features[features.sum(axis=1)==0].index
+        features = features.drop(idxs)
         metadata = metadata.reindex(features.index)
 
     # Drop rows based on percentage of NaN values across features for each row
@@ -151,13 +154,15 @@ def clean_summary_results(features,
     
     # Drop rows from feature summaries where any videos has less than min_nskel_per_video
     if min_nskel_per_video is not None:
-        features, metadata = filter_n_skeletons(features, metadata, 
+        features, metadata = filter_n_skeletons(features, 
+                                                metadata, 
                                                 min_nskel_per_video=min_nskel_per_video)
         
     # Drop rows from feature summaries where the sum number of skeletons across 
     # prestim/bluelight/poststim videos is less than min_nskel_sum
     if min_nskel_sum is not None:
-        features, metadata = filter_n_skeletons(features, metadata, 
+        features, metadata = filter_n_skeletons(features, 
+                                                metadata, 
                                                 min_nskel_sum=min_nskel_sum)
 
     # Impute remaining NaN values (using global mean feature value for each strain)
