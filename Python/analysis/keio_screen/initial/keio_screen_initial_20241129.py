@@ -16,7 +16,9 @@ Analyse Initial Keio Screen
 
 import numpy as np
 import pandas as pd
+import seaborn as sns
 from pathlib import Path
+from matplotlib import pyplot as plt
 
 from preprocessing.compile_hydra_data import compile_metadata, process_feature_summaries
 from preprocessing.append_supplementary_info import load_supplementary_7, append_supplementary_7
@@ -24,6 +26,7 @@ from filter_data.clean_feature_summaries import clean_summary_results
 from tierpsytools.preprocessing.filter_data import select_feat_set
 from tierpsytools.analysis.statistical_tests import univariate_tests, get_effect_sizes, _multitest_correct
 from visualisation.plotting_helper import sig_asterix
+from write_data.write import write_list_to_file
 
 #%% Globals
 
@@ -33,21 +36,21 @@ SAVE_DIR = "/Users/sm5911/Documents/PhD_DLBG/3_Keio_Screen_Initial"
 PATH_SUP_INFO = Path(PROJECT_DIR) / "AuxiliaryFiles/Baba_et_al_2006/Supporting_Information/Supplementary_Table_7.xls"
 
 EXPERIMENT_DATES = ["20210406", "20210413", "20210420", "20210427", "20210504", "20210511"]
-N_TIERPSY_FEATS = 256
-MIN_NSKEL_SUM = 6000
 
+N_WELLS = 96
 NAN_THRESHOLD_ROW = 0.8
 NAN_THRESHOLD_COL = 0.05
-P_VALUE_THRESHOLD = 0.05
+MIN_NSKEL_SUM = 6000
+
+N_TIERPSY_FEATS = 16 #256, None
+TEST = 'ANOVA' # 'Kruskal-Wallis'
 FDR_METHOD = 'fdr_bh' # fdr_by
-N_WELLS = 96
-N_SIG_FEATS = 50
+P_VALUE_THRESHOLD = 0.05
+TOP_N_HITS = 100
 
 RENAME_DICT = {"FECE" : "fecE",
                "AroP" : "aroP",
                "TnaB" : "tnaB"}
-
-#BLUELIGHT_TIMEPOINTS_SECONDS = [(60, 70),(160, 170),(260, 270)]
 
 #%% Functions
 
@@ -59,7 +62,8 @@ def stats(metadata,
           feature_list=None,
           save_dir=None,
           p_value_threshold=0.05,
-          fdr_method='fdr_bh'):
+          fdr_method='fdr_bh',
+          n_tierpsy_feats=None):
     
     """ Perform ANOVA tests to compare worms on each bacterial food vs BW25113 control for each 
         Tierpsy feature in feature_list """
@@ -74,7 +78,8 @@ def stats(metadata,
         features = features[feature_list]
         
     n_strains = metadata[group_by].nunique()
-    print("Performing %s tests for %d %ss (across %d features)" % (test, n_strains, group_by, len(feature_list)))    
+    print("Performing %s tests for variation among %d %ss for %d features" %\
+          (test, n_strains, group_by, len(feature_list)))
     
     # perform ANOVA + record results before & after correcting for multiple comparisons               
     stats, pvals, reject = univariate_tests(X=features, 
@@ -82,7 +87,7 @@ def stats(metadata,
                                             control=control, 
                                             test=test,
                                             comparison_type='multiclass',
-                                            multitest_correction=None,
+                                            multitest_correction=None, # uncorrected
                                             alpha=p_value_threshold,
                                             n_permutation_test=None)
 
@@ -93,49 +98,80 @@ def stats(metadata,
                                     effect_type=None,
                                     linked_test=test)
 
-    # compile + save results (uncorrected)
-    results = pd.concat([stats, effect_sizes, pvals, reject], axis=1)
-    results.columns = ['stats','effect_size','pvals','reject']     
-    results['significance'] = sig_asterix(results['pvals'])
-    results = results.sort_values(by=['pvals'], ascending=True) # rank pvals
+    # compile ANOVA results (uncorrected)
+    anova_results = pd.concat([stats, effect_sizes, pvals, reject], axis=1)
+    anova_results.columns = ['stats','effect_size','pvals','reject']     
+    anova_results['significance'] = sig_asterix(anova_results['pvals'])
+    anova_results = anova_results.sort_values(by=['pvals'], ascending=True) # rank pvals
     
+    # save ANOVA results (uncorrected)
     if save_dir is not None:
         Path(save_dir).mkdir(parents=True, exist_ok=True)
-        results_path = Path(save_dir) / '{}_results_uncorrected.csv'.format(test)
-        results.to_csv(results_path, header=True, index=True)
+        results_path = Path(save_dir) / 'Tierpsy{0}_{1}_results_uncorrected.csv'.format(n_tierpsy_feats, test)
+        anova_results.to_csv(results_path, header=True, index=True)
 
     # correct for multiple comparisons
     if fdr_method is not None:
-        reject_corrected, pvals_corrected = _multitest_correct(pvals, 
-                                                               multitest_method=fdr_method,
-                                                               fdr=p_value_threshold)
+        reject, pvals = _multitest_correct(pvals, 
+                                           multitest_method=fdr_method,
+                                           fdr=p_value_threshold)
                                                 
-        # compile + save results (corrected)
-        results = pd.concat([stats, effect_sizes, pvals_corrected, reject_corrected], axis=1)
-        results.columns = ['stats','effect_size','pvals','reject']     
-        results['significance'] = sig_asterix(results['pvals'])
-        results = results.sort_values(by=['pvals'], ascending=True) # rank pvals
+        # compile ANOVA results (corrected)
+        anova_results = pd.concat([stats, effect_sizes, pvals, reject], axis=1)
+        anova_results.columns = ['stats','effect_size','pvals','reject']     
+        anova_results['significance'] = sig_asterix(anova_results['pvals'])
+        anova_results = anova_results.sort_values(by=['pvals'], ascending=True) # rank pvals
         
+        # save ANOVA results (corrected)
         if save_dir is not None:
-            results_corrected_path = Path(save_dir) / '{}_results_corrected.csv'.format(test)
-            results.to_csv(results_corrected_path, header=True, index=True)
-        
-    # use reject mask to find significant feature set
-    fset = pvals.loc[reject[test]].sort_values(by=test, ascending=True).index.to_list()
-    assert set(fset) == set(results['pvals'].index[np.where(results['pvals'] < p_value_threshold)[0]])
-
-    if len(fset) > 0:
-        print("%d significant features found by %s for '%s' (P<%.2f, %s)" %\
-              (len(fset), test, group_by, p_value_threshold, fdr_method))
-        if save_dir is not None:
-            sigfeats_path = save_dir / '{}_sigfeats.txt'.format(test)
+            results_corrected_path = Path(save_dir) / 'Tierpsy{0}_{1}_results_corrected.csv'.format(n_tierpsy_feats, test)
+            anova_results.to_csv(results_corrected_path, header=True, index=True)
             
-            # write significant feature list to file
-            with open(str(sigfeats_path), 'w') as fid:
-                for line in fset:
-                    fid.write("%s\n" % line)
+    # t-tests comparing each bacterial strain to wild-type control
+    test_t = 't-test' if test == 'ANOVA' else 'Mann-Whitney test'
+    stats_t, pvals_t, reject_t = univariate_tests(X=features,
+                                                  y=metadata[group_by],
+                                                  control=control,
+                                                  test=test_t,
+                                                  comparison_type='binary_each_group',
+                                                  multitest_correction=None, # uncorrected
+                                                  alpha=p_value_threshold)
+
+    effect_sizes_t = get_effect_sizes(X=features,
+                                      y=metadata[group_by],
+                                      control=control,
+                                      linked_test=test_t)
     
-    return results, fset
+    # compile t-test results (uncorrected)
+    stats_t.columns = ['stats_' + str(c) for c in stats_t.columns]
+    pvals_t.columns = ['pvals_' + str(c) for c in pvals_t.columns]
+    reject_t.columns = ['reject_' + str(c) for c in reject_t.columns]
+    effect_sizes_t.columns = ['effect_size_' + str(c) for c in effect_sizes_t.columns]
+    ttest_results = pd.concat([stats_t, pvals_t, reject_t, effect_sizes_t], axis=1)
+    
+    # save t-test results (uncorrected)
+    if save_dir is not None:
+        ttest_results_path = Path(save_dir) / 'Tierpsy{0}_{1}_results_uncorrected.csv'.format(n_tierpsy_feats, test_t)
+        ttest_results.to_csv(ttest_results_path, header=True, index=True)
+    
+    # correct for multiple comparisons
+    if fdr_method is not None:
+        pvals_t.columns = [c.split("_")[-1] for c in pvals_t.columns]
+        reject_t, pvals_t = _multitest_correct(pvals_t, 
+                                               multitest_method=fdr_method,
+                                               fdr=p_value_threshold)
+        
+        # compile t-test results (corrected)
+        pvals_t.columns = ['pvals_' + str(c) for c in pvals_t.columns]
+        reject_t.columns = ['reject_' + str(c) for c in reject_t.columns]
+        ttest_results = pd.concat([stats_t, effect_sizes_t, pvals_t, reject_t], axis=1)
+        
+        # save t-test results (corrected)
+        if save_dir is not None:
+            ttest_results_corrected_path = Path(save_dir) / 'Tierpsy{0}_{1}_results_corrected.csv'.format(n_tierpsy_feats, test_t)
+            ttest_results.to_csv(ttest_results_corrected_path, header=True, index=True)            
+        
+    return anova_results, ttest_results
 
 def main():
     
@@ -215,10 +251,11 @@ def main():
         metadata = pd.read_csv(metadata_path_local, header=0, index_col=None, dtype={'comments':str})
         features = pd.read_csv(features_path_local, header=0, index_col=None)
         
-    # subset for Tierpsy 256 feature set
+    # subset for Tierpsy feature set
+    n_tierpsy_feats = 'All' if N_TIERPSY_FEATS is None else N_TIERPSY_FEATS
     features = select_feat_set(features,
-                               tierpsy_set_name='tierpsy_{}'.format(N_TIERPSY_FEATS), 
-                               append_bluelight=True)
+                               tierpsy_set_name='tierpsy_{}'.format(n_tierpsy_feats), 
+                               append_bluelight=True)        
     
     stats_dir = Path(SAVE_DIR) / 'Stats'
     plots_dir = Path(SAVE_DIR) / 'Plots'
@@ -226,39 +263,75 @@ def main():
     strain_list = sorted(metadata['gene_name'].unique())
     print("%d bacterial strains in total will be analysed" % len(strain_list))
     
-# =============================================================================
-#     # F-test for equal variances - since sample sizes are not equal, first check for homogeneity of
-#     # variance before performing t-tests or ANOVA (if not, then use Mann-Whitney or Kruskal-Wallis)
-#
-#     from statistical_testing.stats_helper import levene_f_test
-#     f_test_stats_path = stats_dir / 'f-test_results.csv'
-#     stats_dir.mkdir(parents=True, exist_ok=True)
-#     if not f_test_stats_path.exists():
-#         group_by = 'gene_name'
-#         levene_stats = levene_f_test(features, 
-#                                      metadata, 
-#                                      group_by,
-#                                      p_value_threshold=P_VALUE_THRESHOLD, 
-#                                      multitest_method=FDR_METHOD,
-#                                      saveto=f_test_stats_path,
-#                                      del_if_exists=False)
-#         # if p<0.05 then variances are not equal and sample size matters
-#         prop_eqvar = (levene_stats['pval'] > P_VALUE_THRESHOLD).sum() / len(levene_stats['pval'])
-#         print("Percentage equal variance %.1f%%" % (prop_eqvar * 100))
-# =============================================================================
-
-    # Perform ANOVA for each feature and correct for multiple comparisons
-    anova_results, fset = stats(metadata,
-                                features,
-                                group_by='gene_name',
-                                control='wild_type',
-                                test='ANOVA', # 'Kruskal-Wallis'
-                                feature_list=None,
-                                save_dir=stats_dir,
-                                p_value_threshold=P_VALUE_THRESHOLD,
-                                fdr_method=FDR_METHOD)
+    # perform ANOVA for each feature and correct for multiple comparisons
+    anova_results, ttest_results = stats(metadata,
+                                         features,
+                                         group_by='gene_name',
+                                         control='wild_type',
+                                         test=TEST,
+                                         feature_list=list(features.columns),
+                                         save_dir=stats_dir,
+                                         p_value_threshold=P_VALUE_THRESHOLD,
+                                         fdr_method=FDR_METHOD,
+                                         n_tierpsy_feats=n_tierpsy_feats)
     
+    # use reject mask to find significant feature list (ANOVA)
+    fset = anova_results['pvals'].loc[anova_results['reject']].sort_values(ascending=True).index.to_list()
+    print("%d significant features found by %s (P<%.2f, %s)" % (len(fset), TEST, P_VALUE_THRESHOLD, FDR_METHOD))
+    Path(stats_dir).mkdir(parents=True, exist_ok=True)
+    sigfeats_path = stats_dir / 'Tierpsy{0}_{1}_sigfeats.txt'.format(n_tierpsy_feats, TEST)
+    write_list_to_file(fset, sigfeats_path)
+    
+    # rank strains by number of sigfeats (t-test)
+    reject_t = ttest_results[[c for c in ttest_results.columns if 'reject_' in c]]
+    reject_t.columns = [c.split('reject_')[-1] for c in reject_t.columns]
+    ranked_nsig = reject_t.sum(axis=0).sort_values(ascending=False)
+    hit_strains_nsig = ranked_nsig[ranked_nsig > 0].index.to_list()
+    print("%d strains with 1 or more significant features" % len(hit_strains_nsig))
+    hit_strains_nsig_path = stats_dir / 'Tierpsy{0}_top{1}_hits_ranked_by_most_sigfeats.txt'.format(n_tierpsy_feats, TOP_N_HITS)
+    write_list_to_file(hit_strains_nsig[:TOP_N_HITS], hit_strains_nsig_path)
+    
+    # rank strains by lowest p-value for any feature (t-test)
+    pvals_t = ttest_results[[c for c in ttest_results.columns if 'pvals_' in c]]
+    pvals_t.columns = [c.split('pvals_')[-1] for c in pvals_t.columns]
+    ranked_pval = pvals_t.min(axis=0).sort_values(ascending=True)
+    hit_strains_pval = ranked_pval[ranked_pval < P_VALUE_THRESHOLD].index.to_list()
+    hit_strains_pval_path = stats_dir / 'Tierpsy{0}_top{1}_hits_ranked_by_lowest_pval.txt'.format(n_tierpsy_feats, TOP_N_HITS)
+    write_list_to_file(hit_strains_pval[:TOP_N_HITS], hit_strains_pval_path)
+    
+    assert all(s in hit_strains_pval for s in hit_strains_nsig)
+    
+    # plot strains ranked by: (1) number of significant features, and (2) lowest p-value of any feature
+    plt.close('all')
+    sns.set_style('ticks')
+    fig, (ax1, ax2) = plt.subplots(2, 1, sharey=False, figsize=[150,10])
+    sns.lineplot(x=ranked_nsig.index,
+                 y=ranked_nsig.values,
+                 ax=ax1, linewidth=0.7)
+    ax1.set_xticklabels(ranked_nsig.index.to_list(), rotation=90, fontsize=2)
+    ax1.xaxis.set_tick_params(width=0.3, pad=0.5)
+    ax1.set_ylabel('Number of significant features', fontsize=12, labelpad=10)
+    ax1.set_xlim(-5, len(strain_list)+5)
+    sns.lineplot(x=ranked_pval.index,
+                 y=-np.log10(ranked_pval.values),
+                 ax=ax2, linewidth=0.7)
+    ax2.set_xticklabels(ranked_pval.index.to_list(), rotation=90, fontsize=2)
+    ax2.xaxis.set_tick_params(width=0.3, pad=0.5)
+    ax2.axhline(y=P_VALUE_THRESHOLD, c='dimgray', ls='--', lw=0.7)
+    ax2.set_xlabel('Strains (ranked)', fontsize=12, labelpad=10)
+    ax2.set_ylabel('-log10 p-value of most significant feature', fontsize=12, labelpad=10)
+    ax2.set_xlim(-5, len(strain_list)+5)
+    fig.align_xlabels()
 
+    # save figure
+    plots_dir.mkdir(parents=True, exist_ok=True)
+    fig_save_path = plots_dir / "Tierpsy{}_ranked_hit_strains_t-test.svg".format(N_TIERPSY_FEATS)
+    plt.savefig(fig_save_path, bbox_inches='tight', transparent=True)
+
+    
+    
+    
+    
     return
 
 #%% Main
