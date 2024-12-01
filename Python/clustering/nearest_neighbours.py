@@ -32,18 +32,17 @@ from tierpsytools.preprocessing.filter_data import select_feat_set
 
 #%% Globals
 
-PROJECT_DIR = Path("/Users/sm5911/Documents/Keio_Screen_Initial")
+PROJECT_DIR = Path("/Users/sm5911/Documents/PhD_DLBG/3_Keio_Screen_Initial")
 FEATURES_PATH = PROJECT_DIR / "features.csv"
 METADATA_PATH = PROJECT_DIR / "metadata.csv"
 
 # Load 59 hit strains curated from lowest ranked 100 strains by pvalue from initial screen
-# for nearest neighbour analysis too expand gene set
+# for nearest neighbour analysis to expand gene set
 CONF_STRAIN_LIST_PATH = PROJECT_DIR /\
     "59_selected_strains_from_initial_keio_top100_lowest_pval_tierpsy16.txt"
 SAVE_DIR = PROJECT_DIR / "nearest_neighbours"
 
 N_NEIGHBOURS = 3 # Number of neighbours to record
-
 LINKAGE_METHOD = 'average' # 'ward' - see docs for options: ?scipy.cluster.hierarchy.linkage
 DISTANCE_METRIC = 'euclidean' # 'cosine' - see docs for options: ?scipy.spatial.distance.pdist
 
