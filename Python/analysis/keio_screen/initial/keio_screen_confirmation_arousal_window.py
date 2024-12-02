@@ -267,7 +267,8 @@ if __name__ == '__main__':
                                                    min_nskel_per_video=None,
                                                    min_nskel_sum=None,
                                                    drop_size_related_feats=False,
-                                                   norm_feats_only=False)
+                                                   norm_feats_only=False,
+                                                   no_nan_cols=['gene_name'])
         
         # save clean metadata and features
         metadata.to_csv(metadata_path_local, index=False)
@@ -280,7 +281,7 @@ if __name__ == '__main__':
     assert not features.isna().sum(axis=1).any()
     assert not (features.std(axis=1) == 0).any()
     
-    # remove entries foor results with missing gene name metadata
+    # remove entries for results with missing gene name metadata
     n_rows = metadata.shape[0]
     metadata = metadata[~metadata['gene_name'].isna()]
     if metadata.shape[0] < n_rows:

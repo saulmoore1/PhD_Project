@@ -27,7 +27,7 @@ def clean_summary_results(features,
                           drop_size_related_feats=False,
                           norm_feats_only=False,
                           percentile_to_use=None,
-                          no_nan_cols=['worm_strain','bacteria_strain','gene_name']):
+                          no_nan_cols=None):
     """ Clean features summary results
         - Drop bad wells from WellAnnotator annotations file
         - Drop samples with >nan_threshold_row proportion of NaN features
@@ -86,17 +86,19 @@ def clean_summary_results(features,
                                             verbose=False)
      
     # Drop rows with missing strain name or gene name info
-    for col in no_nan_cols:
-        if col not in metadata.columns:
-            print("Column '%s' does not exist in metadata" % col)
-        else:
-            n_missing = sum(metadata[col].isna())
-            if n_missing > 0:
-                prop_missing = n_missing / metadata.shape[0] * 100
-                print("\n\tWARNING: There are %d missing entries for %s in metadata (%.1f%% of data)!" % (n_missing, col, prop_missing))
-                print("\n\tThese samples will be dropped from the analysis\n")
-                metadata = metadata[metadata[col].notna()]
-                features = features.reindex(metadata.index)
+    if no_nan_cols is not None:
+        assert type(no_nan_cols) == list
+        for col in no_nan_cols:
+            if col not in metadata.columns:
+                print("Column '%s' does not exist in metadata" % col)
+            else:
+                n_missing = sum(metadata[col].isna())
+                if n_missing > 0:
+                    prop_missing = n_missing / metadata.shape[0] * 100
+                    print("\n\tWARNING: There are %d missing entries for %s in metadata (%.1f%% of data)!" % (n_missing, col, prop_missing))
+                    print("\n\tThese samples will be dropped from the analysis\n")
+                    metadata = metadata[metadata[col].notna()]
+                    features = features.reindex(metadata.index)
     
     # raise warning if missing row data
     if any(features.sum(axis=1) == 0):
