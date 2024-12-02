@@ -36,7 +36,7 @@ from tierpsytools.preprocessing.filter_data import select_feat_set
 
 #%% Globals
 
-PROJECT_DIR = Path("/Users/sm5911/Documents/Keio_Screen")
+PROJECT_DIR = Path("/Users/sm5911/Documents/PhD_DLBG/3_Keio_Screen_Initial")
 FEATURES_PATH = PROJECT_DIR / "features.csv"
 METADATA_PATH = PROJECT_DIR / "metadata.csv"
 

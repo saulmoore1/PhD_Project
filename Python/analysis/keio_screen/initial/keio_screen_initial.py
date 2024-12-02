@@ -40,8 +40,8 @@ from tierpsytools.preprocessing.filter_data import select_feat_set
 
 #%% GLOBALS
 
-# JSON_PARAMETERS_PATH = "analysis/20210406_parameters_keio_initial_screen.json"
-JSON_PARAMETERS_PATH = "analysis/20210914_parameters_keio_confirmation_screen.json"
+JSON_PARAMETERS_PATH = "analysis/20210406_parameters_keio_initial_screen.json"
+#JSON_PARAMETERS_PATH = "analysis/20210914_parameters_keio_confirmation_screen.json"
 
 N_LOWEST_PVAL = 100
 SUBSET_HIT_STRAINS = False
@@ -189,7 +189,7 @@ def compare_strains_keio(features, metadata, args):
     print("\nLoading statistics results")
     anova_table = pd.read_csv(anova_path, index_col=0)            
     pvals = anova_table.sort_values(by='pvals', ascending=True)['pvals'] # rank features by p-value
-    fset = pvals[pvals < args.pval_threshold].index.to_list()
+    fset = pvals[pvals < args.pval_threshold].index.to_list() # 571 sigfeats
     print("\n%d significant features found by %s (P<%.2f, %s)" % (len(fset), args.test, 
           args.pval_threshold, ('uncorrected' if not args.use_corrected_pvals else args.fdr_method)))
     
@@ -229,7 +229,7 @@ def compare_strains_keio(features, metadata, args):
         ttest_table = pd.read_csv(ttest_path, index_col=0)
         pvals_t = ttest_table[[c for c in ttest_table if "pvals_" in c]] 
         pvals_t.columns = [c.split('pvals_')[-1] for c in pvals_t.columns]       
-        fset_ttest = pvals_t[(pvals_t < args.pval_threshold).sum(axis=1) > 0].index.to_list()
+        fset_ttest = pvals_t[(pvals_t < args.pval_threshold).sum(axis=1) > 0].index.to_list() # 456 sigfeats
         print("%d significant features found by %s (P<%.2f, %s)" % (len(fset_ttest), t_test, 
               args.pval_threshold, ('uncorrected' if not args.use_corrected_pvals else args.fdr_method)))
     
@@ -690,7 +690,7 @@ def main(args):
     # Subset for desired imaging dates
     if args.dates is not None:
         assert type(args.dates) == list
-        metadata = metadata.loc[metadata['date_yyyymmdd'].astype(str).isin(args.dates)]
+        metadata = metadata.loc[metadata['date_yyyymmdd'].astype(int).astype(str).isin(args.dates)]
         features = features.reindex(metadata.index)
 
     compare_strains_keio(features, metadata, args)

@@ -5,11 +5,16 @@ Analyse Initial Keio Screen
 
 - compile metadata and feature summaries
 - clean metadata and feature summaries
-- run analysis: Tierpsy16 features set (fdr_bh) used to perform initial screen analysis (ANOVA/t-tests)
+- run analysis: Tierpsy256 feature set (fdr_bh) used to perform initial screen analysis (ANOVA/t-tests)
   and select top 100 hit strains with lowest p-value for any feature
 - curated list of 59 hit strains from top 100 lowest p-value hits
-- nearest neighbour analysis: Tierpsy256 feature set used for cluster analysis to expand gene set of
+- nearest neighbour analysis: Tierpsy16 feature set used for cluster analysis to expand gene set of
   59 hit strains -> 232 hits for confirmation screen
+  
+- To run from command line:
+    - cd /Users/sm5911/Documents/GitHub/PhD_Project/Python
+    - conda activate tierpsytools
+    - python -m analysis.keio_screen.initial.keio_screen_initial_20241129
 
 @author: sm5911
 @date: 28/11/2024
@@ -59,7 +64,8 @@ RENAME_DICT = {"FECE" : "fecE",
                "TnaB" : "tnaB"}
 
 # statistics parameters (ANOVA / t-test)
-FDR_METHOD = 'fdr_bh' # multiple test correction method - Benjamini-Hochberg
+N_TIERPSY_FEATS = 16
+FDR_METHOD = 'fdr_bh' # multiple test correction method - Benjamini-Hochberg?
 P_VALUE_THRESHOLD = 0.05 # p-value threshold
 
 # nearest neighbour analysis parameters
@@ -120,7 +126,7 @@ def stats(metadata,
     # save ANOVA results (uncorrected)
     if save_dir is not None:
         Path(save_dir).mkdir(parents=True, exist_ok=True)
-        results_path = Path(save_dir) / 'Tierpsy16_ANOVA_results_uncorrected.csv'
+        results_path = Path(save_dir) / 'Tierpsy{}_ANOVA_results_uncorrected.csv'.format(N_TIERPSY_FEATS)
         anova_results.to_csv(results_path, header=True, index=True)
 
     # correct for multiple comparisons
@@ -137,10 +143,12 @@ def stats(metadata,
         
         # save ANOVA results (corrected)
         if save_dir is not None:
-            results_corrected_path = Path(save_dir) / 'Tierpsy16_ANOVA_results_corrected.csv'
+            results_corrected_path = Path(save_dir) / 'Tierpsy{}_ANOVA_results_corrected.csv'.format(N_TIERPSY_FEATS)
             anova_results.to_csv(results_corrected_path, header=True, index=True)
             
     # t-tests comparing each bacterial strain to wild-type control
+    print("Performing t-tests comparing %d %ss to BW25113 wild-type control (%d features)" %\
+          (n_strains, group_by, len(feature_list)))
     stats_t, pvals_t, reject_t = univariate_tests(X=features,
                                                   y=metadata[group_by],
                                                   control=control,
@@ -163,7 +171,7 @@ def stats(metadata,
     
     # save t-test results (uncorrected)
     if save_dir is not None:
-        ttest_results_path = Path(save_dir) / 'Tierpsy16_t-test_results_uncorrected.csv'
+        ttest_results_path = Path(save_dir) / 'Tierpsy{}_t-test_results_uncorrected.csv'.format(N_TIERPSY_FEATS)
         ttest_results.to_csv(ttest_results_path, header=True, index=True)
     
     # correct for multiple comparisons
@@ -180,13 +188,16 @@ def stats(metadata,
         
         # save t-test results (corrected)
         if save_dir is not None:
-            ttest_results_corrected_path = Path(save_dir) / 'Tierpsy16_t-test_results_corrected.csv'
+            ttest_results_corrected_path = Path(save_dir) / 'Tierpsy{}_t-test_results_corrected.csv'.format(N_TIERPSY_FEATS)
             ttest_results.to_csv(ttest_results_corrected_path, header=True, index=True)            
         
     return anova_results, ttest_results
 
-def main():
+def clean_data():
+    
     tic = time()
+    
+    #TODO: collapse control!
     
     metadata_path_local = Path(SAVE_DIR) / 'metadata.csv'
     features_path_local = Path(SAVE_DIR) / 'features.csv'
@@ -195,6 +206,7 @@ def main():
     res_dir = Path(PROJECT_DIR) / 'Results'
     
     if not metadata_path_local.exists() or not features_path_local.exists():
+        print("Cleaning metadata and feature summaries")
 
         # compile metadata and feature summaries        
         metadata, metadata_path = compile_metadata(aux_dir, 
@@ -261,16 +273,29 @@ def main():
         features.to_csv(features_path_local, index=False)
         
     else:
+        print("Found existing clean metadata and feature summaries")
         metadata = pd.read_csv(metadata_path_local, header=0, index_col=None, dtype={'comments':str})
         features = pd.read_csv(features_path_local, header=0, index_col=None)
         
+    print("Done in %.1f seconds" % (time()-tic))    
+        
+    return metadata, features
+
+def find_hits(metadata, features):
+
+    tic = time()
+    print("Finding hit strains (Tierpsy{0}, {1}, p<{2})".format(N_TIERPSY_FEATS, FDR_METHOD, P_VALUE_THRESHOLD))
+
+    assert not features.isna().sum(axis=1).any() and not (features.std(axis=1) == 0).any()        
+    assert not any(metadata['worm_strain'].isna()) and not any(metadata['gene_name'].isna())
+        
     # subset for Tierpsy feature set
     features = select_feat_set(features,
-                               tierpsy_set_name='tierpsy_16', 
+                               tierpsy_set_name='tierpsy_{}'.format(N_TIERPSY_FEATS), 
                                append_bluelight=True)        
     
-    stats_dir = Path(SAVE_DIR) / 'Stats' #/ 'Tierpsy{}'.format(n_tierpsy_feats)
-    plots_dir = Path(SAVE_DIR) / 'Plots' #/ 'Tierpsy{}'.format(n_tierpsy_feats)
+    stats_dir = Path(SAVE_DIR) / 'Stats' / 'Tierpsy{0}_{1}'.format(N_TIERPSY_FEATS, FDR_METHOD)
+    plots_dir = Path(SAVE_DIR) / 'Plots' / 'Tierpsy{0}_{1}'.format(N_TIERPSY_FEATS, FDR_METHOD)
     
     strain_list = sorted(metadata['gene_name'].unique())
     print("%d bacterial strains in total will be analysed" % len(strain_list))
@@ -286,27 +311,41 @@ def main():
                                          fdr_method=FDR_METHOD)
     
     # use reject mask to find significant feature list (ANOVA)
-    fset = anova_results['pvals'].loc[anova_results['reject']].sort_values(ascending=True).index.to_list()
-    print("%d significant features found by ANOVA (P<%.2f, %s)" % (len(fset), P_VALUE_THRESHOLD, FDR_METHOD))
+    fset = anova_results['pvals'].loc[anova_results['reject']].sort_values(ascending=True).index.to_list() # 579 sigfeats
+    print("%d/%d significant features found by ANOVA (P<%.2f, %s)" %\
+          (len(fset), features.shape[1], P_VALUE_THRESHOLD, FDR_METHOD))
     Path(stats_dir).mkdir(parents=True, exist_ok=True)
-    sigfeats_path = stats_dir / 'Tierpsy16_ANOVA_sigfeats.txt'
+    sigfeats_path = stats_dir / 'Tierpsy{}_ANOVA_sigfeats.txt'.format(N_TIERPSY_FEATS)
     write_list_to_file(fset, sigfeats_path)
     
-    # rank strains by number of sigfeats (t-test)
+    # extract p-values and reject mask for t-tests
+    pvals_t = ttest_results[[c for c in ttest_results.columns if 'pvals_' in c]]
+    pvals_t.columns = [c.split('pvals_')[-1] for c in pvals_t.columns]  
     reject_t = ttest_results[[c for c in ttest_results.columns if 'reject_' in c]]
     reject_t.columns = [c.split('reject_')[-1] for c in reject_t.columns]
+
+    # count number of features that are significant for at least one strain
+    fset_t = pvals_t[(pvals_t < P_VALUE_THRESHOLD).sum(axis=1) > 0].index.to_list() # 753 sigfeats
+    print("%d/%d significant features found by t-test (P<%.2f, %s)" %\
+          (len(fset_t), features.shape[1], P_VALUE_THRESHOLD, FDR_METHOD))
+    sigfeats_t_path = stats_dir / 'Tierpsy{}_t-test_sigfeats.txt'.format(N_TIERPSY_FEATS)
+    write_list_to_file(fset_t, sigfeats_t_path)
+    
+    # rank strains by number of sigfeats (t-test)
     ranked_nsig = reject_t.sum(axis=0).sort_values(ascending=False)
+    ranked_nsig_path = stats_dir / 'Tierpsy{}_ranked_strains_nsig.csv'.format(N_TIERPSY_FEATS)
+    ranked_nsig.to_csv(ranked_nsig_path, header=True, index=True)
     hit_strains_nsig = ranked_nsig[ranked_nsig > 0].index.to_list()
     print("%d strains with 1 or more significant features" % len(hit_strains_nsig))
-    hit_strains_nsig_path = stats_dir / 'Tierpsy16_top100_hits_ranked_by_most_sigfeats.txt'
+    hit_strains_nsig_path = stats_dir / 'Tierpsy{}_top100_hits_ranked_by_most_sigfeats.txt'.format(N_TIERPSY_FEATS)
     write_list_to_file(hit_strains_nsig[:100], hit_strains_nsig_path)
     
     # rank strains by lowest p-value for any feature (t-test)
-    pvals_t = ttest_results[[c for c in ttest_results.columns if 'pvals_' in c]]
-    pvals_t.columns = [c.split('pvals_')[-1] for c in pvals_t.columns]
     ranked_pval = pvals_t.min(axis=0).sort_values(ascending=True)
+    ranked_pval_path = stats_dir / 'Tierpsy{}_ranked_strains_pval.csv'.format(N_TIERPSY_FEATS)
+    ranked_pval.to_csv(ranked_pval_path, header=True, index=True)
     hit_strains_pval = ranked_pval[ranked_pval < P_VALUE_THRESHOLD].index.to_list()
-    hit_strains_pval_path = stats_dir / 'Tierpsy16_top100_hits_ranked_by_lowest_pval.txt'
+    hit_strains_pval_path = stats_dir / 'Tierpsy{}_top100_hits_ranked_by_lowest_pval.txt'.format(N_TIERPSY_FEATS)
     write_list_to_file(hit_strains_pval[:100], hit_strains_pval_path)
     
     assert all(s in hit_strains_pval for s in hit_strains_nsig)
@@ -327,7 +366,7 @@ def main():
                  ax=ax2, linewidth=0.7)
     ax2.set_xticklabels(ranked_pval.index.to_list(), rotation=90, fontsize=2)
     ax2.xaxis.set_tick_params(width=0.3, pad=0.5)
-    ax2.axhline(y=P_VALUE_THRESHOLD, c='dimgray', ls='--', lw=0.7)
+    ax2.axhline(y=-np.log10(P_VALUE_THRESHOLD), c='dimgray', ls='--', lw=0.7)
     ax2.set_xlabel('Strains (ranked)', fontsize=12, labelpad=10)
     ax2.set_ylabel('-log10 p-value of most significant feature', fontsize=12, labelpad=10)
     ax2.set_xlim(-5, len(strain_list)+5)
@@ -335,24 +374,23 @@ def main():
 
     # save figure
     plots_dir.mkdir(parents=True, exist_ok=True)
-    fig_save_path = plots_dir / "Tierpsy16_ranked_hit_strains_t-test.svg"
+    fig_save_path = plots_dir / "Tierpsy{}_ranked_hit_strains_t-test.svg".format(N_TIERPSY_FEATS)
     plt.savefig(fig_save_path, bbox_inches='tight', transparent=True)
     
-    print("Done in %.1f seconds" % (time()-tic))
-
+    print("Done in %.1f seconds" % (time()-tic))    
+    
     return
 
-
-def nn_cluster_analysis():
+def nn_cluster_analysis(metadata, features):
     
-    """ Nearest neighbour analysis of hit strain selected from Top100 strains ranked by lowest 
-        p-value of any feature by t-test (Tierpsy 16, fdr_bh)
+    """ Nearest neighbour analysis of hit strain selected from top 100 strains ranked by lowest 
+        p-value of any feature by t-test.
 
-        Loads the 59 hit strains curated from lowest ranked 100 strains by p-value for any feature 
-        (t-test, p<0.05, fdr_bh, Tierpsy 16) from the initial screen, computes the Euclidean 
-        distance between strains in phenotype space, and finds the 3 nearest neighbours to each hit 
-        strain to expand the candidate strain list and increase the chance of finding interesting 
-        behaviour-modifying strains
+        Loads the 59 hit strains curated from lowest ranked 100 strains by p-value for any feature, 
+        along with clean metadata and features summaries. Uses Tierpsy256 feature set to compute 
+        the Euclidean distance between strains in phenotype space, and find the 3 nearest neighbours
+        to each hit strain to expand the candidate strain list and increase the chance of finding 
+        interesting behaviour-modifying strains.
     """
     tic = time()
 
@@ -369,14 +407,13 @@ def nn_cluster_analysis():
         
     # subset for Tierpsy256 feature set
     features = select_feat_set(features,
-                               tierpsy_set_name='tierpsy_256', 
+                               tierpsy_set_name='tierpsy_16', 
                                append_bluelight=True)        
 
     cluster_dir = Path(SAVE_DIR) / 'NN_cluster_analysis'
             
     n_strains, n_feats = metadata['gene_name'].nunique(), len(features.columns)
     save_path = cluster_dir / ("%d_strains_%d_features" % (n_strains, n_feats))
-    
     
     ##### Hierarchical clustering #####
 
@@ -437,6 +474,27 @@ def nn_cluster_analysis():
                        "{}_selected_strains_for_confirmation_screen.txt".format(len(new_strain_list)))
        
     print("Done in %.1f seconds" % (time()-tic))
+
+    return
+
+def main():
+    
+    # clean metadata and feature summaries
+    metadata, features = clean_data()
+    
+    # find hit strains (top 100 strains with lowest p-value of any feature)
+    find_hits(metadata, features)
+    
+    # # reconcile hit strains with curated list
+    # top100_hits_path = Path(SAVE_DIR) / 'Stats' / 'Tierpsy256_top100_hits_ranked_by_lowest_pval.txt'
+    # top100_hits_path = Path(SAVE_DIR) / 'Stats' / 'Tierpsy256_top100_hits_ranked_by_most_sigfeats.txt'
+    # top100_hits = read_list_from_file(top100_hits_path)
+    # curated_hits = read_list_from_file(CURATED_HIT_STRAINS_PATH)
+    
+    # [c in top100_hits for c in curated_hits]
+    
+    # find nearest 3 neighbours to each curated hit strain to expand list of hit genes (Tierpsy256)
+    # nn_cluster_analysis(metadata, features)
 
     return
 
