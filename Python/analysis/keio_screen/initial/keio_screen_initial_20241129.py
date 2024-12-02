@@ -65,7 +65,10 @@ RENAME_DICT = {"FECE" : "fecE",
 
 # statistics parameters (ANOVA / t-test)
 N_TIERPSY_FEATS = 16
-FDR_METHOD = 'fdr_bh' # multiple test correction method - Benjamini-Hochberg?
+
+# no significant features found for any strain when multiple test correction was applied, 
+# so strains were ranked by lowest p-value (uncorrected for multiple comparisons)
+FDR_METHOD = 'fdr_by'
 P_VALUE_THRESHOLD = 0.05 # p-value threshold
 
 # nearest neighbour analysis parameters
@@ -75,6 +78,58 @@ DISTANCE_METRIC = 'euclidean' # clustering distance metric (scipy.spatial.distan
     
 #%% Functions
 
+def average_plate_control_data(metadata, features, control='wild_type', grouping_var='gene_name', 
+                               plate_var='imaging_plate_id'):
+    """ Average data for control plate on each experiment day to yield a single mean datapoint for 
+        the control. This reduces the control sample size to equal the test strain sample size, for 
+        t-test comparison. Information for the first well in the control sample on each day is used 
+        as the accompanying metadata for mean feature results. 
+        
+        Input
+        -----
+        features, metadata : pd.DataFrame
+            Feature summary results and metadata dataframe with multiple entries per day
+            
+        Returns
+        -------
+        features, metadata : pd.DataFrame
+            Feature summary results and metadata with control data averaged (single sample per day)
+    """
+        
+    # Subset results for control data
+    control_metadata = metadata[metadata[grouping_var]==control]
+    control_features = features.reindex(control_metadata.index)
+
+    # Take mean of control for each plate = collapse to single datapoint for strain comparison
+    mean_control = control_metadata[[grouping_var, plate_var]].join(control_features).groupby(
+                                    by=[grouping_var, plate_var]).mean().reset_index()
+    
+    # Append remaining control metadata column info (with first well data for each date)
+    remaining_cols = [c for c in control_metadata.columns.to_list() if c not in [grouping_var, 
+                                                                                 plate_var]]
+    mean_control_row_data = []
+    for i in mean_control.index: # use .agg() here?
+        plate = mean_control.loc[i, plate_var]
+        control_plate_meta = control_metadata.loc[control_metadata[plate_var] == plate]
+        first_well = control_plate_meta.loc[control_plate_meta.index[0], remaining_cols]
+        first_well_mean = first_well.append(mean_control.loc[mean_control[plate_var] == plate
+                                                             ].squeeze(axis=0))
+        mean_control_row_data.append(first_well_mean)
+    
+    control_mean = pd.DataFrame.from_records(mean_control_row_data)
+    control_metadata = control_mean[control_metadata.columns.to_list()]
+    control_features = control_mean[control_features.columns.to_list()]
+
+    features = pd.concat([features.loc[metadata[grouping_var] != control, :], 
+                          control_features], axis=0).reset_index(drop=True)        
+    metadata = pd.concat([metadata.loc[metadata[grouping_var] != control, :], 
+                          control_metadata.loc[:, metadata.columns.to_list()]], 
+                          axis=0).reset_index(drop=True)
+    
+    assert all(metadata.index == features.index)
+
+    return metadata, features
+
 def stats(metadata,
           features,
           group_by='gene_name',
@@ -82,7 +137,7 @@ def stats(metadata,
           feature_list=None,
           save_dir=None,
           p_value_threshold=0.05,
-          fdr_method='fdr_bh'):
+          fdr_method='fdr_by'):
     
     """ Perform ANOVA tests to compare worms on each bacterial food vs BW25113 control for each 
         Tierpsy feature in feature_list """
@@ -196,9 +251,7 @@ def stats(metadata,
 def clean_data():
     
     tic = time()
-    
-    #TODO: collapse control!
-    
+        
     metadata_path_local = Path(SAVE_DIR) / 'metadata.csv'
     features_path_local = Path(SAVE_DIR) / 'features.csv'
     
@@ -293,6 +346,13 @@ def find_hits(metadata, features):
     features = select_feat_set(features,
                                tierpsy_set_name='tierpsy_{}'.format(N_TIERPSY_FEATS), 
                                append_bluelight=True)        
+    
+    # average control data for each experiment day
+    metadata, features = average_plate_control_data(metadata,
+                                                    features,
+                                                    control='wild_type',
+                                                    grouping_var='gene_name', 
+                                                    plate_var='imaging_plate_id')
     
     stats_dir = Path(SAVE_DIR) / 'Stats' / 'Tierpsy{0}_{1}'.format(N_TIERPSY_FEATS, FDR_METHOD)
     plots_dir = Path(SAVE_DIR) / 'Plots' / 'Tierpsy{0}_{1}'.format(N_TIERPSY_FEATS, FDR_METHOD)
@@ -485,14 +545,44 @@ def main():
     # find hit strains (top 100 strains with lowest p-value of any feature)
     find_hits(metadata, features)
     
-    # # reconcile hit strains with curated list
-    # top100_hits_path = Path(SAVE_DIR) / 'Stats' / 'Tierpsy256_top100_hits_ranked_by_lowest_pval.txt'
-    # top100_hits_path = Path(SAVE_DIR) / 'Stats' / 'Tierpsy256_top100_hits_ranked_by_most_sigfeats.txt'
-    # top100_hits = read_list_from_file(top100_hits_path)
-    # curated_hits = read_list_from_file(CURATED_HIT_STRAINS_PATH)
+    # reconcile hit strains with curated list
+    # no significant features found for any strain when multiple test correction was applied, 
+    # so strains were ranked by lowest p-value (uncorrected for multiple comparisons)
     
-    # [c in top100_hits for c in curated_hits]
+    # load uncorrected t-test results (Tierpsy16, uncorrrected p-values)
+    ttest_results_uncorrected_path = Path(SAVE_DIR) / 'Stats' /\
+        'Tierpsy{0}_{1}'.format(N_TIERPSY_FEATS, FDR_METHOD) /\
+            'Tierpsy{}_t-test_results_uncorrected.csv'.format(N_TIERPSY_FEATS)
+    ttest_results = pd.read_csv(ttest_results_uncorrected_path, header=0, index_col=0)
     
+    pvals_t = ttest_results[[c for c in ttest_results.columns if 'pvals_' in c]]
+    pvals_t.columns = [c.split('pvals_')[-1] for c in pvals_t.columns]
+    ranked_pval = pvals_t.min(axis=0).sort_values(ascending=True)
+    top100_hits_ranked_by_lowest_pval_uncorrected = ranked_pval[:100].index.tolist()
+
+    curated_hits = read_list_from_file(CURATED_HIT_STRAINS_PATH)
+    
+    # manually added strains 
+    manually_added_strains = set(curated_hits) - set(top100_hits_ranked_by_lowest_pval_uncorrected)
+    manually_added_strains_list = ['aroP','fepA','fepB','fepC','nuoE','nuoG','nuoH','nuoI','nuoJ',
+                                   'nuoL','nuoM','nuoN','tnaB','trpA','trpB','trpC','trpD','trpE'] # n=18
+    
+    # manually dropped strains
+    manually_dropped_strains = set(top100_hits_ranked_by_lowest_pval_uncorrected) - set(curated_hits)
+    manually_dropped_strains_list = ['aceK','argC','artQ','bcr','clpX','cpxA','cysC','dps','eamA',
+                                     'gadX','galU','glvG','gmr','hisC','hypB','kefA','lpd','mhpF',
+                                     'mntR','mtlA','mtlR','mutH','narK','npr','nusB','oppF','paaE',
+                                     'pabC','potD','proV','rbfA','rffD','rseA','rzpR','sapF','smpA',
+                                     'thiI','tufA','ybdZ','ybhE','ybjE','ydcE','ydfX','yfeG','yfeK',
+                                     'yfiB','yfiP','ygaD','ygbK','ygfF','yhdP','yhhX','yjbO','ykfH',
+                                     'yncN','yoeA','yphH','yqjG','ytfB'] # n=59
+    
+    assert 100 - 59 + 18 == 59 # 59 hit strains after manual curation (59 strains dropped, 18 strains added)
+    assert (len(top100_hits_ranked_by_lowest_pval_uncorrected) # n=100
+            - len(manually_dropped_strains_list) # n=59
+            + len(manually_added_strains_list) # n=18
+            == len(curated_hits)) # n=59
+
     # find nearest 3 neighbours to each curated hit strain to expand list of hit genes (Tierpsy256)
     # nn_cluster_analysis(metadata, features)
 
