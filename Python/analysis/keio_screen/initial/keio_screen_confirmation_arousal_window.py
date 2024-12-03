@@ -48,6 +48,8 @@ add_well_annotations = True
 pval_threshold = 0.05
 fdr_method = 'fdr_by'
 FPS = 25
+RENAME_DICT = {"FECE" : "fecE",
+               "BW" : "wild_type"}
 
 feature_list = ['speed_50th']
 

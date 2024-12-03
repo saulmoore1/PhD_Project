@@ -41,11 +41,13 @@ from preprocessing.compile_hydra_data import compile_metadata, process_feature_s
 from preprocessing.append_supplementary_info import load_supplementary_7, append_supplementary_7
 from filter_data.clean_feature_summaries import clean_summary_results
 from tierpsytools.preprocessing.filter_data import select_feat_set
-from tierpsytools.analysis.statistical_tests import univariate_tests, get_effect_sizes, _multitest_correct
+from tierpsytools.analysis.statistical_tests import univariate_tests, get_effect_sizes
+from tierpsytools.analysis.statistical_tests import _multitest_correct
 from visualisation.plotting_helper import sig_asterix
 from write_data.write import write_list_to_file
 from read_data.read import read_list_from_file
-from clustering.nearest_neighbours import nearest_neighbours, cluster_linkage_seaborn, cluster_linkage_pdist
+from clustering.nearest_neighbours import nearest_neighbours 
+from clustering.nearest_neighbours import cluster_linkage_seaborn, cluster_linkage_pdist
 
 #%% Globals
 
@@ -141,7 +143,8 @@ def stats(metadata,
           feature_list=None,
           save_dir=None,
           p_value_threshold=0.05,
-          fdr_method='fdr_by'):
+          fdr_method='fdr_bh',
+          n_tierpsy_feats=N_TIERPSY_FEATS):
     
     """ Perform ANOVA tests to compare worms on each bacterial food vs BW25113 control for each 
         Tierpsy feature in feature_list """
@@ -185,7 +188,8 @@ def stats(metadata,
     # save ANOVA results (uncorrected)
     if save_dir is not None:
         Path(save_dir).mkdir(parents=True, exist_ok=True)
-        results_path = Path(save_dir) / 'Tierpsy{}_ANOVA_results_uncorrected.csv'.format(N_TIERPSY_FEATS)
+        results_path = Path(save_dir) /\
+            'Tierpsy{}_ANOVA_results_uncorrected.csv'.format(n_tierpsy_feats)
         anova_results.to_csv(results_path, header=True, index=True)
 
     # correct for multiple comparisons
@@ -202,7 +206,8 @@ def stats(metadata,
         
         # save ANOVA results (corrected)
         if save_dir is not None:
-            results_corrected_path = Path(save_dir) / 'Tierpsy{}_ANOVA_results_corrected.csv'.format(N_TIERPSY_FEATS)
+            results_corrected_path = Path(save_dir) /\
+                'Tierpsy{}_ANOVA_results_corrected.csv'.format(n_tierpsy_feats)
             anova_results.to_csv(results_corrected_path, header=True, index=True)
             
     # t-tests comparing each bacterial strain to wild-type control
@@ -230,7 +235,8 @@ def stats(metadata,
     
     # save t-test results (uncorrected)
     if save_dir is not None:
-        ttest_results_path = Path(save_dir) / 'Tierpsy{}_t-test_results_uncorrected.csv'.format(N_TIERPSY_FEATS)
+        ttest_results_path = Path(save_dir) /\
+            'Tierpsy{}_t-test_results_uncorrected.csv'.format(n_tierpsy_feats)
         ttest_results.to_csv(ttest_results_path, header=True, index=True)
     
     # correct for multiple comparisons
@@ -247,7 +253,8 @@ def stats(metadata,
         
         # save t-test results (corrected)
         if save_dir is not None:
-            ttest_results_corrected_path = Path(save_dir) / 'Tierpsy{}_t-test_results_corrected.csv'.format(N_TIERPSY_FEATS)
+            ttest_results_corrected_path = Path(save_dir) /\
+                'Tierpsy{}_t-test_results_corrected.csv'.format(n_tierpsy_feats)
             ttest_results.to_csv(ttest_results_corrected_path, header=True, index=True)            
         
     return anova_results, ttest_results
@@ -338,28 +345,30 @@ def clean_data():
         
     return metadata, features
 
-def find_hits(metadata, features):
+def find_hits(metadata, features, n_tierpsy_feats, fdr_method, average_control_per_day=True):
 
     tic = time()
-    print("Finding hit strains (Tierpsy{0}, {1}, p<{2})".format(N_TIERPSY_FEATS, FDR_METHOD, P_VALUE_THRESHOLD))
+    print("Finding hit strains (Tierpsy{0}, {1}, p<{2})".format(
+        n_tierpsy_feats, fdr_method, P_VALUE_THRESHOLD))
 
     assert not features.isna().sum(axis=1).any() and not (features.std(axis=1) == 0).any()        
     assert not any(metadata['worm_strain'].isna()) and not any(metadata['gene_name'].isna())
         
     # subset for Tierpsy feature set
     features = select_feat_set(features,
-                               tierpsy_set_name='tierpsy_{}'.format(N_TIERPSY_FEATS), 
+                               tierpsy_set_name='tierpsy_{}'.format(n_tierpsy_feats), 
                                append_bluelight=True)        
     
     # average control data for each experiment day
-    metadata, features = average_plate_control_data(metadata,
-                                                    features,
-                                                    control='wild_type',
-                                                    grouping_var='gene_name', 
-                                                    plate_var='imaging_plate_id')
+    if average_control_per_day:
+        metadata, features = average_plate_control_data(metadata,
+                                                        features,
+                                                        control='wild_type',
+                                                        grouping_var='gene_name', 
+                                                        plate_var='imaging_plate_id')
     
-    stats_dir = Path(SAVE_DIR) / 'Stats' / 'Tierpsy{0}_{1}'.format(N_TIERPSY_FEATS, FDR_METHOD)
-    plots_dir = Path(SAVE_DIR) / 'Plots' / 'Tierpsy{0}_{1}'.format(N_TIERPSY_FEATS, FDR_METHOD)
+    stats_dir = Path(SAVE_DIR) / 'Stats' / 'Tierpsy{0}_{1}'.format(n_tierpsy_feats, fdr_method)
+    plots_dir = Path(SAVE_DIR) / 'Plots' / 'Tierpsy{0}_{1}'.format(n_tierpsy_feats, fdr_method)
     
     strain_list = sorted(metadata['gene_name'].unique())
     print("%d bacterial strains in total will be analysed" % len(strain_list))
@@ -372,16 +381,17 @@ def find_hits(metadata, features):
                                          feature_list=list(features.columns),
                                          save_dir=stats_dir,
                                          p_value_threshold=P_VALUE_THRESHOLD,
-                                         fdr_method=FDR_METHOD)
+                                         fdr_method=fdr_method,
+                                         n_tierpsy_feats=n_tierpsy_feats)
     
     # use reject mask to find significant feature list (ANOVA)
     # 33/48 significant features found by ANOVA (p<0.05, fdr_bh)
     fset = anova_results['pvals'].loc[anova_results['reject']
                                       ].sort_values(ascending=True).index.to_list()
     print("%d/%d significant features found by ANOVA (P<%.2f, %s)" %\
-          (len(fset), features.shape[1], P_VALUE_THRESHOLD, FDR_METHOD))
+          (len(fset), features.shape[1], P_VALUE_THRESHOLD, fdr_method))
     Path(stats_dir).mkdir(parents=True, exist_ok=True)
-    sigfeats_path = stats_dir / 'Tierpsy{}_ANOVA_sigfeats.txt'.format(N_TIERPSY_FEATS)
+    sigfeats_path = stats_dir / 'Tierpsy{}_ANOVA_sigfeats.txt'.format(n_tierpsy_feats)
     write_list_to_file(fset, sigfeats_path)
     
     # extract p-values for t-tests
@@ -392,8 +402,8 @@ def find_hits(metadata, features):
     # 0/48 significant features found by t-test (p<0.05, fdr_bh)
     fset_t = pvals_t[(pvals_t < P_VALUE_THRESHOLD).sum(axis=1) > 0].index.to_list()
     print("%d/%d significant features found by t-test (P<%.2f, %s)" %\
-          (len(fset_t), features.shape[1], P_VALUE_THRESHOLD, FDR_METHOD))
-    sigfeats_t_path = stats_dir / 'Tierpsy{}_t-test_sigfeats.txt'.format(N_TIERPSY_FEATS)
+          (len(fset_t), features.shape[1], P_VALUE_THRESHOLD, fdr_method))
+    sigfeats_t_path = stats_dir / 'Tierpsy{}_t-test_sigfeats.txt'.format(n_tierpsy_feats)
     write_list_to_file(fset_t, sigfeats_t_path)
     
 # =============================================================================
@@ -401,23 +411,24 @@ def find_hits(metadata, features):
 #     reject_t = ttest_results[[c for c in ttest_results.columns if 'reject_' in c]]
 #     reject_t.columns = [c.split('reject_')[-1] for c in reject_t.columns]
 #     ranked_nsig = reject_t.sum(axis=0).sort_values(ascending=False)
-#     ranked_nsig_path = stats_dir / 'Tierpsy{}_ranked_strains_nsig.csv'.format(N_TIERPSY_FEATS)
+#     ranked_nsig_path = stats_dir / 'Tierpsy{}_ranked_strains_nsig.csv'.format(n_tierpsy_feats)
 #     ranked_nsig.to_csv(ranked_nsig_path, header=True, index=True)
 #     hit_strains_nsig = ranked_nsig[ranked_nsig > 0].index.to_list()
 #     print("%d strains with 1 or more significant features" % len(hit_strains_nsig))
-#     hit_strains_nsig_path = stats_dir / 'Tierpsy{}_top100_hits_ranked_by_most_sigfeats.txt'.format(N_TIERPSY_FEATS)
+#     hit_strains_nsig_path = stats_dir /\
+#        'Tierpsy{}_top100_hits_ranked_by_most_sigfeats.txt'.format(n_tierpsy_feats)
 #     write_list_to_file(hit_strains_nsig[:100], hit_strains_nsig_path)
 # =============================================================================
 
     # rank strains by lowest p-value for any feature (t-test, uncorrected p-values)
     ttest_results_uncorrected_path = Path(stats_dir) /\
-        'Tierpsy{}_t-test_results_uncorrected.csv'.format(N_TIERPSY_FEATS)
+        'Tierpsy{}_t-test_results_uncorrected.csv'.format(n_tierpsy_feats)
     ttest_results_uncorrected = pd.read_csv(ttest_results_uncorrected_path, header=0, index_col=0)
     pvals_t_uncorrected = ttest_results_uncorrected[[c for c in ttest_results_uncorrected.columns
                                                     if 'pvals_' in c]]
     pvals_t_uncorrected.columns = [c.split('pvals_')[-1] for c in pvals_t_uncorrected.columns]    
     ranked_pval = pvals_t_uncorrected.min(axis=0).sort_values(ascending=True)
-    ranked_pval_path = stats_dir / 'Tierpsy{}_ranked_strains_pval.csv'.format(N_TIERPSY_FEATS)
+    ranked_pval_path = stats_dir / 'Tierpsy{}_ranked_strains_pval.csv'.format(n_tierpsy_feats)
     ranked_pval.to_csv(ranked_pval_path, header=True, index=True)
             
     # plot strains ranked by: (1) number of significant features, and (2) lowest p-value of any feature
@@ -447,12 +458,14 @@ def find_hits(metadata, features):
 
     # save figure
     plots_dir.mkdir(parents=True, exist_ok=True)
-    fig_save_path = plots_dir / "Tierpsy{}_ranked_hits_lowest_p-value_t-test_uncorrected.svg".format(N_TIERPSY_FEATS)
+    fig_save_path = plots_dir /\
+        "Tierpsy{}_ranked_hits_lowest_p-value_t-test_uncorrected.svg".format(n_tierpsy_feats)
     plt.savefig(fig_save_path, bbox_inches='tight', transparent=True)
     
     # select hits - top 100 strains with lowest p-value for any feature (Tierpsy16, uncorrected)
     hit_strains_pval = ranked_pval[:100].index.to_list()
-    hit_strains_pval_path = stats_dir / 'Tierpsy{}_top100_hits_lowest_p-value_t-test_uncorrected.txt'.format(N_TIERPSY_FEATS)
+    hit_strains_pval_path = stats_dir /\
+        'Tierpsy{}_top100_hits_lowest_p-value_t-test_uncorrected.txt'.format(n_tierpsy_feats)
     write_list_to_file(hit_strains_pval, hit_strains_pval_path)
     
     print("Done in %.1f seconds" % (time()-tic))    
@@ -464,11 +477,11 @@ def nearest_neighbour_cluster_analysis():
     """ Nearest neighbour analysis of 59 hit strains manually curated from top 100 strains ranked 
         by lowest p-value (uncorrected) of any feature by t-test, to expand the list of candidate
         strains to inclide the 3 nearest neightbour strains to each hit strain that elicit similar
-        worm behaviour. Clean metadata and features are loaded along with the curated list of 59
-        initial hits, and the Tierpsy256 feature set is used to compute the Euclidean distance 
-        between strains in phenotype space and identify the 3 nearest neigbour strains to each hit.
-        These nearest neighbours are also included as hits, yeilding a total of 229 candidate 
-        strains for the confirmation screen.
+        worm behaviour. The list of strains which will be used to find the nearest neighbours to 
+        these 59 hits is the 1860 strains found to be significant by t-test using Tierpsy256 feature
+        set (p<0.05, fdr_bh). The Euclidean distance between these 1860 strains in phenotype space 
+        is used to find the 3 nearest neigbour strains to each of the 59 hits, thus expanding the 
+        list of hit strains to yeild a total of 229 candidate strains for the confirmation screen.
     """
     tic = time()
 
@@ -478,12 +491,42 @@ def nearest_neighbour_cluster_analysis():
     # load clean metadata and features summaries
     metadata = pd.read_csv(metadata_path_local, header=0, index_col=None, dtype={'comments':str})
     features = pd.read_csv(features_path_local, header=0, index_col=None)
-    
+
+    stats_dir = Path(SAVE_DIR) / 'Stats'
+
     # load set of 59 hit strains curated from top 100 strains with lowest p-value for any feature 
     # (Tierpsy16, fdr_bh)
-    manually_curated_hits_path_local = Path(SAVE_DIR) / 'Stats' /\
+    manually_curated_hits_path_local = stats_dir /\
         '59_manually_curated_hits_from_top100_ranked_lowest_uncorrected_p-value_for_any_Tierpsy16_feature.txt'
     selected_strain_list = read_list_from_file(manually_curated_hits_path_local)
+
+    # before performing nearest neighbour cluster analysis, first identify the list of significant 
+    # strains which will be used to select nearest neighbours from (Tierpsy256, p<0.05, fdr_bh)
+    # (n=1860 strains)
+    n_tierpsy_feats_nn = 256
+    fdr_method_nn = 'fdr_bh'
+    _ = find_hits(metadata, 
+                  features, 
+                  n_tierpsy_feats_nn, # Tierpsy256 used to obtain list of strains to search for nearest neighbours
+                  fdr_method_nn, # Benjamini-Hochberg correction used to correct for multiple comparisons
+                  average_control_per_day=True)
+        
+    # TODO: Work out why this does not yield 1860 strains that are significant for at least 1 feature (Tierpsy256, fdr_bh)
+    
+    # load list of strains from which to find nearest neighbours 
+    ttest_results_path = stats_dir / "Tierpsy256_fdr_bh" / "Tierpsy256_t-test_results_corrected.csv"
+    ttest_results = pd.read_csv(ttest_results_path, header=0, index_col=0)
+    pvals_t = ttest_results[[c for c in ttest_results.columns if 'pvals_' in c]]
+    pvals_t.columns = [c.split('pvals_')[-1] for c in pvals_t.columns]  
+    
+    # number of strains that are significant for at least one feature
+    nsig_nn = ((pvals_t < 0.05).sum(axis=0).sort_values(ascending=False)>0).sum()
+    print("%d strains significant for at least 1 feature (t-test, Tierpsy%d, %s, p<0.05)" %\
+          (nsig_nn, n_tierpsy_feats_nn, fdr_method_nn))
+    
+    # print("%d/%d significant features found by t-test (P<%.2f, %s)" %\
+    #       (len(fset_t), features.shape[1], P_VALUE_THRESHOLD, fdr_method))
+    # sigfeats_t_path = stats_dir / 'Tierpsy{}_t-test_sigfeats.txt'.format(n_tierpsy_feats)
         
     # subset for Tierpsy256 feature set
     features = select_feat_set(features,
@@ -492,8 +535,9 @@ def nearest_neighbour_cluster_analysis():
             
     n_strains, n_feats = metadata['gene_name'].nunique(), len(features.columns)
     
-    cluster_dir = Path(SAVE_DIR) / 'Stats' / 'NN_cluster_analysis'
-    save_path = cluster_dir / ("%d_strains_%d_features" % (n_strains, n_feats))
+    cluster_dir = stats_dir / 'nearest_neighbour_cluster_analysis'
+    save_dir = cluster_dir / ("%d_strains_%d_features" % (n_strains, n_feats))
+    save_dir.mkdir(parents=True, exist_ok=True)
     
     ##### Hierarchical clustering #####
 
@@ -502,13 +546,13 @@ def nearest_neighbour_cluster_analysis():
     Z, X = cluster_linkage_seaborn(features, 
                                    metadata, 
                                    groupby='gene_name', 
-                                   saveDir=save_path, 
+                                   saveDir=save_dir, 
                                    method=LINKAGE_METHOD, 
                                    metric=DISTANCE_METRIC)
     _Z, _X = cluster_linkage_pdist(features, 
                                    metadata, 
                                    groupby='gene_name',
-                                   saveDir=save_path, 
+                                   saveDir=save_dir, 
                                    method=LINKAGE_METHOD, 
                                    metric=DISTANCE_METRIC)
     
@@ -523,39 +567,38 @@ def nearest_neighbour_cluster_analysis():
     names_df, distances_df = nearest_neighbours(X=X,
                                                 strain_list=None,
                                                 distance_metric=DISTANCE_METRIC, 
-                                                saveDir=save_path)
+                                                saveDir=save_dir)
         
     # Record confirmation screen hit strains in/not in initial hit strain list
-    conf_strain_initial_list = [s for s in selected_strain_list if s in names_df.index]
-    conf_strain_not_initial_list = [s for s in selected_strain_list if s not in names_df.index]
-    neighbour_names_df = names_df.loc[conf_strain_initial_list, 1:N_NEIGHBOURS]
-    neighbour_names_df.to_excel(Path(save_path) / "nearest_{}_neighbours.xlsx".format(N_NEIGHBOURS))
+    assert all(s in names_df.index for s in selected_strain_list)
+    neighbour_names_df = names_df.loc[selected_strain_list, 1:N_NEIGHBOURS]
+    neighbour_names_df.to_excel(Path(save_dir) / "nearest_{}_neighbours.xlsx".format(N_NEIGHBOURS))
     
     # Save N nearest neighbours list
     neighbour_list = np.unique(np.asmatrix(neighbour_names_df).flatten().tolist())
     neighbour_list = sorted(set(neighbour_list) - set(selected_strain_list))
-    write_list_to_file(neighbour_list, Path(save_path) / "neighbour_strains.txt")
+    write_list_to_file(neighbour_list, Path(save_dir) / "neighbour_strains.txt")
 
-    new_strain_list = sorted(set(neighbour_list).union(set(selected_strain_list)))
+    new_strain_list = sorted(set(neighbour_list).union(set(selected_strain_list))) # n=205
     atp_genes = [s for s in names_df.index if s.startswith('atp') and s not in new_strain_list]
     nuo_genes = [s for s in names_df.index if s.startswith('nuo') and s not in new_strain_list]
     extra_strains = ['fiu','fhuE','fhuA','tonB','exbD','exbB','entA','entB','entC','entE','entF',
                      'fes','cirA']
     extra_strain_list = atp_genes + nuo_genes + extra_strains
     assert not any(s in new_strain_list for s in extra_strain_list)
-    write_list_to_file(extra_strain_list, Path(save_path) / "extra_strains_added.txt")
+    write_list_to_file(extra_strain_list, Path(save_dir) / "extra_strains_added.txt")
 
     new_strain_list.extend(extra_strain_list)
 
     # Save expanded list of hit strains for confirmational screen, including the N closest strains 
     # to each hit strain selected from the initial screen
     print("Saving new hit strain list of %d genes to file" % len(new_strain_list))
-    write_list_to_file(sorted(new_strain_list), Path(save_path) /\
+    write_list_to_file(sorted(new_strain_list), Path(save_dir) /\
                        "{}_selected_strains_for_confirmation_screen.txt".format(len(new_strain_list)))
        
     print("Done in %.1f seconds" % (time()-tic))
 
-    return new_strain_list
+    return sorted(new_strain_list)
 
 def main():
     
@@ -563,23 +606,27 @@ def main():
     metadata, features = clean_data()
     
     # find hit strains (top 100 strains with lowest p-value of any feature)
-    top100_hits_ranked_lowest_pval_uncorrected = find_hits(metadata, features)
+    top100_hits_ranked_lowest_pval_uncorrected = find_hits(metadata, 
+                                                           features, 
+                                                           N_TIERPSY_FEATS, 
+                                                           FDR_METHOD,
+                                                           average_control_per_day=True)
     
     # no significant features found for any strain when multiple test correction was applied, 
     # so strains were ranked by lowest p-value (uncorrected for multiple comparisons)
     
-    # manually added strains 
+    # manually added strains (n=18)
     manually_added_strains_list = ['aroP','fepA','fepB','fepC','nuoE','nuoG','nuoH','nuoI','nuoJ',
-                                   'nuoL','nuoM','nuoN','tnaB','trpA','trpB','trpC','trpD','trpE'] # n=18
+                                   'nuoL','nuoM','nuoN','tnaB','trpA','trpB','trpC','trpD','trpE']
     
-    # manually dropped strains
+    # manually dropped strains (n=59)
     manually_dropped_strains_list = ['aceK','argC','artQ','bcr','clpX','cpxA','cysC','dps','eamA',
                                      'gadX','galU','glvG','gmr','hisC','hypB','kefA','lpd','mhpF',
                                      'mntR','mtlA','mtlR','mutH','narK','npr','nusB','oppF','paaE',
                                      'pabC','potD','proV','rbfA','rffD','rseA','rzpR','sapF','smpA',
                                      'thiI','tufA','ybdZ','ybhE','ybjE','ydcE','ydfX','yfeG','yfeK',
                                      'yfiB','yfiP','ygaD','ygbK','ygfF','yhdP','yhhX','yjbO','ykfH',
-                                     'yncN','yoeA','yphH','yqjG','ytfB'] # n=59
+                                     'yncN','yoeA','yphH','yqjG','ytfB']
     
     # 59 hit strains after manual curation (59 strains dropped, 18 strains added)    
     manually_curated_59_initial_hits = sorted(
@@ -597,16 +644,15 @@ def main():
     #         + len(manually_added_strains_list) # n=18
     #         == len(curated_hits)) # n=59         
 
-    # save manually curated list of hit strains
-    manually_curated_hits_path = Path(PROJECT_DIR) / 'AuxiliaryFiles' /\
-        '59_manually_curated_hits_from_top100_ranked_lowest_uncorrected_p-value_for_any_Tierpsy16_feature.txt'
+    # save the manually curated list of initial hit strains to find nearest neighbours to
     manually_curated_hits_path_local = Path(SAVE_DIR) / 'Stats' /\
         '59_manually_curated_hits_from_top100_ranked_lowest_uncorrected_p-value_for_any_Tierpsy16_feature.txt'
-    write_list_to_file(manually_curated_59_initial_hits, manually_curated_hits_path)
     write_list_to_file(manually_curated_59_initial_hits, manually_curated_hits_path_local)
-
+    
     # find nearest 3 neighbours to each curated hit strain to expand list of hit genes (Tierpsy256)
     candidate_hits_for_confirmation_screen = nearest_neighbour_cluster_analysis()
+    print("%d candidate strains identified for confirmation screen." %\
+          len(candidate_hits_for_confirmation_screen))
 
     return
 
