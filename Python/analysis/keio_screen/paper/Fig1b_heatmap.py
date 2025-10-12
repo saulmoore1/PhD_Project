@@ -184,7 +184,7 @@ def heatmap(metadata, features):
                          meta=metadata[['gene_name']], 
                          group_by='gene_name',
                          col_linkage=None,
-                         row_colours=False
+                         row_colours=False,
                          method='complete',
                          metric='euclidean',
                          figsize=[20, 35],
