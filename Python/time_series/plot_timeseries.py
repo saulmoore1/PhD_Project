@@ -179,7 +179,6 @@ def plot_timeseries(df,
         return ax
    
 def plot_timeseries_feature(metadata,
-                            project_dir,
                             save_dir,
                             feature='speed',
                             group_by='treatment',
@@ -216,7 +215,6 @@ def plot_timeseries_feature(metadata,
     
     # get control timeseries
     control_ts = get_strain_timeseries(metadata,
-                                       project_dir=project_dir,
                                        strain=control,
                                        group_by=group_by,
                                        feature_list=[feature],#['motion_mode','speed']
@@ -231,7 +229,6 @@ def plot_timeseries_feature(metadata,
         
         if not save_path.exists():
             group_ts = get_strain_timeseries(metadata,
-                                             project_dir=project_dir,
                                              strain=group,
                                              group_by=group_by,
                                              feature_list=[feature],
@@ -285,7 +282,6 @@ def plot_timeseries_feature(metadata,
     return
 
 def plot_window_timeseries_feature(metadata,
-                                   project_dir,
                                    save_dir,
                                    group_by='gene_name',
                                    control='BW',
@@ -314,7 +310,6 @@ def plot_window_timeseries_feature(metadata,
     
     # get control timeseries
     control_ts = get_strain_timeseries(metadata,
-                                       project_dir=project_dir,
                                        strain=control,
                                        group_by=group_by,
                                        feature_list=[feature],#['motion_mode','speed']
@@ -332,7 +327,6 @@ def plot_window_timeseries_feature(metadata,
         
         if not save_path.exists():
             group_ts = get_strain_timeseries(metadata,
-                                             project_dir=project_dir,
                                              strain=group,
                                              group_by=group_by,
                                              feature_list=[feature],
@@ -609,7 +603,6 @@ def plot_timeseries_motion_mode(df,
       
 
 def selected_strains_timeseries(metadata, 
-                                project_dir, 
                                 save_dir, 
                                 group_by='gene_name',
                                 control='wild_type',
@@ -652,7 +645,6 @@ def selected_strains_timeseries(metadata,
     
     # get timeseries for BW
     control_ts = get_strain_timeseries(metadata[metadata[group_by]==control], 
-                                       project_dir=project_dir, 
                                        strain=control,
                                        group_by=group_by,
                                        n_wells=n_wells,
@@ -664,7 +656,6 @@ def selected_strains_timeseries(metadata,
 
         # get timeseries for strain
         strain_ts = get_strain_timeseries(metadata[metadata[group_by]==strain], 
-                                          project_dir=project_dir, 
                                           strain=strain,
                                           group_by=group_by,
                                           n_wells=n_wells,

@@ -33,7 +33,7 @@ from tierpsytools.analysis.statistical_tests import _multitest_correct
 #%% Globals
 
 PROJECT_DIR = "/Volumes/hermes$/Saul/Keio_Screen/Data/Keio_Acute_Effect"
-SAVE_DIR = "/Users/sm5911/Documents/PhD_DLBG/5_Keio_Acute_Effect"
+SAVE_DIR = "/Users/sm5911/Documents/PhD_DLBG/Keio_Acute_Effect"
 
 FEATURE = 'speed_50th'
 
@@ -209,7 +209,7 @@ def stats(metadata,
 def main():
     
     aux_dir = Path(PROJECT_DIR) / 'AuxiliaryFiles'
-    results_dir =  Path(PROJECT_DIR) / 'Results'
+    results_dir = Path(PROJECT_DIR) / 'Results'
     
     metadata_path_local = Path(SAVE_DIR) / 'metadata.csv'
     features_path_local = Path(SAVE_DIR) / 'features.csv'
@@ -339,12 +339,13 @@ def main():
                                features,
                                group_by='gene_name',
                                control='BW',
-                               save_dir=Path(SAVE_DIR) / 'Stats',
+                               save_dir=None,
                                feature='speed_50th',
                                pvalue_threshold=0.05,
                                fdr_method='fdr_bh') 
     # NB: Benjamini-Hochberg correction used instead of Benjamini-Yekutieli 
-    #     only 2 strains (incl. BW control) / 1 feature - correction only needed for t-test across multiple windows   
+    #     only 2 strains (incl. BW control) / 1 feature 
+    #     - correction only needed for t-test across multiple windows   
     
     # scale y axis for annotations    
     trans = transforms.blended_transform_factory(ax.transData, ax.transAxes) #y=scaled

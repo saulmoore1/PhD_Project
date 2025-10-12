@@ -23,7 +23,6 @@ from tierpsytools.read_data.get_timeseries import read_timeseries
 #%% Functions
 
 def get_strain_timeseries(metadata, 
-                          project_dir, 
                           strain='BW', 
                           group_by='bacteria_strain',
                           feature_list=['motion_mode'],
