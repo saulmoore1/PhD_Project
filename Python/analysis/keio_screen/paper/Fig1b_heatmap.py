@@ -193,8 +193,13 @@ def heatmap(metadata, features):
                          label_size=(10,7))
     
     # save data for heatmap
+    
+    row_names = [r.get_text() for r in fg.ax_heatmap.yaxis.get_majorticklabels()]
+    row_names = pd.DataFrame(data=row_names, index=fg.data.index, 
+                             columns=['gene_name'], dtype=str)
+    heatmap_data = row_names.join(fg.data)
     save_path = Path(SAVE_DIR) / 'Fig1b_heatmap_data.csv'
-    fg.data.to_csv(save_path, header=True, index=False)
+    heatmap_data.to_csv(save_path, header=True, index=False)
     
     return
 
