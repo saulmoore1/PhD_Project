@@ -192,8 +192,7 @@ def heatmap(metadata, features):
                          sub_adj={'bottom':0.13,'left':0.01,'top':0.99,'right':0.97},
                          label_size=(10,7))
     
-    # save data for heatmap
-    
+    # save data for heatmap    
     row_names = [r.get_text() for r in fg.ax_heatmap.yaxis.get_majorticklabels()]
     row_names = pd.DataFrame(data=row_names, index=fg.data.index, 
                              columns=['gene_name'], dtype=str)
@@ -214,9 +213,10 @@ def main():
 
     assert not features.isna().sum(axis=1).any()
     assert not (features.std(axis=1) == 0).any()
-    
-    features = features.reindex(metadata.index)
-    
+    assert set(features.index) == set(metadata.index)    
+    assert (len(metadata['gene_name'].unique()) ==
+            len(metadata['gene_name'].str.upper().unique()))
+        
     # rename gene names in metadata
     for k, v in RENAME_DICT.items():
         metadata.loc[metadata['gene_name'] == k, 'gene_name'] = v
