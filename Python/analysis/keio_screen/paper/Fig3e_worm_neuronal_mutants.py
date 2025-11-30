@@ -7,6 +7,7 @@
 
 #%% Imports 
 
+import numpy as np
 import pandas as pd
 import seaborn as sns
 from pathlib import Path
@@ -17,7 +18,7 @@ from tierpsytools.analysis.statistical_tests import univariate_tests, get_effect
 
 #%% Globals 
 
-SAVE_DIR = '/Users/sm5911/Documents/PhD_DLBG/Fig3c worm antioxidant mutants'
+SAVE_DIR = '/Users/sm5911/Documents/PhD_DLBG/Fig3e worm neuronal mutants'
 
 OMIT_STRAINS_LIST = ["RID(RNAi)::unc-31", "PY7505", "MQ1333", "nuo-6", 
                      "clk-1", "gas-1"]
@@ -183,7 +184,7 @@ def stats(metadata,
         ttest_path.parent.mkdir(exist_ok=True, parents=True)
         ttest_results.to_csv(ttest_path, header=True, index=True)
     
-    return anova_results, ttest_results
+    return ttest_results
 
 
 def main():
@@ -205,9 +206,13 @@ def main():
     metadata = metadata[~metadata['worm_strain'].isin(OMIT_STRAINS_LIST)]
     print("%d samples dropped (omitted strains)" % (n_samples - metadata.shape[0]))
 
-    # map worm strain names + subset for mitochondrial worm mutants only
+    # map worm strain names
     metadata['worm_strain'] = metadata['worm_strain'].map(WORM_STRAIN_DICT)
-    metadata = metadata[metadata['worm_strain'].isin(WORM_GROUP_DICT['antioxidant'])]
+    
+    # subset for worm neuron ablation & neuropeptide/neurotransmitter mutants
+    neuron_mutants_list = WORM_GROUP_DICT['neuron_ablation'] +\
+                          WORM_GROUP_DICT['neuropeptides_&_neurotransmitters']
+    metadata = metadata[metadata['worm_strain'].isin(neuron_mutants_list)]
     
     # subset to remove paraquat treatment results
     metadata = metadata[metadata['drug_type']!='Paraquat']
@@ -223,32 +228,33 @@ def main():
     # save plot data to file
     plot_df = metadata[['worm_strain','bacteria_strain','treatment','date_yyyymmdd']
                        ].join(features).sort_values(by='treatment', ascending=True)
-    plot_df.to_csv(Path(SAVE_DIR) / 'Fig3c_data.csv', header=True, index=False)
+    plot_df.to_csv(Path(SAVE_DIR) / 'Fig3e_data.csv', header=True, index=False)
 
     # do stats - compare each mutant-treatment combination to N2-BW without paraquat
     control = 'N2-BW'
-    anova_results, ttest_results = stats(metadata,
-                                         features,
-                                         group_by='treatment',
-                                         control=control,
-                                         feat='speed_50th',
-                                         save_dir=Path(SAVE_DIR),
-                                         pvalue_threshold=0.05,
-                                         fdr_method='fdr_bh')
+    ttest_results = stats(metadata,
+                          features,
+                          group_by='treatment',
+                          control=control,
+                          feat='speed_50th',
+                          save_dir=Path(SAVE_DIR),
+                          pvalue_threshold=0.05,
+                          fdr_method='fdr_bh')
 
     # extract t-test pvals
     pvals = ttest_results[[c for c in ttest_results.columns if 'pval' in c]]
     pvals.columns = [c.replace('pvals_','') for c in pvals.columns]
         
     # boxplot (without paraquat)
-    order = [w for w in WORM_GROUP_DICT['antioxidant'] if w in 
+    order = [w for w in sorted(np.unique(neuron_mutants_list).tolist()) if w in 
              metadata['worm_strain'].unique()]
+    order = ['N2'] + [w for w in order if w != 'N2']
     colour_dict = dict(zip(['BW','fepD'], sns.color_palette(palette='tab10', 
                                                             n_colors=2)))
 
     plt.close('all')
     sns.set_style('ticks')
-    fig = plt.figure(figsize=FIGSIZE_DICT['antioxidant'])
+    fig = plt.figure(figsize=[21,10])
     ax = fig.add_subplot(1,1,1)
     sns.boxplot(x='worm_strain',
                 y='speed_50th',
@@ -316,10 +322,10 @@ def main():
 
     handles, labels = ax.get_legend_handles_labels()
     ax.legend(handles[:2], labels[:2], loc='best', frameon=False, fontsize=15)
-    boxplot_path = Path(SAVE_DIR) / 'Fig3c_worm_antioxidant_mutants.svg'
+    boxplot_path = Path(SAVE_DIR) / 'Fig3e_neuronal_mutants.svg'
     boxplot_path.parent.mkdir(exist_ok=True, parents=True)
     plt.savefig(boxplot_path, bbox_inches='tight', transparent=True)
-            
+    
     return
 
 #%% Main

@@ -17,7 +17,7 @@ from tierpsytools.analysis.statistical_tests import univariate_tests, get_effect
 
 #%% Globals 
 
-SAVE_DIR = '/Users/sm5911/Documents/PhD_DLBG/Fig3c worm antioxidant mutants'
+SAVE_DIR = '/Users/sm5911/Documents/PhD_DLBG/FigS3g worm neuropeptide & neurotransmitter mutants paraquat'
 
 OMIT_STRAINS_LIST = ["RID(RNAi)::unc-31", "PY7505", "MQ1333", "nuo-6", 
                      "clk-1", "gas-1"]
@@ -65,17 +65,17 @@ WORM_STRAIN_DICT = {"N2":"N2",
                     'TM1420':"sdha-2(tm1420)"}
 
 WORM_GROUP_DICT = {'neuron_ablation':["N2",
-                                      "ASJ-ablated",
                                       "AIY-ablated",
+                                      "ASJ-ablated",
                                       "RID(RNAi)[OMG94]"],
                    'neuropeptides_&_neurotransmitters':["N2",
-                                                        "pdfr-1(ok3425)",
+                                                        "eat-4(n2474)",
                                                         "flp-1(sy1599)",
-                                                        "flp-2(ok3351)",
                                                         "flp-2(gk1039)+W07E11.1",
+                                                        "flp-2(ok3351)",
+                                                        "frpr-18(ok2698)",
                                                         "frpr-3(ok3302)",
-                                                        "frpr-18(ok2698)", 
-                                                        "eat-4(n2474)"],
+                                                        "pdfr-1(ok3425)"],
                    'antioxidant':["N2",
                                   "clk-1(qm30)",
                                   "gas-1(fc21)",
@@ -126,37 +126,6 @@ def stats(metadata,
     sample_size = metadata.groupby(group_by).count()
     print("Mean sample size per %s: %d" % (group_by, int(sample_size.max(axis=1).mean())))
 
-    n = len(metadata[group_by].unique())
-    if n > 2:
-   
-        # Perform ANOVA - is there variation among strains?
-        stats, pvals, reject = univariate_tests(X=features, 
-                                                y=metadata[group_by], 
-                                                control=control, 
-                                                test='ANOVA',
-                                                comparison_type='multiclass',
-                                                multitest_correction=fdr_method,
-                                                alpha=pvalue_threshold,
-                                                n_permutation_test=None)
-
-        # get effect sizes
-        effect_sizes = get_effect_sizes(X=features,
-                                        y=metadata[group_by],
-                                        control=control,
-                                        effect_type=None,
-                                        linked_test='ANOVA')
-
-        # compile ANOVA results
-        anova_results = pd.concat([stats, effect_sizes, pvals, reject], axis=1)
-        anova_results.columns = ['stats','effect_size','pvals','reject']     
-        anova_results['significance'] = sig_asterix(anova_results['pvals'])
-        anova_results = anova_results.sort_values(by=['pvals'], ascending=True)
-
-        if save_dir is not None:
-            anova_path = Path(save_dir) / 'ANOVA_results.csv'
-            anova_path.parent.mkdir(parents=True, exist_ok=True)
-            anova_results.to_csv(anova_path, header=True, index=True)
-
     # Perform t-tests
     stats_t, pvals_t, reject_t = univariate_tests(X=features,
                                                   y=metadata[group_by],
@@ -183,7 +152,7 @@ def stats(metadata,
         ttest_path.parent.mkdir(exist_ok=True, parents=True)
         ttest_results.to_csv(ttest_path, header=True, index=True)
     
-    return anova_results, ttest_results
+    return ttest_results
 
 
 def main():
@@ -205,12 +174,13 @@ def main():
     metadata = metadata[~metadata['worm_strain'].isin(OMIT_STRAINS_LIST)]
     print("%d samples dropped (omitted strains)" % (n_samples - metadata.shape[0]))
 
-    # map worm strain names + subset for mitochondrial worm mutants only
+    # map worm strain names + subset for neuron ablation worm mutants only
     metadata['worm_strain'] = metadata['worm_strain'].map(WORM_STRAIN_DICT)
-    metadata = metadata[metadata['worm_strain'].isin(WORM_GROUP_DICT['antioxidant'])]
+    metadata = metadata[metadata['worm_strain'].isin(
+        WORM_GROUP_DICT['neuropeptides_&_neurotransmitters'])]
     
-    # subset to remove paraquat treatment results
-    metadata = metadata[metadata['drug_type']!='Paraquat']
+    # subset to select paraquat treatment results only
+    metadata = metadata[metadata['drug_type']=='Paraquat']
 
     # reset index for features
     features = features[['speed_50th']].reindex(metadata.index)
@@ -223,32 +193,32 @@ def main():
     # save plot data to file
     plot_df = metadata[['worm_strain','bacteria_strain','treatment','date_yyyymmdd']
                        ].join(features).sort_values(by='treatment', ascending=True)
-    plot_df.to_csv(Path(SAVE_DIR) / 'Fig3c_data.csv', header=True, index=False)
+    plot_df.to_csv(Path(SAVE_DIR) / 'FigS3g_data.csv', header=True, index=False)
 
-    # do stats - compare each mutant-treatment combination to N2-BW without paraquat
-    control = 'N2-BW'
-    anova_results, ttest_results = stats(metadata,
-                                         features,
-                                         group_by='treatment',
-                                         control=control,
-                                         feat='speed_50th',
-                                         save_dir=Path(SAVE_DIR),
-                                         pvalue_threshold=0.05,
-                                         fdr_method='fdr_bh')
+    # do stats - compare each mutant-treatment combination to N2-BW with paraquat
+    control = 'N2-BW-Paraquat'
+    ttest_results = stats(metadata,
+                          features,
+                          group_by='treatment',
+                          control=control,
+                          feat='speed_50th',
+                          save_dir=Path(SAVE_DIR),
+                          pvalue_threshold=0.05,
+                          fdr_method='fdr_bh')
 
     # extract t-test pvals
     pvals = ttest_results[[c for c in ttest_results.columns if 'pval' in c]]
     pvals.columns = [c.replace('pvals_','') for c in pvals.columns]
         
-    # boxplot (without paraquat)
-    order = [w for w in WORM_GROUP_DICT['antioxidant'] if w in 
-             metadata['worm_strain'].unique()]
+    # boxplot (with paraquat)
+    order = [w for w in WORM_GROUP_DICT['neuropeptides_&_neurotransmitters'] if 
+             w in metadata['worm_strain'].unique()]
     colour_dict = dict(zip(['BW','fepD'], sns.color_palette(palette='tab10', 
                                                             n_colors=2)))
 
     plt.close('all')
     sns.set_style('ticks')
-    fig = plt.figure(figsize=FIGSIZE_DICT['antioxidant'])
+    fig = plt.figure(figsize=FIGSIZE_DICT['neuropeptides_&_neurotransmitters'])
     ax = fig.add_subplot(1,1,1)
     sns.boxplot(x='worm_strain',
                 y='speed_50th',
@@ -300,13 +270,13 @@ def main():
     for i, text in enumerate(ax.axes.get_xticklabels()):
         worm = text.get_text()
         if worm == 'N2':
-            p = pvals.loc['speed_50th','N2-fepD']
+            p = pvals.loc['speed_50th','N2-fepD-Paraquat']
             p_text = sig_asterix([p])[0]
             ax.text(i+0.2, 1.03, p_text, fontsize=20, ha='center', va='center', 
                     transform=trans)
         else:
-            p1 = pvals.loc['speed_50th',worm+'-BW']
-            p2 = pvals.loc['speed_50th',worm+'-fepD']
+            p1 = pvals.loc['speed_50th',worm+'-BW-Paraquat']
+            p2 = pvals.loc['speed_50th',worm+'-fepD-Paraquat']
             p1_text = sig_asterix([p1])[0]
             p2_text = sig_asterix([p2])[0]
             ax.text(i-0.2, 1.03, p1_text, fontsize=20, ha='center', va='center', 
@@ -316,10 +286,11 @@ def main():
 
     handles, labels = ax.get_legend_handles_labels()
     ax.legend(handles[:2], labels[:2], loc='best', frameon=False, fontsize=15)
-    boxplot_path = Path(SAVE_DIR) / 'Fig3c_worm_antioxidant_mutants.svg'
+    boxplot_path = Path(SAVE_DIR) /\
+        'FigS3g_worm_neuropeptide_&_neurotransmitter_mutants_paraquat.svg'
     boxplot_path.parent.mkdir(exist_ok=True, parents=True)
     plt.savefig(boxplot_path, bbox_inches='tight', transparent=True)
-            
+    
     return
 
 #%% Main

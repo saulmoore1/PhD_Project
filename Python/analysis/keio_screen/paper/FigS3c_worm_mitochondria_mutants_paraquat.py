@@ -17,7 +17,7 @@ from tierpsytools.analysis.statistical_tests import univariate_tests, get_effect
 
 #%% Globals 
 
-SAVE_DIR = '/Users/sm5911/Documents/PhD_DLBG/Fig3c worm antioxidant mutants'
+SAVE_DIR = '/Users/sm5911/Documents/PhD_DLBG/FigS3c worm mitochondria mutants paraquat'
 
 OMIT_STRAINS_LIST = ["RID(RNAi)::unc-31", "PY7505", "MQ1333", "nuo-6", 
                      "clk-1", "gas-1"]
@@ -183,7 +183,7 @@ def stats(metadata,
         ttest_path.parent.mkdir(exist_ok=True, parents=True)
         ttest_results.to_csv(ttest_path, header=True, index=True)
     
-    return anova_results, ttest_results
+    return ttest_results
 
 
 def main():
@@ -207,10 +207,10 @@ def main():
 
     # map worm strain names + subset for mitochondrial worm mutants only
     metadata['worm_strain'] = metadata['worm_strain'].map(WORM_STRAIN_DICT)
-    metadata = metadata[metadata['worm_strain'].isin(WORM_GROUP_DICT['antioxidant'])]
+    metadata = metadata[metadata['worm_strain'].isin(WORM_GROUP_DICT['mitochondria'])]
     
-    # subset to remove paraquat treatment results
-    metadata = metadata[metadata['drug_type']!='Paraquat']
+    # subset remove paraquat treatment results
+    metadata = metadata[metadata['drug_type']=='Paraquat']
 
     # reset index for features
     features = features[['speed_50th']].reindex(metadata.index)
@@ -223,32 +223,32 @@ def main():
     # save plot data to file
     plot_df = metadata[['worm_strain','bacteria_strain','treatment','date_yyyymmdd']
                        ].join(features).sort_values(by='treatment', ascending=True)
-    plot_df.to_csv(Path(SAVE_DIR) / 'Fig3c_data.csv', header=True, index=False)
+    plot_df.to_csv(Path(SAVE_DIR) / 'FigS3c_data.csv', header=True, index=False)
 
-    # do stats - compare each mutant-treatment combination to N2-BW without paraquat
-    control = 'N2-BW'
-    anova_results, ttest_results = stats(metadata,
-                                         features,
-                                         group_by='treatment',
-                                         control=control,
-                                         feat='speed_50th',
-                                         save_dir=Path(SAVE_DIR),
-                                         pvalue_threshold=0.05,
-                                         fdr_method='fdr_bh')
+    # do stats - compare each mutant-treatment combination to N2-BW with paraquat
+    control = 'N2-BW-Paraquat'
+    ttest_results = stats(metadata,
+                          features,
+                          group_by='treatment',
+                          control=control,
+                          feat='speed_50th',
+                          save_dir=Path(SAVE_DIR),
+                          pvalue_threshold=0.05,
+                          fdr_method='fdr_bh')
 
     # extract t-test pvals
     pvals = ttest_results[[c for c in ttest_results.columns if 'pval' in c]]
     pvals.columns = [c.replace('pvals_','') for c in pvals.columns]
         
-    # boxplot (without paraquat)
-    order = [w for w in WORM_GROUP_DICT['antioxidant'] if w in 
+    # boxplot (with paraquat)
+    order = [w for w in WORM_GROUP_DICT['mitochondria'] if w in 
              metadata['worm_strain'].unique()]
     colour_dict = dict(zip(['BW','fepD'], sns.color_palette(palette='tab10', 
                                                             n_colors=2)))
 
     plt.close('all')
     sns.set_style('ticks')
-    fig = plt.figure(figsize=FIGSIZE_DICT['antioxidant'])
+    fig = plt.figure(figsize=FIGSIZE_DICT['mitochondria'])
     ax = fig.add_subplot(1,1,1)
     sns.boxplot(x='worm_strain',
                 y='speed_50th',
@@ -300,13 +300,13 @@ def main():
     for i, text in enumerate(ax.axes.get_xticklabels()):
         worm = text.get_text()
         if worm == 'N2':
-            p = pvals.loc['speed_50th','N2-fepD']
+            p = pvals.loc['speed_50th','N2-fepD-Paraquat']
             p_text = sig_asterix([p])[0]
             ax.text(i+0.2, 1.03, p_text, fontsize=20, ha='center', va='center', 
                     transform=trans)
         else:
-            p1 = pvals.loc['speed_50th',worm+'-BW']
-            p2 = pvals.loc['speed_50th',worm+'-fepD']
+            p1 = pvals.loc['speed_50th',worm+'-BW-Paraquat']
+            p2 = pvals.loc['speed_50th',worm+'-fepD-Paraquat']
             p1_text = sig_asterix([p1])[0]
             p2_text = sig_asterix([p2])[0]
             ax.text(i-0.2, 1.03, p1_text, fontsize=20, ha='center', va='center', 
@@ -316,10 +316,10 @@ def main():
 
     handles, labels = ax.get_legend_handles_labels()
     ax.legend(handles[:2], labels[:2], loc='best', frameon=False, fontsize=15)
-    boxplot_path = Path(SAVE_DIR) / 'Fig3c_worm_antioxidant_mutants.svg'
+    boxplot_path = Path(SAVE_DIR) / 'FigS3c_worm_mitochondria_mutants_paraquat.svg'
     boxplot_path.parent.mkdir(exist_ok=True, parents=True)
     plt.savefig(boxplot_path, bbox_inches='tight', transparent=True)
-            
+    
     return
 
 #%% Main

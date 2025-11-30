@@ -199,10 +199,7 @@ def main():
     # subset metadata results for bluelight videos only 
     bluelight_videos = [i for i in metadata['imgstore_name'] if 'bluelight' in i]
     metadata = metadata[metadata['imgstore_name'].isin(bluelight_videos)]
-    
-    # subset for final blue light window
-    metadata = metadata[metadata['window']==5]
-    
+        
     # omit strains from OMIT_STRAINS_LIST and rows with missing 'worm_strain' data
     n_samples =  metadata.shape[0]
     metadata = metadata[~metadata['worm_strain'].isin(OMIT_STRAINS_LIST)]
@@ -228,7 +225,7 @@ def main():
                        ].join(features).sort_values(by='treatment', ascending=True)
     plot_df.to_csv(Path(SAVE_DIR) / 'FigS3e_data.csv', header=True, index=False)
 
-    # do stats - compare each mutant-treatment combination to N2-BW without paraquat
+    # do stats - compare each mutant-treatment combination to N2-BW with paraquat
     control = 'N2-BW-Paraquat'
     anova_results, ttest_results = stats(metadata,
                                          features,
@@ -243,7 +240,7 @@ def main():
     pvals = ttest_results[[c for c in ttest_results.columns if 'pval' in c]]
     pvals.columns = [c.replace('pvals_','') for c in pvals.columns]
         
-    # boxplot (without paraquat)
+    # boxplot (with paraquat)
     order = [w for w in WORM_GROUP_DICT['antioxidant'] if w in 
              metadata['worm_strain'].unique()]
     colour_dict = dict(zip(['BW','fepD'], sns.color_palette(palette='tab10', 
@@ -319,10 +316,10 @@ def main():
 
     handles, labels = ax.get_legend_handles_labels()
     ax.legend(handles[:2], labels[:2], loc='best', frameon=False, fontsize=15)
-    boxplot_path = Path(SAVE_DIR) / 'FigS3e_worm_antioxidant_mutants.svg'
+    boxplot_path = Path(SAVE_DIR) / 'FigS3e_worm_antioxidant_mutants_paraquat.svg'
     boxplot_path.parent.mkdir(exist_ok=True, parents=True)
     plt.savefig(boxplot_path, bbox_inches='tight', transparent=True)
-            
+    
     return
 
 #%% Main
