@@ -193,8 +193,9 @@ def heatmap(metadata, features):
                            metric='euclidean',
                            figsize=[20, 35],
                            saveto=full_clustermap_path,
-                           sub_adj={'bottom':0.13,'left':0.01,'top':0.99,'right':0.97},
-                           label_size=(10,7))
+                           sub_adj={'bottom':0.01,'left':0.01,'top':0.99,'right':0.97},
+                           label_size=(10,7),
+                           show_xlabels=False)
     
     # save data for heatmap    
     save_path = Path(SAVE_DIR) / 'FigS1a_heatmap_data.csv'
