@@ -8,7 +8,7 @@ Hierarchical Clustering and Heatmaps
 
 """
 
-#%% Imports
+#%% Globals
 
 # Custom style for plotting
 CUSTOM_STYLE = 'visualisation/style_sheet_20210126.mplstyle'
@@ -35,19 +35,17 @@ def plot_clustermap(featZ,
         Inputs
         ------
         featZ - pd.DatFrame, dataframe of normalised feature results
-    """                
-    
+    """          
+
     import seaborn as sns
-    from matplotlib import pyplot as plt
     from matplotlib import patches
+    from matplotlib import pyplot as plt
     
     assert (featZ.index == meta.index).all()
     
     if type(group_by) != list:
         group_by = [group_by]
     n = len(group_by)
-    # if not (n == 1 or n == 2):
-    #     raise IOError("Must provide either 1 or 2 'group_by' parameters")        
         
     # Store feature names
     fset = featZ.columns
@@ -73,7 +71,7 @@ def plot_clustermap(featZ,
         if n == 2:
             date_list = list(featZ_grouped[group_by[1]].unique())
             date_colour_dict = dict(zip(date_list, sns.color_palette("Blues", len(date_list))))
-            #date_colour_dict=dict(zip(set(date_list),sns.hls_palette(len(set(date_list)),l=0.5,s=0.8)))
+            #date_colour_dict=dict(zip(set(date_list), sns.hls_palette(len(set(date_list)),l=0.5,s=0.8)))
             row_cols_date = featZ_grouped[group_by[1]].map(date_colour_dict)
             row_cols_date.name = None
             row_colours.append(row_cols_date)  
@@ -141,21 +139,6 @@ def plot_clustermap(featZ,
                         left=sub_adj['left'], right=sub_adj['right'], 
                         hspace=0.01, wspace=0.01)
     #plt.tight_layout(rect=[0, 0, 1, 1], w_pad=0.5)
-        
-    # Add custom colorbar to right hand side
-    # from mpl_toolkits.axes_grid1.axes_divider import make_axes_locatable
-    # from mpl_toolkits.axes_grid1.colorbar import colorbar
-    # # split axes of heatmap to put colorbar
-    # ax_divider = make_axes_locatable(cg.ax_heatmap)
-    # # define size and padding of axes for colorbar
-    # cax = ax_divider.append_axes('right', size = '5%', pad = '2%')
-    # # Heatmap returns an axes obj but you need to get a mappable obj (get_children)
-    # colorbar(cg.ax_heatmap.get_children()[0], 
-    #          cax = cax, 
-    #          orientation = 'vertical', 
-    #          ticks=[-2, -1, 0, 1, 2])
-    # # locate colorbar ticks
-    # cax.yaxis.set_ticks_position('right')
     
     # Save clustermap
     if saveto:
@@ -163,8 +146,12 @@ def plot_clustermap(featZ,
         plt.savefig(saveto, dpi=300)
     else:
         plt.show()
+        
+    data = featZ_grouped.iloc[featZ_grouped.index[cg.dendrogram_row.reordered_ind]
+                              ].set_index('gene_name')
+    data = data[data.columns[cg.dendrogram_col.reordered_ind]]
     
-    return cg
+    return data
 
 def plot_barcode_heatmap(featZ, 
                          meta, 
@@ -207,14 +194,14 @@ def plot_barcode_heatmap(featZ,
     
     if pvalues_series is not None:
         assert all(f in fset for f in pvalues_series.index)
-        
-        heatmap_df = heatmap_df.append(-np.log10(pvalues_series[fset].astype(float)))
+        pvalues_series = -np.log10(pvalues_series[fset].astype(float))
+        heatmap_df = pd.concat([heatmap_df, pd.DataFrame(pvalues_series).T])
     
     # Map colors for stimulus type
     _stim = pd.DataFrame(data=[f.split('_')[-1] for f in fset], columns=['Stimulus'])
     _stim['Stimulus'] = _stim['Stimulus'].map({'prestim':1,'bluelight':2,'poststim':3})
     _stim = _stim.transpose().rename(columns={c:v for c,v in enumerate(fset)})
-    heatmap_df = heatmap_df.append(_stim)
+    heatmap_df = pd.concat([heatmap_df, _stim])
     
     # Add barcode - asterisk (*) to highlight selected features
     cm=list(np.repeat('inferno',len(var_list)))

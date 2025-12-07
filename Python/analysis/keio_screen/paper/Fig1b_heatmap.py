@@ -17,7 +17,7 @@ from tierpsytools.preprocessing.filter_data import select_feat_set
 
 #%% Globals
 
-SAVE_DIR = "/Users/sm5911/Documents/PhD_DLBG/Fig1b"
+SAVE_DIR = "/Users/sm5911/Documents/PhD_DLBG/Fig1b heatmap"
 
 RENAME_DICT = {"FECE" : "fecE",
                "BW" : "wild_type"}
@@ -168,8 +168,12 @@ def plot_clustermap(featZ,
         plt.savefig(saveto, dpi=300)
     else:
         plt.show()
-    
-    return cg
+        
+    data = featZ_grouped.iloc[featZ_grouped.index[cg.dendrogram_row.reordered_ind]
+                              ].set_index('gene_name')
+    data = data[data.columns[cg.dendrogram_col.reordered_ind]]
+   
+    return data
 
 def heatmap(metadata, features):
     
@@ -180,25 +184,21 @@ def heatmap(metadata, features):
     
     # Clustermap of full data       
     full_clustermap_path = Path(SAVE_DIR) / 'Fig1b_heatmap.pdf'
-    fg = plot_clustermap(featZ=featZ_df, 
-                         meta=metadata[['gene_name']], 
-                         group_by='gene_name',
-                         col_linkage=None,
-                         row_colours=False,
-                         method='complete',
-                         metric='euclidean',
-                         figsize=[20, 35],
-                         saveto=full_clustermap_path,
-                         sub_adj={'bottom':0.13,'left':0.01,'top':0.99,'right':0.97},
-                         label_size=(10,7))
+    data = plot_clustermap(featZ=featZ_df, 
+                           meta=metadata[['gene_name']], 
+                           group_by='gene_name',
+                           col_linkage=None,
+                           row_colours=False,
+                           method='complete',
+                           metric='euclidean',
+                           figsize=[20, 35],
+                           saveto=full_clustermap_path,
+                           sub_adj={'bottom':0.13,'left':0.01,'top':0.99,'right':0.97},
+                           label_size=(10,7))
     
-    # save data for heatmap    
-    row_names = [r.get_text() for r in fg.ax_heatmap.yaxis.get_majorticklabels()]
-    row_names = pd.DataFrame(data=row_names, index=fg.data.index, 
-                             columns=['gene_name'], dtype=str)
-    heatmap_data = row_names.join(fg.data)
+    # save data for heatmap
     save_path = Path(SAVE_DIR) / 'Fig1b_heatmap_data.csv'
-    heatmap_data.to_csv(save_path, header=True, index=False)
+    data.to_csv(save_path, header=True, index=True)
     
     return
 
@@ -213,10 +213,9 @@ def main():
 
     assert not features.isna().sum(axis=1).any()
     assert not (features.std(axis=1) == 0).any()
-    assert set(features.index) == set(metadata.index)    
-    assert (len(metadata['gene_name'].unique()) ==
-            len(metadata['gene_name'].str.upper().unique()))
-        
+    
+    features = features.reindex(metadata.index)
+    
     # rename gene names in metadata
     for k, v in RENAME_DICT.items():
         metadata.loc[metadata['gene_name'] == k, 'gene_name'] = v
