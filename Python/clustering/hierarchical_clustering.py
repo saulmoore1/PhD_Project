@@ -148,7 +148,7 @@ def plot_clustermap(featZ,
         plt.show()
         
     data = featZ_grouped.iloc[featZ_grouped.index[cg.dendrogram_row.reordered_ind]
-                              ].set_index('gene_name')
+                              ].set_index(group_by)
     data = data[data.columns[cg.dendrogram_col.reordered_ind]]
     
     return data

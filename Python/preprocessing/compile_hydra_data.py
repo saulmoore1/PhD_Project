@@ -148,9 +148,6 @@ def compile_metadata(aux_dir,
             Compiled project metadata
     """
     
-    from tierpsytools.hydra.hydra_helper import add_imgstore_name
-    from tierpsytools.hydra.match_wells_annotations import update_metadata_with_wells_annotations
-
     metadata_path = Path(aux_dir) / 'metadata.csv'
     metadata_annotated_path = Path(aux_dir) / 'metadata_annotated.csv'
            
@@ -162,6 +159,8 @@ def compile_metadata(aux_dir,
             metadata = metadata[metadata['date_yyyymmdd'].astype(str).isin(imaging_dates)]
             
     else:
+        from tierpsytools.hydra.hydra_helper import add_imgstore_name
+
         print("Metadata not found.\nCompiling from day metadata in: %s" % aux_dir)
         
         dates_list = [p.name for p in Path(aux_dir).glob('*')]
@@ -229,6 +228,8 @@ def compile_metadata(aux_dir,
     if add_well_annotations and n_wells == 96:        
         
         if not metadata_annotated_path.exists():
+            from tierpsytools.hydra.match_wells_annotations import update_metadata_with_wells_annotations
+
             print("Adding annotations to metadata")
             metadata = update_metadata_with_wells_annotations(aux_dir=aux_dir, 
                                                               saveto=metadata_annotated_path, 
@@ -299,9 +300,7 @@ def process_feature_summaries(metadata_path,
         
     """    
 
-    from tierpsytools.read_data.compile_features_summaries import compile_tierpsy_summaries
-    from tierpsytools.read_data.hydra_metadata import read_hydra_metadata, align_bluelight_conditions
-    from preprocessing.compile_window_summaries import find_window_summaries, compile_window_summaries
+    from tierpsytools.read_data.hydra_metadata import read_hydra_metadata
     
     compiled_feats_path = Path(results_dir) / ("full_features.csv" if not window_summaries else
                                                "full_window_features.csv")
@@ -313,6 +312,8 @@ def process_feature_summaries(metadata_path,
     else:
         print("Compiling feature summary results")   
         if window_summaries:
+            from preprocessing.compile_window_summaries import find_window_summaries, compile_window_summaries
+
             print("\nFinding window summaries files..")
             fname_files, feat_files = find_window_summaries(results_dir=results_dir, 
                                                             dates=imaging_dates)
@@ -327,6 +328,8 @@ def process_feature_summaries(metadata_path,
                                                                              window_list=None,
                                                                              n_wells=n_wells)
         else:
+            from tierpsytools.read_data.compile_features_summaries import compile_tierpsy_summaries
+
             # recursive search to find features summary files within day folders
             if compile_day_summaries:
                 if imaging_dates is not None:
@@ -399,6 +402,8 @@ def process_feature_summaries(metadata_path,
         features = features.drop('window', axis=1)
         
     elif align_bluelight:
+        from tierpsytools.read_data.hydra_metadata import align_bluelight_conditions
+
         features, metadata = align_bluelight_conditions(feat=features, 
                                                         meta=metadata, 
                                                         how='outer',

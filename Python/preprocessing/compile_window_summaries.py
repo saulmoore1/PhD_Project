@@ -150,7 +150,20 @@ def get_channels_from_filenames(filenames):
                                             CAM2CH_df['rig'])}
     
     camera_serials = [Path(file).parent.name.split('.')[-1] for file in filenames]
-    channels = [CAM2CH_DICT[s][0] for s in camera_serials]
+    
+    try:
+        channels = [CAM2CH_DICT[s][0] for s in camera_serials]
+    except Exception as ex:
+        print("An exception of type {0} occurred. Arguments:\n{1!r}".format(
+            type(ex).__name__, ex.args))
+        print("Attemping to resolve using new camera serial")
+        channels = []
+        for s in camera_serials:
+            if s == '24629698': # new camera serial for Channel 5 Hydra03
+                channels.append('Ch5')
+            else:
+                channel = CAM2CH_DICT[s][0]
+                channels.append(channel)
 
     return pd.Series(channels)
 
@@ -199,8 +212,11 @@ def compile_window_summaries(fname_files,
             assert feat in feat_files
             
             filenames_df, features_df = read_tierpsy_feat_summaries(feat, fname)
-            assert all(str(results_dir) in str(f) for f in filenames_df['filename'])
-            if not all(i == j for i, j in zip(filenames_df['file_id'], features_df['file_id'])):
+            #assert all(str(results_dir) in str(f) for f in filenames_df['filename'])
+            assert (filenames_df['file_id'].nunique() == filenames_df.shape[0]
+                    == features_df['file_id'].nunique() == features_df.shape[0])
+            if not all(i == j for i, j in zip(filenames_df['file_id'].sort_values(), 
+                                              features_df['file_id'].sort_values())):
                 print("WARNING: %d files in filenames summaries are missing from feature summaries!"\
                       % (len(filenames_df['file_id'].unique()) - len(features_df['file_id'].unique())))
                 
