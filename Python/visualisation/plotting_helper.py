@@ -330,14 +330,15 @@ def errorbar_sigfeats(features, metadata, group_by, fset, control=None, rank_by=
                     **kwargs)
         
         idxs = np.where(df_ordered['colour']!='grey')[0]
-        values = df_ordered.loc[idxs,feat].values
+        values = df_ordered.loc[idxs, feat].values
         errors = df_ordered.loc[idxs,'error'].values
         colours = df_ordered.loc[idxs,'colour'].values
             
         for pos, y, err, colour in zip(idxs, values, errors, colours):
             ax.errorbar(pos, y, err, color=colour)
+            #ax.get_xticklabels()[pos].set_color(df_ordered.loc[pos, 'colour'])
                 
-        _ = plt.xticks(rotation=90, ha='center', fontsize=fontsize, color=df_ordered['colour'])
+        _ = plt.xticks(rotation=90, ha='center', fontsize=fontsize)
         _ = [t.set_color(i) for (i,t) in zip(df_ordered['colour'], ax.xaxis.get_ticklabels())]
         #ax.tick_params(axis="x", color=colour)
                 
@@ -360,9 +361,13 @@ def errorbar_sigfeats(features, metadata, group_by, fset, control=None, rank_by=
             plt.tight_layout(rect=tight_layout)
              
         if saveDir is not None:
-            Path(saveDir).mkdir(exist_ok=True, parents=True)
+            #Path(saveDir).mkdir(exist_ok=True, parents=True)
             plt.savefig(Path(saveDir) / (saveName if saveName is not None else 
                                          (str(f + 1) + '_' + feat + '_errorbar.pdf')))
+            # save plot data to file
+            df_ordered.to_csv(Path(saveDir) / (saveName if saveName is not None else 
+                                               (str(f + 1) + '_' + feat + '_errorbar_data.csv')),
+                              header=True, index=False)
         
     return
     

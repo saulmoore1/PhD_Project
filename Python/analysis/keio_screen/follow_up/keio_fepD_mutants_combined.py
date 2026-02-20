@@ -34,7 +34,7 @@ PROJECT_DIR_LIST = ['/Volumes/hermes$/Saul/Keio_Screen/Data/Keio_Proteomics_Muta
                     '/Volumes/hermes$/Saul/Keio_Screen/Data/Keio_FepD_Ent_Mutants',
                     '/Volumes/hermes$/Saul/Keio_Screen/Data/Keio_FepD_Ent_Mutants_2']
 
-SAVE_DIR = '/Users/sm5911/Documents/PhD_DLBG/33_Keio_FepD_Mutants_Combined'
+SAVE_DIR = '/Users/sm5911/Documents/PhD_DLBG/Keio_FepD_Mutants_Combined'
 
 N_WELLS = 6
 NAN_THRESHOLD_ROW = 0.8
@@ -223,11 +223,11 @@ def main():
     assert not (features.std(axis=1) == 0).any()    
     assert not metadata['bacteria_strain'].isna().any()
     
-    # omit deferoxamine supplementation from metadata (failed) - "keio_fepD_oxidative_stress_mutants"
+    #omit deferoxamine supplementation from metadata (failed) - "keio_fepD_oxidative_stress_mutants"
     n_samples =  metadata.shape[0]
     metadata = metadata[~metadata['drug_type'].isin(OMIT_DRUGS_LIST)]
 
-     # rename 'control_BW' to 'BW' in bacteria_strain column - "keio_fepD_ent_mutants"
+    # rename 'control_BW' to 'BW' in bacteria_strain column - "keio_fepD_ent_mutants"
     metadata['bacteria_strain'] = ['BW' if i == 'control_BW' else i for i in 
                                    metadata['bacteria_strain'].copy()]           
     metadata['treatment'] = metadata[['bacteria_strain','drug_type','drug_solvent']
@@ -236,7 +236,7 @@ def main():
         'iptg','IPTG') for i in metadata['treatment']]
     
     metadata = metadata[~metadata['treatment'].isin(OMIT_STRAINS_LIST)]
-    print("%d samples dropped (omitted strains)" % (n_samples - metadata.shape[0]))
+    print("%d samples dropped" % (n_samples - metadata.shape[0]))
     
     # reindex features after subsetting metadata
     features = features.reindex(metadata.index)
@@ -284,8 +284,11 @@ def main():
         pvals = ttest_results[[c for c in ttest_results.columns if 'pval' in c]]
         pvals.columns = [c.replace('pvals_','') for c in pvals.columns]
 
-        # boxplot
-        plot_df = meta.join(feat)        
+        # save data for plot
+        plot_df = meta[['treatment','date_yyyymmdd']].join(feat[['speed_50th']])   
+        plot_df.to_csv(plots_dir / 'figure_data.csv', header=True, index=False)
+        
+        # boxplot        
         lut = dict(zip(['BW','fepD'], sns.color_palette(palette='tab10', n_colors=2)))
         colour_dict = {i:(lut['fepD'] if 'fepD' in i else lut['BW']) for i in group_strains}        
 
@@ -298,6 +301,8 @@ def main():
                     data=plot_df, 
                     order=group_strains,
                     palette=colour_dict,
+                    hue='treatment',
+                    hue_order=group_strains,
                     showfliers=False, 
                     showmeans=False,
                     meanprops={"marker":"x", 
@@ -315,6 +320,8 @@ def main():
                           data=date_df,
                           order=group_strains,
                           palette=[date_lut[date]] * len(group_strains),
+                          hue='treatment',
+                          hue_order=group_strains,
                           color='dimgray',
                           marker=".",
                           edgecolor='k',
@@ -348,179 +355,9 @@ def main():
         plt.savefig(boxplot_path, bbox_inches='tight', transparent=True)
 
     return  
-# =============================================================================
-#     # BW deletion/OE mutants
-#     meta_bs = metadata[metadata['treatment'].isin(strain_list_BW)]
-#     feat_bs = features.reindex(meta_bs.index)
-#     
-#     # boxplot
-#     plot_df = meta_bs.join(feat_bs[[FEATURE]])
-#     colour_dict = dict(zip(strain_list_BW, sns.color_palette(palette='tab10',
-#                                                              n_colors=len(strain_list_BW))))
-# 
-#     for control in tqdm(cs):
-#         plt.close('all')
-#         sns.set_style('ticks')
-#         fig = plt.figure(figsize=[18,20])
-#         ax = fig.add_subplot(1,1,1)
-#         sns.boxplot(x='speed_50th',
-#                     y='treatment',
-#                     data=plot_df, 
-#                     order=strain_list_BW,
-#                     palette=colour_dict,
-#                     showfliers=False, 
-#                     showmeans=False,
-#                     meanprops={"marker":"x", 
-#                                "markersize":5,
-#                                "markeredgecolor":"k"},
-#                     flierprops={"marker":"x", 
-#                                 "markersize":15, 
-#                                 "markeredgecolor":"r"})
-#         dates = metadata['date_yyyymmdd'].unique()
-#         date_cols = dict(zip(dates, sns.color_palette(palette='Set1', n_colors=len(dates))))
-#         for date in dates:
-#             date_df = plot_df[plot_df['date_yyyymmdd'] == date]
-#             sns.stripplot(x='speed_50th',
-#                           y='treatment',
-#                           data=date_df,
-#                           s=10,
-#                           order=strain_list_BW,
-#                           hue=None,
-#                           palette=None,
-#                           color=date_cols[date],
-#                           marker=".",
-#                           edgecolor='k',
-#                           linewidth=0.3,
-#                           ax=ax)
-#         
-#         ax.axes.get_yaxis().get_label().set_visible(False) # remove y axis label
-#         ax.axes.set_yticklabels([l.get_text() for l in ax.axes.get_yticklabels()], fontsize=18)
-#         ax.tick_params(axis='y', which='major', pad=15)
-#         ax.axes.set_xlabel('Speed (µm s$^{-1}$)', fontsize=25, labelpad=20)                             
-#         plt.xticks(fontsize=18)
-#         plt.xlim(-20, 300)
-#             
-#         # do stats
-#         anova_results, ttest_results = stats(metadata,
-#                                              features,
-#                                              group_by='treatment',
-#                                              control=control,
-#                                              feat='speed_50th',
-#                                              pvalue_threshold=P_VALUE_THRESHOLD,
-#                                              fdr_method=FDR_METHOD)
-#         
-#         # t-test pvals
-#         pvals = ttest_results[[c for c in ttest_results.columns if 'pval' in c]]
-#         pvals.columns = [c.replace('pvals_','') for c in pvals.columns]
-#         
-#         # scale x axis for annotations    
-#         trans = transforms.blended_transform_factory(ax.transAxes, ax.transData) #x=scaled
-#         
-#         # add pvalues to plot
-#         for i, treatment in enumerate(strain_list_BW, start=0):
-#             if treatment == control:
-#                 continue
-#             else:
-#                 p = pvals.loc['speed_50th', treatment]
-#                 text = ax.get_yticklabels()[i]
-#                 assert text.get_text() == treatment
-#                 p_text = sig_asterix([p])[0]
-#                 ax.text(1.03, i, p_text, fontsize=20, ha='left', va='center', transform=trans)
-#                 
-#         plt.subplots_adjust(left=0.4, right=0.9, top=0.95, bottom=0.1)
-#         save_path = Path(SAVE_DIR) / 'BW' / 'BW_mutants_combined_boxplot_vs_{}.png'.format(control)
-#         save_path.parent.mkdir(exist_ok=True, parents=True)
-#         plt.savefig(save_path, dpi=DPI)
-# 
-# 
-#     # fepD deletion/OE mutants
-#     meta_fs = metadata[metadata['treatment'].isin(strain_list_fepD)]
-#     feat_fs = features.reindex(meta_fs.index)
-#     
-#     # boxplot
-#     plot_df = meta_fs.join(feat_fs[[FEATURE]])
-#     colour_dict = dict(zip(strain_list_fepD, sns.color_palette(palette='tab10',
-#                                                                n_colors=len(strain_list_fepD))))
-# 
-#     for control in tqdm(cs):
-#         plt.close('all')
-#         sns.set_style('ticks')
-#         fig = plt.figure(figsize=[18,20])
-#         ax = fig.add_subplot(1,1,1)
-#         sns.boxplot(x='speed_50th',
-#                     y='treatment',
-#                     data=plot_df, 
-#                     order=strain_list_fepD,
-#                     palette=colour_dict,
-#                     showfliers=False, 
-#                     showmeans=False,
-#                     meanprops={"marker":"x", 
-#                                "markersize":5,
-#                                "markeredgecolor":"k"},
-#                     flierprops={"marker":"x", 
-#                                 "markersize":15, 
-#                                 "markeredgecolor":"r"})
-#         dates = metadata['date_yyyymmdd'].unique()
-#         date_cols = dict(zip(dates, sns.color_palette(palette='Set1', n_colors=len(dates))))
-#         for date in dates:
-#             date_df = plot_df[plot_df['date_yyyymmdd'] == date]
-#             sns.stripplot(x='speed_50th',
-#                           y='treatment',
-#                           data=date_df,
-#                           s=10,
-#                           order=strain_list_fepD,
-#                           hue=None,
-#                           palette=None,
-#                           color=date_cols[date],
-#                           marker=".",
-#                           edgecolor='k',
-#                           linewidth=0.3,
-#                           ax=ax)
-#         
-#         ax.axes.get_yaxis().get_label().set_visible(False) # remove y axis label
-#         ax.axes.set_yticklabels([l.get_text() for l in ax.axes.get_yticklabels()], fontsize=18)
-#         ax.tick_params(axis='y', which='major', pad=15)
-#         ax.axes.set_xlabel('Speed (µm s$^{-1}$)', fontsize=25, labelpad=20)                             
-#         plt.xticks(fontsize=18)
-#         plt.xlim(-20, 300)
-#             
-#         # do stats
-#         anova_results, ttest_results = stats(metadata,
-#                                              features,
-#                                              group_by='treatment',
-#                                              control=control,
-#                                              feat='speed_50th',
-#                                              pvalue_threshold=P_VALUE_THRESHOLD,
-#                                              fdr_method=FDR_METHOD)
-#         
-#         # t-test pvals
-#         pvals = ttest_results[[c for c in ttest_results.columns if 'pval' in c]]
-#         pvals.columns = [c.replace('pvals_','') for c in pvals.columns]
-#         
-#         # scale x axis for annotations    
-#         trans = transforms.blended_transform_factory(ax.transAxes, ax.transData) #x=scaled
-#         
-#         # add pvalues to plot
-#         for i, treatment in enumerate(strain_list_fepD, start=0):
-#             if treatment == control:
-#                 continue
-#             else:
-#                 p = pvals.loc['speed_50th', treatment]
-#                 text = ax.get_yticklabels()[i]
-#                 assert text.get_text() == treatment
-#                 p_text = sig_asterix([p])[0]
-#                 ax.text(1.03, i, p_text, fontsize=20, ha='left', va='center', transform=trans)
-#                 
-#         plt.subplots_adjust(left=0.4, right=0.9, top=0.95, bottom=0.1)
-#         save_path = Path(SAVE_DIR) / 'fepD' / 'fepD_mutants_vs_{}.png'.format(control)
-#         save_path.parent.mkdir(exist_ok=True, parents=True)
-#         plt.savefig(save_path, dpi=DPI)         
-# =============================================================================
 
 #%% Main
 
 if __name__ == '__main__':
     main()
-    
-    
     
