@@ -213,17 +213,22 @@ def compile_window_summaries(fname_files,
             
             filenames_df, features_df = read_tierpsy_feat_summaries(feat, fname)
             #assert all(str(results_dir) in str(f) for f in filenames_df['filename'])
+            if not all(filenames_df['is_good']):
+                n = filenames_df.shape[0]
+                filenames_df = filenames_df[filenames_df['is_good'].values]
+                print("Dropped %d bad video entries from %s" % (
+                    (n - filenames_df.shape[0]), fname.name))
             assert (filenames_df['file_id'].nunique() == filenames_df.shape[0]
                     == features_df['file_id'].nunique() == features_df.shape[0])
-            if not all(i == j for i, j in zip(filenames_df['file_id'].sort_values(), 
-                                              features_df['file_id'].sort_values())):
-                print("WARNING: %d files in filenames summaries are missing from feature summaries!"\
-                      % (len(filenames_df['file_id'].unique()) - len(features_df['file_id'].unique())))
+            # if not all(i == j for i, j in zip(filenames_df['file_id'].sort_values(), 
+            #                                   features_df['file_id'].sort_values())):
+            #     print("WARNING: %d files in filenames summaries are missing from feature summaries!"\
+            #           % (len(filenames_df['file_id'].unique()) - len(features_df['file_id'].unique())))
                 
-                # reindex filenames summaries to drop entries that are missing from features summaries 
-                filenames_df = filenames_df.set_index('file_id')
-                filenames_df = filenames_df.reindex(features_df['file_id']).reset_index(drop=False)
-                assert all(i == j for i, j in zip(filenames_df['file_id'], features_df['file_id']))
+            #     # reindex filenames summaries to drop entries that are missing from features summaries 
+            #     filenames_df = filenames_df.set_index('file_id')
+            #     filenames_df = filenames_df.reindex(features_df['file_id']).reset_index(drop=False)
+            assert all(i == j for i, j in zip(filenames_df['file_id'], features_df['file_id']))
 
             # store window number (unique identifier = file_id + window)
             filenames_df['window'] = window
