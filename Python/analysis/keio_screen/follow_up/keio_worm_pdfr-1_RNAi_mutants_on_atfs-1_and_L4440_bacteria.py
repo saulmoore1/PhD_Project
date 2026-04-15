@@ -136,54 +136,40 @@ def main():
     worm_strain_list = sorted(metadata['worm_strain'].unique())
     
     # STATS: t-tests of L4440 vs atfs-1 in BW and fepD background for each 
-    # worm strain (corrected for multiple comparisons afterwards)    
+    # worm strain (corrected for multiple comparisons afterwards)  
+    control = 'BW L4440'
     test_results_dict = {}
     for worm in worm_strain_list:
         meta_worm = metadata[metadata['worm_strain']==worm]
+        feat_worm = features.reindex(meta_worm.index)
         
-        # BW L4440 vs fepD L4440
-        meta_worm_L4440 = meta_worm[['L4440' in s for s in meta_worm['bacteria_strain']]]     
-        feat_worm_L4440 = features.reindex(meta_worm_L4440.index)
-        ttest_results_L4440 = stats(meta_worm_L4440,
-                                    feat_worm_L4440,
-                                    group_by='bacteria_strain',
-                                    control='BW L4440',
-                                    feat='speed_50th',
-                                    pvalue_threshold=0.05,
-                                    fdr_method=None)
-        test_results_dict[worm + '_L4440'] = ttest_results_L4440
-        
-        # BW atfs-1 vs fepD atfs-1
-        meta_worm_atfs_1 = meta_worm[['atfs-1' in s for s in meta_worm['bacteria_strain']]]
-        feat_worm_atfs_1 = features.reindex(meta_worm_atfs_1.index)
-        ttest_results_atfs_1 = stats(meta_worm_atfs_1,
-                                     feat_worm_atfs_1,
-                                     group_by='bacteria_strain',
-                                     control='BW atfs-1',
-                                     feat='speed_50th',
-                                     pvalue_threshold=0.05,
-                                     fdr_method=None)     
-        test_results_dict[worm + '_atfs-1'] = ttest_results_atfs_1
-    
+        # All bacterial strains vs control strain BW L4440
+        ttest_results_worm = stats(meta_worm,
+                                   feat_worm,
+                                   group_by='bacteria_strain',
+                                   control=control,
+                                   feat='speed_50th',
+                                   pvalue_threshold=0.05,
+                                   fdr_method=None)
+        test_results_dict[worm] = ttest_results_worm
+            
     # extract results into dataframe and correct for multiple comparisons
     test_results_df = pd.DataFrame()
     for key, values in test_results_dict.items():
-        _df = pd.DataFrame({'stats fepD': values[values.columns[0]]['speed_50th'],
-                            'pvals fepD': values[values.columns[1]]['speed_50th'],
-                            'reject fepD': values[values.columns[2]]['speed_50th'],
-                            'effect_size fepD': values[values.columns[3]]['speed_50th']
-                            }, index=[key])
-        test_results_df = pd.concat([test_results_df, _df])
-    
-    c_reject, c_pvals = _multitest_correct(test_results_df['pvals fepD'], 
-                                           multitest_method='fdr_bh', 
+        values.index = [key]
+        test_results_df = pd.concat([test_results_df, values])
+            
+    pval_cols = [c for c in test_results_df.columns if 'pvals_' in c]
+    c_reject, c_pvals = _multitest_correct(test_results_df[pval_cols], 
+                                           multitest_method='fdr_by', 
                                            fdr=0.05)
-    test_results_df['reject fepD'] = c_reject
-    test_results_df['pvals fepD'] = c_pvals
+    c_reject.columns = [c.replace('pvals_','reject_') for c in c_reject.columns]
+    test_results_df[c_reject.columns] = c_reject
+    test_results_df[c_pvals.columns] = c_pvals
 
     # save results
-    ttest_path = RES_DIR / 't-test_results.csv'
-    test_results_df.to_csv(ttest_path, header=True, index=True)
+    test_results_path = RES_DIR / 't-test_results.csv'
+    test_results_df.to_csv(test_results_path, header=True, index=True)
 
     # PLOTS: boxplots of L4440 vs atfs-1 in BW and fepD background for each 
     # worm strain
@@ -197,6 +183,10 @@ def main():
         plot_df = meta_worm[['worm_strain','bacteria_strain','date_yyyymmdd']
                             ].join(feat_worm[['speed_50th']]).sort_values(
                                 by=['worm_strain','bacteria_strain','date_yyyymmdd'])
+                                
+        # save plot data to file
+        plot_data_path = RES_DIR / '{}_data.csv'.format(worm)
+        plot_df.to_csv(plot_data_path, header=True, index=False)
         
         order = ['BW L4440', 'fepD L4440', 'BW atfs-1', 'fepD atfs-1']
         colour_dict = dict(zip(order, 
@@ -247,23 +237,22 @@ def main():
         ax.tick_params(axis='x', which='major', pad=15)
         ax.axes.set_ylabel('Speed (µm s$^{-1}$)', fontsize=25, labelpad=15)                             
         plt.yticks(fontsize=20)
-        plt.ylim(-40, 240)
+        plt.ylim(-40, 220)
                 
         # scale y axis for annotations    
         trans = transforms.blended_transform_factory(ax.transData, ax.transAxes) #y=scaled
         
-        # add pvalues to plot
+        # add p-values to plot
         for i, text in enumerate(ax.axes.get_xticklabels()):
             strain = text.get_text()
-            if 'fepD' in strain:
-                idx = worm + '_' + strain.split(' ')[-1]
-                p = test_results_df.loc[idx, 'pvals fepD']
+            if strain != control:
+                p = test_results_df.loc[worm, 'pvals_' + strain]
                 p_text = sig_asterix([p])[0]
-                ax.text(i-0.5, 0.96, p_text, fontsize=20, 
+                ax.text(i, 1.02, p_text, fontsize=20, 
                         ha='center', va='center', transform=trans)
-                # Plot the bar: [x1,x1,x2,x2],[bar_tips,bar_height,bar_height,bar_tips]
-                plt.plot([i-1, i-1, i, i],[0.92, 0.94, 0.94, 0.92], 
-                         lw=1, c='k', transform=trans)
+                # # Plot the bar: [x1,x1,x2,x2],[bar_tips,bar_height,bar_height,bar_tips]
+                # plt.plot([i-1, i-1, i, i],[0.92, 0.94, 0.94, 0.92], 
+                #          lw=1, c='k', transform=trans)
 
         boxplot_path = RES_DIR / '{}.svg'.format(worm)
         plt.savefig(boxplot_path, bbox_inches='tight', transparent=True)
